@@ -34,6 +34,34 @@ type InvoiceFileRow = {
   created_at: string;
 };
 
+type SingleUserInvoiceRow = Omit<InvoiceRow, "org_id" | "entity_id">;
+
+type SingleUserInvoiceFileRow = Omit<InvoiceFileRow, "org_id" | "entity_id">;
+
+type InvoiceInsertPayload = {
+  created_by: string;
+  status: string;
+  currency: string;
+  org_id?: string;
+  entity_id?: string;
+};
+
+type InvoiceFileInsertPayload = {
+  invoice_id: string;
+  created_by: string;
+  provider: StoredObjectRef["provider"];
+  bucket: string;
+  object_key: string;
+  mime_type: string | null;
+  size_bytes: number;
+  org_id?: string;
+  entity_id?: string;
+};
+
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -125,10 +153,10 @@ export default function InvoicesPage() {
         if (fErr) throw fErr;
 
         const grouped: Record<string, InvoiceFileRow[]> = {};
-        for (const f of (files || []) as any[]) {
-          const invId = f.invoice_id as string;
+        for (const f of (files || []) as InvoiceFileRow[]) {
+          const invId = f.invoice_id;
           grouped[invId] = grouped[invId] || [];
-          grouped[invId].push(f as InvoiceFileRow);
+          grouped[invId].push(f);
         }
         setFilesByInvoice(grouped);
       }
@@ -142,7 +170,11 @@ export default function InvoicesPage() {
           .limit(50);
 
         if (invErr) throw invErr;
-        const rows = (invs || []) as any as InvoiceRow[];
+        const rows = ((invs || []) as SingleUserInvoiceRow[]).map((invoice) => ({
+          ...invoice,
+          org_id: "",
+          entity_id: "",
+        }));
         setInvoices(rows);
 
         const ids = rows.map((r) => r.id);
@@ -159,21 +191,26 @@ export default function InvoicesPage() {
 
         if (fErr) throw fErr;
         const grouped: Record<string, InvoiceFileRow[]> = {};
-        for (const f of (files || []) as any[]) {
-          const invId = f.invoice_id as string;
+        for (const f of (files || []) as SingleUserInvoiceFileRow[]) {
+          const invId = f.invoice_id;
           grouped[invId] = grouped[invId] || [];
-          grouped[invId].push(f as InvoiceFileRow);
+          grouped[invId].push({
+            ...f,
+            org_id: "",
+            entity_id: "",
+          });
         }
         setFilesByInvoice(grouped);
       }
-    } catch (e: any) {
-      setError(e?.message || "Failed to load invoices");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to load invoices"));
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -181,6 +218,7 @@ export default function InvoicesPage() {
   useEffect(() => {
     // Reload when entity changes (multi-org mode)
     if (!entityId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -196,7 +234,7 @@ export default function InvoicesPage() {
       setError(null);
 
       // 1) Create invoice row
-      const insertPayload: any = {
+      const insertPayload: InvoiceInsertPayload = {
         created_by: sess.user.id,
         status: "UPLOADED",
         currency: "USD",
@@ -214,7 +252,7 @@ export default function InvoicesPage() {
         .single();
 
       if (cErr) throw cErr;
-      const invoiceId = (created as any).id as string;
+      const invoiceId = created.id as string;
 
       // 2) Upload file to storage
       const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
@@ -228,7 +266,7 @@ export default function InvoicesPage() {
       if (uErr) throw uErr;
 
       // 3) Create invoice_files row (future-proof ref)
-      const filePayload: any = {
+      const filePayload: InvoiceFileInsertPayload = {
         invoice_id: invoiceId,
         created_by: sess.user.id,
         provider: "supabase",
@@ -245,8 +283,8 @@ export default function InvoicesPage() {
       if (fErr) throw fErr;
 
       await load();
-    } catch (e: any) {
-      setError(e?.message || "Upload failed");
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Upload failed"));
     } finally {
       setUploading(false);
     }
@@ -264,7 +302,7 @@ export default function InvoicesPage() {
       <div className="mx-auto max-w-6xl px-6 py-10">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/lumenflow-logo.jpg" alt="LumenFlow" className="h-7 w-auto" />
+            <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-7 w-auto" />
             <div className="text-sm font-medium text-zinc-700">Invoices</div>
           </div>
           <a

@@ -1,6 +1,6 @@
 # Supabase setup (MVP)
 
-This folder contains SQL you can run in the Supabase SQL Editor to create the initial schema + RLS policies for LumenFlow.
+This folder contains SQL you can run in the Supabase SQL Editor to create the initial schema + RLS policies for Lumen App.
 
 ## 1) Create Storage bucket
 

@@ -1,4 +1,4 @@
--- LumenFlow MVP schema (invoice intake)
+-- Lumen App inherited MVP schema (invoice intake)
 -- Safe-by-default: RLS enabled; user can only see their own records.
 
 -- Extensions

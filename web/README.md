@@ -1,6 +1,6 @@
-# lumenflow (web)
+# lumen-app (web)
 
-Next.js frontend for lumenflow.
+Next.js frontend for the Lumen Treasury application shell.
 
 ## Supabase env vars (Vercel integration)
 

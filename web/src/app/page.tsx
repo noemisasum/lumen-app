@@ -3,7 +3,7 @@ export default function Home() {
     <div className="min-h-screen bg-zinc-50 text-zinc-950">
       <div className="mx-auto max-w-5xl px-6 py-10">
         <header className="flex items-center justify-between">
-          <img src="/lumenflow-logo.jpg" alt="LumenFlow" className="h-7 w-auto" />
+          <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-7 w-auto" />
           <a
             href="/signup"
             className="inline-flex h-10 items-center justify-center rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800"
@@ -15,15 +15,15 @@ export default function Home() {
         <main className="mx-auto mt-20 max-w-2xl text-center">
           <div className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-100">
             <span className="h-2 w-2 rounded-full bg-[#B8942E]" />
-            Approvals • Audit trail • Automation
+            Cash visibility • Reconciliation • Intelligence
           </div>
 
           <h1 className="mt-6 text-5xl font-semibold tracking-tight sm:text-6xl">
-            Procure-to-pay, without the chaos.
+            Treasury visibility, without the guesswork.
           </h1>
 
           <p className="mx-auto mt-5 max-w-xl text-lg leading-7 text-zinc-700">
-            LumenFlow helps teams run purchasing workflows with approvals, audit trail, and automation—end to end.
+            Lumen App helps finance teams compare book balances, actual bank balances, and reconciliation variances in one place.
           </p>
 
           <div className="mt-8 flex items-center justify-center gap-3">
@@ -40,9 +40,9 @@ export default function Home() {
 
           <div className="mt-12 grid gap-4 text-left sm:grid-cols-3">
             {[
-              { title: "Approvals", desc: "Flexible routing with clear ownership." },
-              { title: "Audit trail", desc: "Every change captured automatically." },
-              { title: "Automation", desc: "Ready for integrations when you are." },
+              { title: "Book balances", desc: "Recurring visibility from connected accounting systems." },
+              { title: "Actual balances", desc: "Bank-confirmed snapshots from uploaded statements." },
+              { title: "AI briefings", desc: "Source-linked commentary from validated treasury data." },
             ].map((x) => (
               <div key={x.title} className="rounded-xl bg-white p-5 ring-1 ring-zinc-100">
                 <div className="text-sm font-semibold text-zinc-900">{x.title}</div>
@@ -52,7 +52,7 @@ export default function Home() {
           </div>
         </main>
 
-        <footer className="mt-16 py-10 text-center text-xs text-zinc-400">© {new Date().getFullYear()} LumenFlow</footer>
+        <footer className="mt-16 py-10 text-center text-xs text-zinc-400">© {new Date().getFullYear()} Lumen App</footer>
       </div>
     </div>
   );

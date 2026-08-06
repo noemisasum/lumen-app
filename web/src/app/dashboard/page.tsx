@@ -8,6 +8,10 @@ type SessionInfo = {
   email: string | null;
 };
 
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export default function DashboardPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -47,8 +51,8 @@ export default function DashboardPage() {
           setSession({ userId: sess.user.id, email: sess.user.email ?? null });
         });
         unsub = sub.subscription;
-      } catch (e: any) {
-        setError(e?.message || "Failed to load session");
+      } catch (e: unknown) {
+        setError(getErrorMessage(e, "Failed to load session"));
       } finally {
         setLoading(false);
       }
@@ -74,7 +78,7 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-6xl px-6 py-10">
         <header className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/lumenflow-logo.jpg" alt="LumenFlow" className="h-7 w-auto" />
+            <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-7 w-auto" />
             <div className="text-sm font-medium text-zinc-700">Dashboard</div>
           </div>
           <button
@@ -101,25 +105,25 @@ export default function DashboardPage() {
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <a href="#" className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100 hover:bg-zinc-50">
-              <div className="text-sm font-semibold">Create request</div>
-              <div className="mt-1 text-sm text-zinc-600">Start a purchase request with attachments.</div>
+              <div className="text-sm font-semibold">Cash positions</div>
+              <div className="mt-1 text-sm text-zinc-600">Review group, entity, bank, and account balances.</div>
             </a>
             <a href="#" className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100 hover:bg-zinc-50">
-              <div className="text-sm font-semibold">Approvals</div>
-              <div className="mt-1 text-sm text-zinc-600">Review items awaiting approval.</div>
+              <div className="text-sm font-semibold">Reconciliations</div>
+              <div className="mt-1 text-sm text-zinc-600">Compare book balances against actual bank balances.</div>
             </a>
             <a href="/dashboard/invoices" className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100 hover:bg-zinc-50">
-              <div className="text-sm font-semibold">Invoices</div>
-              <div className="mt-1 text-sm text-zinc-600">Upload and track invoice intake.</div>
+              <div className="text-sm font-semibold">Statement intake</div>
+              <div className="mt-1 text-sm text-zinc-600">Reuse the existing upload flow for statement ingestion.</div>
             </a>
           </div>
 
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100">
             <div className="text-sm font-semibold">Next steps</div>
             <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-zinc-700">
-              <li>Define roles (Requester / Approver / AP).</li>
-              <li>Create core tables with RLS (requests, vendors, invoices).</li>
-              <li>Add workflow states and an approval timeline.</li>
+              <li>Define treasury roles and organisation memberships.</li>
+              <li>Create balance snapshot, statement upload, and reconciliation tables.</li>
+              <li>Add Xero OAuth, book-balance sync, and source labels.</li>
             </ul>
           </div>
         </main>

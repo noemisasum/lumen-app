@@ -1,6 +1,6 @@
-# lumenflow
+# lumen-app
 
-P2P portal to streamline and automate the procure-to-pay process.
+Lumen Treasury application shell.
 
 ## Dev
 

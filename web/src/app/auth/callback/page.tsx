@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export default function AuthCallbackPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const [status, setStatus] = useState<"working" | "ok" | "error">("working");
@@ -22,9 +26,9 @@ export default function AuthCallbackPage() {
         setStatus("ok");
         setMessage("Signed in. Redirecting…");
         window.location.replace("/");
-      } catch (err: any) {
+      } catch (err: unknown) {
         setStatus("error");
-        setMessage(err?.message || "Failed to complete sign-in");
+        setMessage(getErrorMessage(err, "Failed to complete sign-in"));
       }
     })();
   }, [supabase]);

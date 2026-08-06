@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
+function getErrorMessage(err: unknown, fallback: string) {
+  return err instanceof Error ? err.message : fallback;
+}
+
 export default function LoginPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -23,8 +27,8 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
       window.location.href = "/dashboard";
-    } catch (err: any) {
-      setMsg(err?.message || "Sign in failed");
+    } catch (err: unknown) {
+      setMsg(getErrorMessage(err, "Sign in failed"));
     } finally {
       setLoading(false);
     }
@@ -37,7 +41,7 @@ export default function LoginPage() {
       <div className="flex min-h-screen items-center justify-center p-8">
         <main className="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
           <div className="flex flex-col items-center gap-2">
-            <img src="/lumenflow-logo.jpg" alt="LumenFlow" className="h-6 w-auto" />
+            <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-6 w-auto" />
             <h1 className="text-base font-semibold">Sign-in</h1>
             <div className="text-xs text-zinc-400">
               Don’t have an account?{" "}
