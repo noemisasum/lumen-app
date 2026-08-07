@@ -74,6 +74,38 @@ export default function DashboardPage() {
     window.location.replace("/login");
   }
 
+  if (loading || !session) {
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+                <BrandLogo className="h-6 w-auto sm:h-7" />
+              </Link>
+              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            </div>
+          </header>
+
+          <main className="mt-8">
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="min-h-6 text-sm leading-6 text-zinc-600">
+                {error ? (
+                  <Notice tone="error" title="Authentication needs configuration">
+                    {error}
+                  </Notice>
+                ) : (
+                  <Spinner label="Checking session" />
+                )}
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
       <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
@@ -102,15 +134,7 @@ export default function DashboardPage() {
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Treasury command center</div>
                 <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Cash, controls, and intake in one place.</h1>
                 <div className="mt-3 min-h-6 text-sm leading-6 text-zinc-600">
-                  {loading ? (
-                    <Spinner label="Checking session" />
-                  ) : error ? (
-                    "The dashboard shell is available, but authentication needs attention."
-                  ) : session ? (
-                    <>
-                      Signed in as <span className="font-medium text-zinc-950">{session.email || session.userId}</span>
-                    </>
-                  ) : null}
+                  Signed in as <span className="font-medium text-zinc-950">{session.email || session.userId}</span>
                 </div>
               </div>
               <Link
@@ -120,14 +144,6 @@ export default function DashboardPage() {
                 Open statement intake
               </Link>
             </div>
-
-            {error ? (
-              <div className="mt-5">
-                <Notice tone="error" title="Authentication needs configuration">
-                  {error}
-                </Notice>
-              </div>
-            ) : null}
           </section>
 
           <section className="grid gap-4 md:grid-cols-3">

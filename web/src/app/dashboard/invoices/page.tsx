@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
@@ -67,8 +67,10 @@ function getErrorMessage(err: unknown, fallback: string) {
 
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -101,6 +103,7 @@ export default function InvoicesPage() {
 
       const sess = await ensureSession();
       if (!sess) return;
+      setAuthReady(true);
 
       // Try multi-org tables first; if they don't exist, fall back to single-user mode.
       let detectedMultiOrg = false;
@@ -303,6 +306,60 @@ export default function InvoicesPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  const uploadUnavailable = !supabase || !authReady || uploading || (multiOrgMode && (!orgs.length || !entityId));
+
+  if (loading && !authReady) {
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+                <BrandLogo className="h-6 w-auto sm:h-7" />
+              </Link>
+              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            </div>
+          </header>
+
+          <main className="mt-8">
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="min-h-6 text-sm leading-6 text-zinc-600">
+                <Spinner label="Checking session" />
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+                <BrandLogo className="h-6 w-auto sm:h-7" />
+              </Link>
+              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            </div>
+          </header>
+
+          <main className="mt-8">
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <Notice tone="error" title="Authentication needs configuration">
+                {error || "Sign in is required before this area can load."}
+              </Notice>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
       <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
@@ -357,35 +414,42 @@ export default function InvoicesPage() {
                   </div>
                 ) : null}
 
-                <label
-                  className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-medium shadow-sm transition focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-zinc-950 ${
-                    uploading || (multiOrgMode && (!orgs.length || !entityId))
-                      ? "cursor-not-allowed bg-zinc-400 text-white"
-                      : "cursor-pointer bg-zinc-950 text-white hover:bg-zinc-800"
-                  }`}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="sr-only"
+                  accept="application/pdf,image/*"
+                  disabled={uploadUnavailable}
+                  aria-label="Choose invoice or statement file"
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onUpload(f);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadUnavailable}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400 disabled:text-white"
+                  aria-describedby={multiOrgMode && (!orgs.length || !entityId) ? "upload-disabled-reason" : undefined}
                 >
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="application/pdf,image/*"
-                    disabled={uploading || (multiOrgMode && (!orgs.length || !entityId))}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) onUpload(f);
-                      e.currentTarget.value = "";
-                    }}
-                  />
                   {uploading ? <Spinner label="Uploading" /> : "Upload"}
-                </label>
+                </button>
               </div>
             </div>
 
             {multiOrgMode && orgs.length && !entityId ? (
-              <div className="mt-4 text-sm text-zinc-600">Select an entity to upload.</div>
+              <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
+                Select an entity to upload.
+              </div>
             ) : null}
 
             {multiOrgMode && !orgs.length ? (
-              <div className="mt-4 text-sm text-zinc-600">No orgs are available for this account yet.</div>
+              <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
+                No orgs are available for this account yet.
+              </div>
             ) : null}
 
             {error ? (
