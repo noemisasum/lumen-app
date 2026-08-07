@@ -32,14 +32,14 @@ export function AuthShell({
           </Link>
         </header>
 
-        <main className="grid flex-1 items-center gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:py-10">
-          <section className="min-w-0 max-w-xl">
+        <main className="grid w-full min-w-0 flex-1 grid-cols-1 items-center gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:py-10">
+          <section className="w-full min-w-0 max-w-xl">
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">{eyebrow}</div>
             <h1 className="mt-3 max-w-full break-words text-3xl font-semibold tracking-normal text-zinc-950 sm:text-4xl">
               {title}
             </h1>
             <p className="mt-4 max-w-lg text-base leading-7 text-zinc-700">{subtitle}</p>
-            <div className="mt-8 grid gap-3 text-sm text-zinc-700 sm:grid-cols-3 lg:max-w-2xl">
+            <div className="mt-8 grid w-full min-w-0 grid-cols-1 gap-3 text-sm text-zinc-700 sm:grid-cols-3 lg:max-w-2xl">
               <div className="rounded-lg border border-zinc-200 bg-white/70 p-3">
                 <div className="font-medium text-zinc-950">Cash</div>
                 <div className="mt-1 text-xs leading-5">Position visibility by entity and account.</div>
@@ -55,7 +55,7 @@ export function AuthShell({
             </div>
           </section>
 
-          <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+          <section className="w-full min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             {children}
           </section>
         </main>
