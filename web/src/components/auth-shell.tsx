@@ -8,7 +8,7 @@ export function AuthShell({
   subtitle,
   children,
   actionHref = "/login",
-  actionLabel = "Sign in",
+  actionLabel = "Sign In",
 }: {
   eyebrow: string;
   title: string;

@@ -325,7 +325,7 @@ export default function InvoicesPage() {
           <main className="mt-8">
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="min-h-6 text-sm leading-6 text-zinc-600">
-                <Spinner label="Checking session" />
+                <Spinner label="Checking Session" />
               </div>
             </section>
           </main>
@@ -350,7 +350,7 @@ export default function InvoicesPage() {
 
           <main className="mt-8">
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <Notice tone="error" title="Authentication needs configuration">
+              <Notice tone="error" title="Authentication Needs Configuration">
                 {error || "Sign in is required before this area can load."}
               </Notice>
             </section>
@@ -369,13 +369,13 @@ export default function InvoicesPage() {
               <BrandLogo className="h-6 w-auto sm:h-7" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Statement intake</div>
+            <div className="text-sm font-medium text-zinc-700">Statement Intake</div>
           </div>
           <Link
             href="/dashboard"
             className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
           >
-            Back to dashboard
+            Back to Dashboard
           </Link>
         </header>
 
@@ -383,8 +383,8 @@ export default function InvoicesPage() {
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement intake</div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload invoices and statements.</h1>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement Intake</div>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload Invoices and Statements.</h1>
                 <div className="mt-2 min-h-6 text-sm leading-6 text-zinc-600">
                   {multiOrgMode && !orgs.length ? "Create an organisation and entity before uploading." : "PDF and image files are accepted."}
                 </div>
@@ -454,7 +454,7 @@ export default function InvoicesPage() {
 
             {error ? (
               <div className="mt-4">
-                <Notice tone="error" title="Statement intake needs attention">
+                <Notice tone="error" title="Statement Intake Needs Attention">
                   {error}
                 </Notice>
               </div>
@@ -463,7 +463,7 @@ export default function InvoicesPage() {
 
           <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
             <div className="border-b border-zinc-100 px-5 py-4">
-              <h2 className="text-sm font-semibold text-zinc-950">Recent uploads</h2>
+              <h2 className="text-sm font-semibold text-zinc-950">Recent Uploads</h2>
             </div>
 
             {loading ? (
@@ -494,7 +494,7 @@ export default function InvoicesPage() {
                               onClick={() => openFile(files[0])}
                               className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
                             >
-                              View file
+                              View File
                             </button>
                           ) : null}
                           <div className="rounded-md bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">

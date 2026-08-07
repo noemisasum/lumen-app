@@ -92,11 +92,11 @@ export default function DashboardPage() {
             <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="min-h-6 text-sm leading-6 text-zinc-600">
                 {error ? (
-                  <Notice tone="error" title="Authentication needs configuration">
+                  <Notice tone="error" title="Authentication Needs Configuration">
                     {error}
                   </Notice>
                 ) : (
-                  <Spinner label="Checking session" />
+                  <Spinner label="Checking Session" />
                 )}
               </div>
             </section>
@@ -123,7 +123,7 @@ export default function DashboardPage() {
             disabled={signingOut || !supabase}
             className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
           >
-            {signingOut ? "Signing out" : "Sign out"}
+            {signingOut ? "Signing Out" : "Sign Out"}
           </button>
         </header>
 
@@ -131,8 +131,8 @@ export default function DashboardPage() {
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Treasury command center</div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Cash, controls, and intake in one place.</h1>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Treasury Command Center</div>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Cash, Controls, and Intake in One Place.</h1>
                 <div className="mt-3 min-h-6 text-sm leading-6 text-zinc-600">
                   Signed in as <span className="font-medium text-zinc-950">{session.email || session.userId}</span>
                 </div>
@@ -141,7 +141,7 @@ export default function DashboardPage() {
                 href="/dashboard/invoices"
                 className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
               >
-                Open statement intake
+                Open Statement Intake
               </Link>
             </div>
           </section>
@@ -157,9 +157,9 @@ export default function DashboardPage() {
                   </div>
                 ))
               : [
-                  ["Book balance", "$4.82M", "Consolidated across active entities"],
-                  ["Bank-confirmed", "$4.79M", "Latest statement-backed position"],
-                  ["Open variance", "$31.4K", "Two items queued for review"],
+                  ["Book Balance", "$4.82M", "Consolidated across active entities"],
+                  ["Bank-Confirmed", "$4.79M", "Latest statement-backed position"],
+                  ["Open Variance", "$31.4K", "Two items queued for review"],
                 ].map(([label, value, helper]) => (
                   <div key={label} className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
                     <div className="text-sm font-medium text-zinc-600">{label}</div>
@@ -172,13 +172,13 @@ export default function DashboardPage() {
           <section className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
             <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
               <div className="border-b border-zinc-100 px-5 py-4">
-                <h2 className="text-sm font-semibold text-zinc-950">Reconciliation queue</h2>
+                <h2 className="text-sm font-semibold text-zinc-950">Reconciliation Queue</h2>
               </div>
               <div className="divide-y divide-zinc-100">
                 {[
-                  ["Payroll sweep", "Timing difference", "$18.2K", "Review"],
-                  ["AP clearing", "Statement matched", "$0", "Ready"],
-                  ["FX settlement", "Awaiting bank feed", "$13.2K", "Pending"],
+                  ["Payroll Sweep", "Timing difference", "$18.2K", "Review"],
+                  ["AP Clearing", "Statement matched", "$0", "Ready"],
+                  ["FX Settlement", "Awaiting bank feed", "$13.2K", "Pending"],
                 ].map(([name, detail, amount, status]) => (
                   <div key={name} className="grid gap-3 px-5 py-4 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center">
                     <div className="min-w-0">
@@ -193,7 +193,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-zinc-950">Next setup steps</h2>
+              <h2 className="text-sm font-semibold text-zinc-950">Next Setup Steps</h2>
               <ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-700">
                 <li>Invite treasury users into their organisation.</li>
                 <li>Connect accounting sources for recurring book balances.</li>
