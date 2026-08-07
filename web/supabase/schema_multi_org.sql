@@ -8,6 +8,9 @@
 
 create extension if not exists pgcrypto;
 
+create schema if not exists app_private;
+revoke all on schema app_private from public;
+
 -- Orgs (top-level tenant)
 create table if not exists public.orgs (
   id uuid primary key default gen_random_uuid(),
@@ -96,7 +99,8 @@ begin
   new.updated_at = now();
   return new;
 end;
-$$ language plpgsql;
+$$ language plpgsql
+set search_path = public, pg_temp;
 
 drop trigger if exists set_invoices_updated_at on public.invoices;
 create trigger set_invoices_updated_at
@@ -104,7 +108,7 @@ before update on public.invoices
 for each row execute function public.set_updated_at();
 
 -- Helper: check org membership
-create or replace function public.is_org_member(_org_id uuid)
+create or replace function app_private.is_org_member(_org_id uuid)
 returns boolean as $$
   select exists(
     select 1
@@ -112,10 +116,12 @@ returns boolean as $$
     where m.org_id = _org_id
       and m.user_id = auth.uid()
   );
-$$ language sql stable;
+$$ language sql stable
+security definer
+set search_path = public, pg_temp;
 
 -- Helper: check entity membership
-create or replace function public.is_entity_member(_entity_id uuid)
+create or replace function app_private.is_entity_member(_entity_id uuid)
 returns boolean as $$
   select exists(
     select 1
@@ -123,7 +129,15 @@ returns boolean as $$
     where m.entity_id = _entity_id
       and m.user_id = auth.uid()
   );
-$$ language sql stable;
+$$ language sql stable
+security definer
+set search_path = public, pg_temp;
+
+revoke all on function app_private.is_org_member(uuid) from public;
+revoke all on function app_private.is_entity_member(uuid) from public;
+grant usage on schema app_private to authenticated;
+grant execute on function app_private.is_org_member(uuid) to authenticated;
+grant execute on function app_private.is_entity_member(uuid) to authenticated;
 
 -- RLS
 alter table public.orgs enable row level security;
@@ -137,19 +151,19 @@ alter table public.invoice_files enable row level security;
 drop policy if exists orgs_select_member on public.orgs;
 create policy orgs_select_member on public.orgs
 for select to authenticated
-using (public.is_org_member(id));
+using (app_private.is_org_member(id));
 
 -- org_members: can view org memberships for your orgs
 drop policy if exists org_members_select_member on public.org_members;
 create policy org_members_select_member on public.org_members
 for select to authenticated
-using (public.is_org_member(org_id));
+using (app_private.is_org_member(org_id));
 
 -- entities: can view entities under your orgs
 drop policy if exists entities_select_member on public.entities;
 create policy entities_select_member on public.entities
 for select to authenticated
-using (public.is_org_member(org_id));
+using (app_private.is_org_member(org_id));
 
 -- entity_members: can view entity memberships for entities in your org
 drop policy if exists entity_members_select_member on public.entity_members;
@@ -160,7 +174,7 @@ using (
     select 1
     from public.entities e
     where e.id = entity_members.entity_id
-      and public.is_org_member(e.org_id)
+      and app_private.is_org_member(e.org_id)
   )
 );
 
@@ -168,7 +182,7 @@ using (
 drop policy if exists invoices_select_entity_member on public.invoices;
 create policy invoices_select_entity_member on public.invoices
 for select to authenticated
-using (public.is_entity_member(entity_id));
+using (app_private.is_entity_member(entity_id));
 
 -- invoices: can insert invoices only into entities you belong to AND org matches entity
 drop policy if exists invoices_insert_entity_member on public.invoices;
@@ -176,7 +190,7 @@ create policy invoices_insert_entity_member on public.invoices
 for insert to authenticated
 with check (
   created_by = auth.uid()
-  and public.is_entity_member(entity_id)
+  and app_private.is_entity_member(entity_id)
   and exists(
     select 1 from public.entities e
     where e.id = invoices.entity_id
@@ -188,14 +202,22 @@ with check (
 drop policy if exists invoices_update_entity_member on public.invoices;
 create policy invoices_update_entity_member on public.invoices
 for update to authenticated
-using (public.is_entity_member(entity_id))
-with check (public.is_entity_member(entity_id));
+using (app_private.is_entity_member(entity_id))
+with check (
+  created_by = auth.uid()
+  and app_private.is_entity_member(entity_id)
+  and exists(
+    select 1 from public.entities e
+    where e.id = invoices.entity_id
+      and e.org_id = invoices.org_id
+  )
+);
 
 -- invoice_files: select only for invoices in entities you belong to
 drop policy if exists invoice_files_select_entity_member on public.invoice_files;
 create policy invoice_files_select_entity_member on public.invoice_files
 for select to authenticated
-using (public.is_entity_member(entity_id));
+using (app_private.is_entity_member(entity_id));
 
 -- invoice_files: insert only into entities you belong to AND org matches entity
 drop policy if exists invoice_files_insert_entity_member on public.invoice_files;
@@ -203,10 +225,55 @@ create policy invoice_files_insert_entity_member on public.invoice_files
 for insert to authenticated
 with check (
   created_by = auth.uid()
-  and public.is_entity_member(entity_id)
+  and app_private.is_entity_member(entity_id)
   and exists(
     select 1 from public.entities e
     where e.id = invoice_files.entity_id
       and e.org_id = invoice_files.org_id
   )
+  and exists(
+    select 1 from public.invoices i
+    where i.id = invoice_files.invoice_id
+      and i.org_id = invoice_files.org_id
+      and i.entity_id = invoice_files.entity_id
+  )
 );
+
+-- Private invoice storage bucket + direct-upload policies.
+insert into storage.buckets (id, name, public)
+values ('invoices', 'invoices', false)
+on conflict (id) do update set public = false;
+
+drop policy if exists invoices_storage_insert_own_folder on storage.objects;
+create policy invoices_storage_insert_own_folder on storage.objects
+for insert to authenticated
+with check (
+  bucket_id = 'invoices'
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
+);
+
+drop policy if exists invoices_storage_select_own_folder on storage.objects;
+create policy invoices_storage_select_own_folder on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'invoices'
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
+);
+
+-- If Supabase's RLS auto-enable helper exists, keep it trigger-only.
+do $$
+begin
+  if exists (
+    select 1
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname = 'rls_auto_enable'
+      and p.pronargs = 0
+  ) then
+    execute 'revoke execute on function public.rls_auto_enable() from public';
+    execute 'revoke execute on function public.rls_auto_enable() from anon';
+    execute 'revoke execute on function public.rls_auto_enable() from authenticated';
+  end if;
+end;
+$$;

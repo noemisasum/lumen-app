@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BrandLogo } from "@/components/brand-logo";
+import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 import type { StoredObjectRef } from "@/lib/storage/types";
 import { getStorageAdapter } from "@/lib/storage";
@@ -64,8 +67,10 @@ function getErrorMessage(err: unknown, fallback: string) {
 
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -73,12 +78,13 @@ export default function InvoicesPage() {
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [orgId, setOrgId] = useState<string>("");
   const [entityId, setEntityId] = useState<string>("");
+  const [multiOrgMode, setMultiOrgMode] = useState(false);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [filesByInvoice, setFilesByInvoice] = useState<Record<string, InvoiceFileRow[]>>({});
 
   async function ensureSession() {
-    if (!supabase) throw new Error("Missing Supabase env vars");
+    if (!supabase) throw new Error("Authentication is not configured for this deployment.");
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
     if (!data.session) {
@@ -91,18 +97,20 @@ export default function InvoicesPage() {
   async function load() {
     try {
       if (!supabase) {
-        setError("Missing Supabase env vars");
+        setError("Authentication is not configured for this deployment.");
         return;
       }
 
       const sess = await ensureSession();
       if (!sess) return;
+      setAuthReady(true);
 
       // Try multi-org tables first; if they don't exist, fall back to single-user mode.
       let detectedMultiOrg = false;
       const { data: orgRows, error: orgErr } = await supabase.from("orgs").select("id,name,slug").order("name");
       if (!orgErr && orgRows) {
         detectedMultiOrg = true;
+        setMultiOrgMode(true);
         setOrgs(orgRows as OrgRow[]);
 
         // Entities the user can see (RLS filtered)
@@ -162,6 +170,7 @@ export default function InvoicesPage() {
       }
 
       if (!detectedMultiOrg) {
+        setMultiOrgMode(false);
         // Single-user mode (schema.sql)
         const { data: invs, error: invErr } = await supabase
           .from("invoices")
@@ -226,7 +235,7 @@ export default function InvoicesPage() {
 
   async function onUpload(file: File) {
     try {
-      if (!supabase) throw new Error("Missing Supabase env vars");
+      if (!supabase) throw new Error("Authentication is not configured for this deployment.");
       const sess = await ensureSession();
       if (!sess) return;
 
@@ -297,103 +306,199 @@ export default function InvoicesPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  const uploadUnavailable = !supabase || !authReady || uploading || (multiOrgMode && (!orgs.length || !entityId));
+
+  if (loading && !authReady) {
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+                <BrandLogo className="h-6 w-auto sm:h-7" />
+              </Link>
+              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            </div>
+          </header>
+
+          <main className="mt-8">
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <div className="min-h-6 text-sm leading-6 text-zinc-600">
+                <Spinner label="Checking session" />
+              </div>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
+              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+                <BrandLogo className="h-6 w-auto sm:h-7" />
+              </Link>
+              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            </div>
+          </header>
+
+          <main className="mt-8">
+            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+              <Notice tone="error" title="Authentication needs configuration">
+                {error || "Sign in is required before this area can load."}
+              </Notice>
+            </section>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950">
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-7 w-auto" />
-            <div className="text-sm font-medium text-zinc-700">Invoices</div>
+    <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
+      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+              <BrandLogo className="h-6 w-auto sm:h-7" />
+            </Link>
+            <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+            <div className="text-sm font-medium text-zinc-700">Statement intake</div>
           </div>
-          <a
+          <Link
             href="/dashboard"
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 text-sm font-medium text-zinc-900 hover:bg-zinc-50"
+            className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
           >
-            Back
-          </a>
+            Back to dashboard
+          </Link>
         </header>
 
-        <main className="mt-8 space-y-4">
-          <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100">
+        <main className="mt-8 space-y-5">
+          <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <div className="text-sm font-semibold">Upload invoice</div>
-                <div className="mt-1 text-sm text-zinc-600">PDF or image.</div>
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement intake</div>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload invoices and statements.</h1>
+                <div className="mt-2 min-h-6 text-sm leading-6 text-zinc-600">
+                  {multiOrgMode && !orgs.length ? "Create an organisation and entity before uploading." : "PDF and image files are accepted."}
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                {orgs.length ? (
-                  <select
-                    value={entityId}
-                    onChange={(e) => setEntityId(e.target.value)}
-                    className="h-10 rounded-lg border border-zinc-200 bg-white px-3 text-sm"
-                    title="Entity"
-                  >
-                    {entities
-                      .filter((x) => x.org_id === orgId)
-                      .map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.name}
-                        </option>
-                      ))}
-                  </select>
+                {multiOrgMode && orgs.length ? (
+                  <div className="space-y-1">
+                    <label htmlFor="invoice-entity" className="sr-only">
+                      Entity
+                    </label>
+                    <select
+                      id="invoice-entity"
+                      value={entityId}
+                      onChange={(e) => setEntityId(e.target.value)}
+                      className="h-10 w-full min-w-44 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      title="Entity"
+                    >
+                      {entities
+                        .filter((x) => x.org_id === orgId)
+                        .map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
                 ) : null}
 
-                <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800">
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="application/pdf,image/*"
-                    disabled={uploading || (!!orgs.length && !entityId)}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) onUpload(f);
-                      e.currentTarget.value = "";
-                    }}
-                  />
-                  {uploading ? "Uploading…" : "Upload"}
-                </label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="sr-only"
+                  accept="application/pdf,image/*"
+                  disabled={uploadUnavailable}
+                  aria-label="Choose invoice or statement file"
+                  tabIndex={-1}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onUpload(f);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadUnavailable}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400 disabled:text-white"
+                  aria-describedby={multiOrgMode && (!orgs.length || !entityId) ? "upload-disabled-reason" : undefined}
+                >
+                  {uploading ? <Spinner label="Uploading" /> : "Upload"}
+                </button>
               </div>
             </div>
 
-            {orgs.length && !entityId ? (
-              <div className="mt-4 text-sm text-zinc-600">Select an entity to upload.</div>
+            {multiOrgMode && orgs.length && !entityId ? (
+              <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
+                Select an entity to upload.
+              </div>
             ) : null}
 
-            {error ? <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{error}</div> : null}
-          </div>
+            {multiOrgMode && !orgs.length ? (
+              <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
+                No orgs are available for this account yet.
+              </div>
+            ) : null}
 
-          <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-100">
-            <div className="text-sm font-semibold">Recent</div>
+            {error ? (
+              <div className="mt-4">
+                <Notice tone="error" title="Statement intake needs attention">
+                  {error}
+                </Notice>
+              </div>
+            ) : null}
+          </section>
+
+          <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+            <div className="border-b border-zinc-100 px-5 py-4">
+              <h2 className="text-sm font-semibold text-zinc-950">Recent uploads</h2>
+            </div>
 
             {loading ? (
-              <div className="mt-3 text-sm text-zinc-600">Loading…</div>
+              <div className="space-y-4 p-5">
+                <SkeletonBlock className="h-4 w-40" />
+                <SkeletonBlock className="h-14 w-full" />
+                <SkeletonBlock className="h-14 w-full" />
+              </div>
             ) : invoices.length === 0 ? (
-              <div className="mt-3 text-sm text-zinc-600">No invoices yet.</div>
+              <div className="p-5 text-sm leading-6 text-zinc-600">No uploads yet. Add the first statement or invoice when you are ready.</div>
             ) : (
-              <div className="mt-4 divide-y divide-zinc-100">
+              <div className="divide-y divide-zinc-100">
                 {invoices.map((inv) => {
                   const files = filesByInvoice[inv.id] || [];
                   return (
-                    <div key={inv.id} className="py-4">
+                    <div key={inv.id} className="px-5 py-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
+                        <div className="min-w-0">
                           <div className="text-sm font-medium text-zinc-900">{inv.description || "Invoice"}</div>
                           <div className="mt-1 text-xs text-zinc-500">
-                            {new Date(inv.created_at).toLocaleString()} • {inv.status}
+                            {new Date(inv.created_at).toLocaleString()} · {inv.status}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           {files[0] ? (
                             <button
+                              type="button"
                               onClick={() => openFile(files[0])}
-                              className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium hover:bg-zinc-50"
+                              className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
                             >
                               View file
                             </button>
                           ) : null}
-                          <div className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-700">
-                            {inv.currency || "USD"} {inv.total ?? "—"}
+                          <div className="rounded-md bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                            {inv.currency || "USD"} {inv.total ?? "Pending"}
                           </div>
                         </div>
                       </div>
@@ -406,7 +511,7 @@ export default function InvoicesPage() {
                 })}
               </div>
             )}
-          </div>
+          </section>
         </main>
       </div>
     </div>

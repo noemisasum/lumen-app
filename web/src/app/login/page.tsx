@@ -1,7 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
+import { AuthShell } from "@/components/auth-shell";
+import { Notice, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+
+type FormState = { title: string; detail?: string } | null;
 
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -13,87 +18,111 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [state, setState] = useState<FormState>(
+    supabase
+      ? null
+      : {
+          title: "Login is not configured",
+          detail: "Supabase connection settings are missing for this deployment. Add them before users can authenticate.",
+        },
+  );
 
-  async function signInPassword(e: React.FormEvent) {
+  async function signInPassword(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!supabase) {
-      setMsg("Missing Supabase env vars.");
+      setState({
+        title: "Login is not configured",
+        detail: "Ask an administrator to add the Supabase URL and public anon key before signing in.",
+      });
       return;
     }
     setLoading(true);
-    setMsg(null);
+    setState(null);
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      window.location.href = "/dashboard";
+      window.location.assign("/dashboard");
     } catch (err: unknown) {
-      setMsg(getErrorMessage(err, "Sign in failed"));
+      setState({
+        title: "Could not sign you in",
+        detail: getErrorMessage(err, "Check your email and password, then try again."),
+      });
     } finally {
       setLoading(false);
     }
   }
 
-  // Sign up is a separate screen.
-
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="flex min-h-screen items-center justify-center p-8">
-        <main className="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
-          <div className="flex flex-col items-center gap-2">
-            <img src="/lumen-app-logo.jpg" alt="Lumen App" className="h-6 w-auto" />
-            <h1 className="text-base font-semibold">Sign-in</h1>
-            <div className="text-xs text-zinc-400">
-              Don’t have an account?{" "}
-              <a href="/signup" className="font-medium text-zinc-900 underline underline-offset-2">
-                Sign up
-              </a>
-            </div>
-          </div>
-
-          <form className="mt-4 space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-600">Email</label>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                required
-                className="h-10 w-full rounded-lg border border-zinc-200 px-3 text-sm outline-none focus:border-zinc-400"
-                placeholder=""
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-600">Password</label>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                required
-                className="h-10 w-full rounded-lg border border-zinc-200 px-3 text-sm outline-none focus:border-zinc-400"
-                placeholder=""
-              />
-            </div>
-
-            <button
-              onClick={signInPassword}
-              disabled={loading}
-              className="h-10 w-full rounded-lg bg-black px-4 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
-            >
-              {loading ? "…" : "Continue"}
-            </button>
-
-            {/* SSO disabled for now */}
-
-            {msg ? <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{msg}</div> : null}
-
-            {/* help line removed */}
-          </form>
-
-          {/* footer removed */}
-        </main>
+    <AuthShell
+      eyebrow="Treasury operations"
+      title="Sign in to your Lumen dashboard."
+      subtitle="Use password authentication for returning users. Email-link onboarding is available from the signup page."
+      actionHref="/signup"
+      actionLabel="Sign up"
+    >
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-950">Sign in</h2>
+        <p className="mt-1 text-sm leading-6 text-zinc-600">
+          New to Lumen?{" "}
+          <Link href="/signup" className="font-medium text-zinc-950 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
+            Create an account
+          </Link>
+        </p>
       </div>
-    </div>
+
+      <form onSubmit={signInPassword} className="mt-5 space-y-4">
+        <div className="space-y-2">
+          <label htmlFor="login-email" className="text-sm font-medium text-zinc-800">
+            Email
+          </label>
+          <input
+            id="login-email"
+            name="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            autoComplete="email"
+            required
+            disabled={loading || !supabase}
+            className="h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+            placeholder="you@company.com"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="login-password" className="text-sm font-medium text-zinc-800">
+            Password
+          </label>
+          <input
+            id="login-password"
+            name="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            autoComplete="current-password"
+            required
+            disabled={loading || !supabase}
+            className="h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+            placeholder="Enter your password"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading || !supabase}
+          className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+        >
+          {loading ? <Spinner label="Signing in" /> : "Sign in"}
+        </button>
+
+        <div className="min-h-[76px]">
+          {state ? (
+            <Notice tone="error" title={state.title}>
+              {state.detail}
+            </Notice>
+          ) : null}
+        </div>
+      </form>
+    </AuthShell>
   );
 }
