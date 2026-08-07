@@ -13,7 +13,7 @@ export default function Home() {
             href="/signup"
             className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
           >
-            Get started
+            Get Started
           </Link>
         </header>
 
@@ -21,11 +21,11 @@ export default function Home() {
           <section className="min-w-0 max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 shadow-sm">
               <span className="h-2 w-2 rounded-full bg-[#b8942e]" />
-              Cash visibility · reconciliation · intelligence
+              Cash Visibility · Reconciliation · Intelligence
             </div>
 
             <h1 className="mt-6 max-w-full break-words text-4xl font-semibold tracking-normal text-zinc-950 sm:text-5xl">
-              Treasury visibility without the month-end scramble.
+              Treasury Visibility Without the Month-End Scramble.
             </h1>
 
             <p className="mt-5 max-w-xl text-base leading-7 text-zinc-700 sm:text-lg">
@@ -37,13 +37,13 @@ export default function Home() {
                 href="/signup"
                 className="inline-flex h-11 items-center justify-center rounded-lg bg-zinc-950 px-5 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
               >
-                Start with email
+                Start With Email
               </Link>
               <Link
                 href="/login"
                 className="inline-flex h-11 items-center justify-center rounded-lg border border-zinc-300 bg-white px-5 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
               >
-                Sign in
+                Sign In
               </Link>
             </div>
           </section>
@@ -51,19 +51,19 @@ export default function Home() {
           <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
             <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-950">Group cash position</div>
-                <div className="mt-1 text-xs text-zinc-500">Today · USD consolidated</div>
+                <div className="text-sm font-semibold text-zinc-950">Group Cash Position</div>
+                <div className="mt-1 text-xs text-zinc-500">Today · USD Consolidated</div>
               </div>
               <div className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">Balanced</div>
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-lg border border-zinc-200 p-3">
-                <div className="text-xs text-zinc-500">Book balance</div>
+                <div className="text-xs text-zinc-500">Book Balance</div>
                 <div className="mt-2 text-xl font-semibold">$4.82M</div>
               </div>
               <div className="rounded-lg border border-zinc-200 p-3">
-                <div className="text-xs text-zinc-500">Bank balance</div>
+                <div className="text-xs text-zinc-500">Bank Balance</div>
                 <div className="mt-2 text-xl font-semibold">$4.79M</div>
               </div>
             </div>
@@ -93,9 +93,9 @@ export default function Home() {
 
         <section className="grid gap-3 pb-8 sm:grid-cols-3">
           {[
-            { title: "Book balances", desc: "Recurring visibility from connected accounting systems." },
-            { title: "Actual balances", desc: "Bank-confirmed snapshots from uploaded statements." },
-            { title: "AI briefings", desc: "Source-linked commentary from validated treasury data." },
+            { title: "Book Balances", desc: "Recurring visibility from connected accounting systems." },
+            { title: "Actual Balances", desc: "Bank-confirmed snapshots from uploaded statements." },
+            { title: "AI Briefings", desc: "Source-linked commentary from validated treasury data." },
           ].map((x) => (
             <div key={x.title} className="rounded-lg border border-zinc-200 bg-white p-4">
               <div className="text-sm font-semibold text-zinc-900">{x.title}</div>

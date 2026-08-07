@@ -22,7 +22,7 @@ export default function LoginPage() {
     supabase
       ? null
       : {
-          title: "Login is not configured",
+          title: "Login Is Not Configured",
           detail: "Supabase connection settings are missing for this deployment. Add them before users can authenticate.",
         },
   );
@@ -31,7 +31,7 @@ export default function LoginPage() {
     e.preventDefault();
     if (!supabase) {
       setState({
-        title: "Login is not configured",
+        title: "Login Is Not Configured",
         detail: "Ask an administrator to add the Supabase URL and public anon key before signing in.",
       });
       return;
@@ -44,7 +44,7 @@ export default function LoginPage() {
       window.location.assign("/dashboard");
     } catch (err: unknown) {
       setState({
-        title: "Could not sign you in",
+        title: "Could Not Sign You In",
         detail: getErrorMessage(err, "Check your email and password, then try again."),
       });
     } finally {
@@ -54,18 +54,18 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      eyebrow="Treasury operations"
-      title="Sign in to your Lumen dashboard."
+      eyebrow="Treasury Operations"
+      title="Sign In to Your Lumen Dashboard."
       subtitle="Use password authentication for returning users. Email-link onboarding is available from the signup page."
       actionHref="/signup"
-      actionLabel="Sign up"
+      actionLabel="Sign Up"
     >
       <div>
-        <h2 className="text-lg font-semibold text-zinc-950">Sign in</h2>
+        <h2 className="text-lg font-semibold text-zinc-950">Sign In</h2>
         <p className="mt-1 text-sm leading-6 text-zinc-600">
           New to Lumen?{" "}
           <Link href="/signup" className="font-medium text-zinc-950 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
-            Create an account
+            Create an Account
           </Link>
         </p>
       </div>
@@ -112,7 +112,7 @@ export default function LoginPage() {
           disabled={loading || !supabase}
           className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
         >
-          {loading ? <Spinner label="Signing in" /> : "Sign in"}
+          {loading ? <Spinner label="Signing In" /> : "Sign In"}
         </button>
 
         <div className="min-h-[76px]">

@@ -73,18 +73,18 @@ export default function AuthCallbackPage() {
       <main className="mx-auto flex min-h-[calc(100vh-76px)] w-full max-w-md items-center">
         <section className="w-full rounded-lg border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Authentication</div>
-          <h1 className="mt-3 text-xl font-semibold text-zinc-950">Finishing sign-in</h1>
+          <h1 className="mt-3 text-xl font-semibold text-zinc-950">Finishing Sign In</h1>
           <div className="mt-4 min-h-[76px]">
             {status === "working" ? (
               <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-3">
                 <Spinner label={message} />
               </div>
             ) : status === "ok" ? (
-              <Notice tone="success" title="Signed in">
+              <Notice tone="success" title="Signed In">
                 {message}
               </Notice>
             ) : (
-              <Notice tone="error" title="Sign-in link could not be completed">
+              <Notice tone="error" title="Sign-In Link Could Not Be Completed">
                 {message}
               </Notice>
             )}
@@ -96,13 +96,13 @@ export default function AuthCallbackPage() {
                 href="/login"
                 className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
               >
-                Back to login
+                Back to Login
               </Link>
               <Link
                 href="/signup"
                 className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
               >
-                Request a new link
+                Request a New Link
               </Link>
             </div>
           ) : null}

@@ -25,7 +25,7 @@ export default function SignupPage() {
       ? null
       : {
           tone: "error",
-          title: "Signup is not configured",
+          title: "Sign Up Is Not Configured",
           detail: "Supabase connection settings are missing for this deployment. The rest of the app can still be reviewed.",
         },
   );
@@ -35,7 +35,7 @@ export default function SignupPage() {
     if (!supabase) {
       setState({
         tone: "error",
-        title: "Signup is not configured",
+        title: "Sign Up Is Not Configured",
         detail: "Ask an administrator to add the Supabase URL and public anon key before inviting users.",
       });
       return;
@@ -55,13 +55,13 @@ export default function SignupPage() {
       if (error) throw error;
       setState({
         tone: "success",
-        title: "Check your email",
+        title: "Check Your Email",
         detail: "We sent a secure sign-in link. Open it in this browser to finish creating your Lumen account.",
       });
     } catch (err: unknown) {
       setState({
         tone: "error",
-        title: "Could not send the sign-up link",
+        title: "Could Not Send the Sign-Up Link",
         detail: getErrorMessage(err, "Please check the email address and try again."),
       });
     } finally {
@@ -71,16 +71,16 @@ export default function SignupPage() {
 
   return (
     <AuthShell
-      eyebrow="Secure onboarding"
-      title="Create your treasury workspace."
+      eyebrow="Secure Onboarding"
+      title="Create Your Treasury Workspace."
       subtitle="Start with an email link. Once confirmed, Lumen opens your dashboard so your team can begin reviewing cash and reconciliation activity."
     >
       <div>
-        <h2 className="text-lg font-semibold text-zinc-950">Sign up</h2>
+        <h2 className="text-lg font-semibold text-zinc-950">Sign Up</h2>
         <p className="mt-1 text-sm leading-6 text-zinc-600">
           Already have an account?{" "}
           <Link href="/login" className="font-medium text-zinc-950 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
-            Sign in
+            Sign In
           </Link>
         </p>
       </div>
@@ -88,7 +88,7 @@ export default function SignupPage() {
       <form onSubmit={signUpWithEmail} className="mt-5 space-y-4" noValidate={false}>
         <div className="space-y-2">
           <label htmlFor="signup-email" className="text-sm font-medium text-zinc-800">
-            Work email
+            Work Email
           </label>
           <input
             id="signup-email"
@@ -110,7 +110,7 @@ export default function SignupPage() {
           disabled={loading || !supabase}
           className="inline-flex h-11 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
         >
-          {loading ? <Spinner label="Sending link" /> : "Send sign-up link"}
+          {loading ? <Spinner label="Sending Link" /> : "Send Sign-Up Link"}
         </button>
 
         <div className="min-h-[76px]">
