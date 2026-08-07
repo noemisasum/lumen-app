@@ -4,7 +4,7 @@ type BrandLogoProps = {
   className?: string;
 };
 
-export function BrandLogo({ className = "h-7 w-auto" }: BrandLogoProps) {
+export function BrandLogo({ className = "h-9 w-auto sm:h-10" }: BrandLogoProps) {
   return (
     <Image
       src="/brand/lumen-logo-lockup-light.svg"
