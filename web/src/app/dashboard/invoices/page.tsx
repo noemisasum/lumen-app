@@ -73,6 +73,7 @@ export default function InvoicesPage() {
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [orgId, setOrgId] = useState<string>("");
   const [entityId, setEntityId] = useState<string>("");
+  const [multiOrgMode, setMultiOrgMode] = useState(false);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [filesByInvoice, setFilesByInvoice] = useState<Record<string, InvoiceFileRow[]>>({});
@@ -103,6 +104,7 @@ export default function InvoicesPage() {
       const { data: orgRows, error: orgErr } = await supabase.from("orgs").select("id,name,slug").order("name");
       if (!orgErr && orgRows) {
         detectedMultiOrg = true;
+        setMultiOrgMode(true);
         setOrgs(orgRows as OrgRow[]);
 
         // Entities the user can see (RLS filtered)
@@ -162,6 +164,7 @@ export default function InvoicesPage() {
       }
 
       if (!detectedMultiOrg) {
+        setMultiOrgMode(false);
         // Single-user mode (schema.sql)
         const { data: invs, error: invErr } = await supabase
           .from("invoices")
@@ -318,11 +321,13 @@ export default function InvoicesPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-semibold">Upload invoice</div>
-                <div className="mt-1 text-sm text-zinc-600">PDF or image.</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {multiOrgMode && !orgs.length ? "Create an org and entity before uploading." : "PDF or image."}
+                </div>
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                {orgs.length ? (
+                {multiOrgMode && orgs.length ? (
                   <select
                     value={entityId}
                     onChange={(e) => setEntityId(e.target.value)}
@@ -344,7 +349,7 @@ export default function InvoicesPage() {
                     type="file"
                     className="hidden"
                     accept="application/pdf,image/*"
-                    disabled={uploading || (!!orgs.length && !entityId)}
+                    disabled={uploading || (multiOrgMode && (!orgs.length || !entityId))}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) onUpload(f);
@@ -356,8 +361,12 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {orgs.length && !entityId ? (
+            {multiOrgMode && orgs.length && !entityId ? (
               <div className="mt-4 text-sm text-zinc-600">Select an entity to upload.</div>
+            ) : null}
+
+            {multiOrgMode && !orgs.length ? (
+              <div className="mt-4 text-sm text-zinc-600">No orgs are available for this account yet.</div>
             ) : null}
 
             {error ? <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{error}</div> : null}
