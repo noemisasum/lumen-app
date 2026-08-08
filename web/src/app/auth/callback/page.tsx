@@ -66,7 +66,7 @@ export default function AuthCallbackPage() {
     <div className="min-h-screen bg-[#f7f6f2] px-4 py-5 text-zinc-950 sm:px-6">
       <header className="mx-auto flex max-w-6xl items-center justify-between">
         <Link href="/" className="rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-          <BrandLogo className="h-6 w-auto sm:h-7" />
+          <BrandLogo className="h-8 sm:h-9" />
         </Link>
       </header>
 

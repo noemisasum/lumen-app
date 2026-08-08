@@ -22,7 +22,7 @@ export function AuthShell({
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex min-h-11 items-center justify-between gap-4">
           <Link href="/" className="inline-flex items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-            <BrandLogo className="h-6 w-auto sm:h-7" />
+            <BrandLogo className="h-8 sm:h-9" />
           </Link>
           <Link
             href={actionHref}

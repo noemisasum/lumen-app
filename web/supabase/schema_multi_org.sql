@@ -1,4 +1,4 @@
--- Lumen App inherited schema v2: multiple orgs + multiple entities + invoice intake
+-- Lumen inherited schema v2: multiple orgs + multiple entities + invoice intake
 --
 -- This schema is safe-by-default:
 -- - RLS enabled on all app tables

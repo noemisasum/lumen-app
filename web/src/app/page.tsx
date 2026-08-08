@@ -4,18 +4,18 @@ import { BrandLogo } from "@/components/brand-logo";
 export default function Home() {
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-5 py-5 sm:px-6 lg:px-8">
-        <header className="flex min-h-14 items-center justify-between gap-3 sm:gap-5">
+      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-5 min-[390px]:px-5 sm:px-6 lg:px-8">
+        <header className="flex min-h-14 items-center justify-between gap-2.5 sm:gap-5">
           <Link
             href="/"
             className="flex min-w-0 shrink items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950"
-            aria-label="Lumen AI Home"
+            aria-label="Lumen Home"
           >
-            <BrandLogo className="h-9 w-auto max-w-[145px] sm:h-10 sm:max-w-none" />
+            <BrandLogo className="h-9 gap-2 min-[390px]:h-10 sm:h-11 sm:gap-2.5" />
           </Link>
           <Link
             href="/signup"
-            className="inline-flex h-11 shrink-0 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-5"
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 min-[390px]:h-11 min-[390px]:px-4 min-[390px]:text-sm sm:px-5"
           >
             Get Started
           </Link>
@@ -23,20 +23,20 @@ export default function Home() {
 
         <main className="grid flex-1 items-center gap-8 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_430px] lg:gap-12">
           <section className="min-w-0 max-w-2xl">
-            <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium text-zinc-700 shadow-sm">
+            <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-medium leading-5 text-zinc-700 shadow-sm">
               <span className="h-2 w-2 shrink-0 rounded-full bg-[#b8942e]" />
-              Cash Visibility · Reconciliation · Intelligence
+              <span className="min-w-0 whitespace-normal">Cash Visibility · Reconciliation · Intelligence</span>
             </div>
 
-            <h1 className="mt-5 max-w-full break-words text-4xl font-semibold tracking-normal text-zinc-950 sm:mt-6 sm:text-5xl">
-              Treasury Visibility Without the Month&#8209;End Scramble.
+            <h1 className="mt-5 max-w-full break-words text-3xl font-semibold leading-tight tracking-normal text-zinc-950 min-[390px]:text-4xl sm:mt-6 sm:text-5xl">
+              Treasury Visibility Without the Month-End Scramble.
             </h1>
 
-            <p className="mt-4 max-w-xl text-base leading-7 text-zinc-700 sm:mt-5 sm:text-lg">
-              Lumen App gives finance teams a calm operating surface for book balances, bank-confirmed positions, and reconciliation variance.
+            <p className="mt-4 max-w-full text-base leading-7 text-zinc-700 sm:mt-5 sm:max-w-xl sm:text-lg">
+              Lumen gives finance teams a calm operating surface for book balances, bank-confirmed positions, and reconciliation variance.
             </p>
 
-            <div className="mt-7 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:mt-8 sm:flex sm:items-center">
+            <div className="mt-7 grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 sm:mt-8 sm:flex sm:items-center">
               <Link
                 href="/signup"
                 className="inline-flex h-11 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-5"
@@ -52,16 +52,16 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:p-5 lg:translate-y-4">
+          <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm min-[390px]:p-4 sm:p-5 lg:translate-y-4">
             <div className="flex items-center justify-between gap-3 border-b border-zinc-100 pb-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-950">Group Cash Position</div>
                 <div className="mt-1 text-xs text-zinc-500">Today · USD Consolidated</div>
               </div>
-              <div className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">Balanced</div>
+              <div className="shrink-0 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-800">Balanced</div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
               <div className="rounded-lg border border-zinc-200 p-3.5">
                 <div className="text-xs text-zinc-500">Book Balance</div>
                 <div className="mt-2 text-xl font-semibold">$4.82M</div>
@@ -80,11 +80,17 @@ export default function Home() {
               ].map(([name, amount, status]) => (
                 <div
                   key={name}
-                  className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-zinc-100 px-3.5 py-3 text-sm last:border-b-0"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-zinc-100 px-3 py-3 text-sm last:border-b-0 min-[420px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[420px]:px-3.5"
                 >
                   <div className="min-w-0 truncate font-medium text-zinc-900">{name}</div>
                   <div className="text-zinc-700">{amount}</div>
-                  <div className={status === "Matched" ? "text-emerald-700" : "text-amber-700"}>{status}</div>
+                  <div
+                    className={`col-span-2 text-xs font-medium min-[420px]:col-span-1 min-[420px]:text-sm ${
+                      status === "Matched" ? "text-emerald-700" : "text-amber-700"
+                    }`}
+                  >
+                    {status}
+                  </div>
                 </div>
               ))}
             </div>
@@ -108,7 +114,7 @@ export default function Home() {
           ))}
         </section>
 
-        <footer className="py-5 text-xs text-zinc-500">© {new Date().getFullYear()} Lumen App</footer>
+        <footer className="py-5 text-xs text-zinc-500">© {new Date().getFullYear()} Lumen</footer>
       </div>
     </div>
   );

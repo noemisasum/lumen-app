@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 148" role="img" aria-labelledby="title">
+  <title id="title">Lumen transparent logo lockup for light backgrounds</title>
+  <g transform="translate(51 42) scale(.8)">
+    <path fill="#050D13" d="M18 17 58 33v62l-40 16Z" />
+    <path fill="#C8A14A" d="m58 33 42 31-42 31Z" />
+    <path fill="none" stroke="#C8A14A" stroke-linecap="square" stroke-linejoin="miter" stroke-width="7" d="m104 38 23-15v82l-23-15" />
+  </g>
+  <text x="184" y="116" fill="#0D1117" font-family="Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="76" font-weight="700">Lumen</text>
+</svg>

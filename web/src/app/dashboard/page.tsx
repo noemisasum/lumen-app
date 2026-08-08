@@ -81,7 +81,7 @@ export default function DashboardPage() {
           <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-4">
               <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-                <BrandLogo className="h-6 w-auto sm:h-7" />
+                <BrandLogo className="h-8 sm:h-9" />
               </Link>
               <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
               <div className="text-sm font-medium text-zinc-700">Dashboard</div>
@@ -112,7 +112,7 @@ export default function DashboardPage() {
         <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
             <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-              <BrandLogo className="h-6 w-auto sm:h-7" />
+              <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
             <div className="text-sm font-medium text-zinc-700">Dashboard</div>

@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Lumen App",
-    template: "%s | Lumen App",
+    default: "Lumen",
+    template: "%s | Lumen",
   },
   description: "Treasury visibility and reconciliation workflows for finance teams.",
 };
