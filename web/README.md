@@ -1,6 +1,8 @@
-# lumen-app (web)
+# Lumen Web
 
 Next.js frontend for the Lumen Treasury application shell.
+
+The npm package name remains `lumen-app-web` to avoid unnecessary technical churn.
 
 ## Supabase env vars (Vercel integration)
 

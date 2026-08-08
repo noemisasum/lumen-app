@@ -9,9 +9,9 @@ export default function Home() {
           <Link
             href="/"
             className="flex min-w-0 shrink items-center rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950"
-            aria-label="Lumen AI Home"
+            aria-label="Lumen Home"
           >
-            <BrandLogo className="h-9 w-auto max-w-[145px] sm:h-10 sm:max-w-none" />
+            <BrandLogo className="h-10 sm:h-11" />
           </Link>
           <Link
             href="/signup"
@@ -33,7 +33,7 @@ export default function Home() {
             </h1>
 
             <p className="mt-4 max-w-xl text-base leading-7 text-zinc-700 sm:mt-5 sm:text-lg">
-              Lumen App gives finance teams a calm operating surface for book balances, bank-confirmed positions, and reconciliation variance.
+              Lumen gives finance teams a calm operating surface for book balances, bank-confirmed positions, and reconciliation variance.
             </p>
 
             <div className="mt-7 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:mt-8 sm:flex sm:items-center">
@@ -108,7 +108,7 @@ export default function Home() {
           ))}
         </section>
 
-        <footer className="py-5 text-xs text-zinc-500">© {new Date().getFullYear()} Lumen App</footer>
+        <footer className="py-5 text-xs text-zinc-500">© {new Date().getFullYear()} Lumen</footer>
       </div>
     </div>
   );

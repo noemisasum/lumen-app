@@ -1,4 +1,4 @@
-# lumen-app
+# Lumen
 
 Lumen Treasury application shell.
 
