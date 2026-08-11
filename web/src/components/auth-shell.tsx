@@ -32,7 +32,7 @@ export function AuthShell({
           </Link>
         </header>
 
-        <main className="grid w-full min-w-0 flex-1 grid-cols-1 items-center gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_420px] lg:py-10">
+        <main className="grid w-full min-w-0 flex-1 grid-cols-1 items-start gap-7 pb-8 pt-7 sm:pt-9 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-10 lg:pb-10 lg:pt-12">
           <section className="w-full min-w-0 max-w-xl">
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">{eyebrow}</div>
             <h1 className="mt-3 max-w-full break-words text-3xl font-semibold tracking-normal text-zinc-950 sm:text-4xl">

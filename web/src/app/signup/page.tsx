@@ -15,6 +15,25 @@ function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
 
+function getSignupErrorDetail(err: unknown) {
+  const message = getErrorMessage(err, "Please check the email address and try again.");
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("failed to fetch") || normalized.includes("networkerror") || normalized.includes("load failed")) {
+    return "Lumen could not reach Supabase from this browser. Ask an administrator to verify NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, the Supabase project status, and the Auth redirect URL allowlist for this deployment.";
+  }
+
+  if (normalized.includes("invalid api key") || normalized.includes("jwt")) {
+    return "Lumen's Supabase public anon key appears to be invalid for this deployment. Ask an administrator to update NEXT_PUBLIC_SUPABASE_ANON_KEY.";
+  }
+
+  if (normalized.includes("redirect") || normalized.includes("not allowed")) {
+    return "Supabase rejected this sign-up redirect. Ask an administrator to add this deployment URL and /auth/callback to the Supabase Auth URL configuration.";
+  }
+
+  return message;
+}
+
 export default function SignupPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -62,7 +81,7 @@ export default function SignupPage() {
       setState({
         tone: "error",
         title: "Could Not Send the Sign-Up Link",
-        detail: getErrorMessage(err, "Please check the email address and try again."),
+        detail: getSignupErrorDetail(err),
       });
     } finally {
       setLoading(false);
