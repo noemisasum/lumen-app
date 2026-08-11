@@ -48,3 +48,11 @@ on conflict (entity_id, user_id) do update set role = excluded.role;
 - `schema.sql` scopes invoice access to the **signed-in user** (`created_by = auth.uid()`), which is safe and simple.
 - `schema_multi_org.sql` adds **orgs + entities + membership** and scopes access by membership (future-proof for real teams).
 - `schema_multi_org.sql` also creates a private `invoices` storage bucket and authenticated upload/read policies scoped to each user's own top-level object folder.
+
+## 3) Xero OAuth tables
+
+Run `supabase/xero_oauth.sql` after either base schema when enabling the Xero connection UI.
+
+The migration creates `public.xero_oauth_states`, `public.xero_connections`, and `public.xero_connection_tenants`. These tables are RLS-enabled, have no client-role grants or policies, and are not meant to be queried from browser code. The Next.js API routes write them with `SUPABASE_SERVICE_ROLE_KEY`; keep that key server-only.
+
+Xero token sets are encrypted in the API route before storage. Set `XERO_TOKEN_ENCRYPTION_KEY` to a 32-byte base64 or 64-character hex value in deployment and local `.env.local`.

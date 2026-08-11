@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
@@ -9,10 +9,36 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 type SessionInfo = {
   userId: string;
   email: string | null;
+  accessToken: string;
+};
+
+type XeroStatus = {
+  connected: boolean;
+  connectedAt?: string;
+  tenants: Array<{ id: string; name: string }>;
 };
 
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
+}
+
+function xeroStatusMessage(status: string | null) {
+  switch (status) {
+    case "connected":
+      return { tone: "success" as const, title: "Xero Connected", message: "Your Xero organisation is ready for future sync work." };
+    case "denied":
+      return { tone: "warning" as const, title: "Xero Connection Cancelled", message: "Xero did not grant access." };
+    case "configuration_error":
+      return { tone: "error" as const, title: "Xero Needs Configuration", message: "The deployment is missing required Xero or server Supabase env vars." };
+    case "invalid_state":
+    case "expired_state":
+    case "invalid_callback":
+      return { tone: "error" as const, title: "Xero Connection Expired", message: "Please start the Xero connection again." };
+    case "connect_failed":
+      return { tone: "error" as const, title: "Xero Connection Failed", message: "Xero returned to Lumen, but the token exchange or storage step failed." };
+    default:
+      return null;
+  }
 }
 
 export default function DashboardPage() {
@@ -22,6 +48,29 @@ export default function DashboardPage() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [xeroStatus, setXeroStatus] = useState<XeroStatus | null>(null);
+  const [xeroLoading, setXeroLoading] = useState(false);
+  const [xeroConnecting, setXeroConnecting] = useState(false);
+  const [xeroError, setXeroError] = useState<string | null>(null);
+  const [xeroNotice, setXeroNotice] = useState<ReturnType<typeof xeroStatusMessage>>(null);
+
+  const loadXeroStatus = useCallback(async (accessToken: string) => {
+    setXeroLoading(true);
+    setXeroError(null);
+    try {
+      const response = await fetch("/api/xero/status", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = (await response.json()) as XeroStatus | { error?: string };
+      if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load Xero status.");
+      setXeroStatus(body as XeroStatus);
+    } catch (e: unknown) {
+      setXeroStatus(null);
+      setXeroError(getErrorMessage(e, "Failed to load Xero status."));
+    } finally {
+      setXeroLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let unsub: { unsubscribe: () => void } | null = null;
@@ -42,17 +91,23 @@ export default function DashboardPage() {
           return;
         }
 
-        setSession({
+        const currentSession = {
           userId: data.session.user.id,
           email: data.session.user.email ?? null,
-        });
+          accessToken: data.session.access_token,
+        };
+        setSession(currentSession);
+        setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
+        void loadXeroStatus(currentSession.accessToken);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
             window.location.replace("/login");
             return;
           }
-          setSession({ userId: sess.user.id, email: sess.user.email ?? null });
+          const nextSession = { userId: sess.user.id, email: sess.user.email ?? null, accessToken: sess.access_token };
+          setSession(nextSession);
+          void loadXeroStatus(nextSession.accessToken);
         });
         unsub = sub.subscription;
       } catch (e: unknown) {
@@ -65,7 +120,25 @@ export default function DashboardPage() {
     return () => {
       unsub?.unsubscribe();
     };
-  }, [supabase]);
+  }, [loadXeroStatus, supabase]);
+
+  async function connectXero() {
+    if (!session) return;
+    setXeroConnecting(true);
+    setXeroError(null);
+    try {
+      const response = await fetch("/api/xero/connect", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      const body = (await response.json()) as { authorizationUrl?: string; error?: string };
+      if (!response.ok || !body.authorizationUrl) throw new Error(body.error || "Failed to start Xero connection.");
+      window.location.assign(body.authorizationUrl);
+    } catch (e: unknown) {
+      setXeroError(getErrorMessage(e, "Failed to start Xero connection."));
+      setXeroConnecting(false);
+    }
+  }
 
   async function signOut() {
     if (!supabase) return;
@@ -192,13 +265,69 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-zinc-950">Next Setup Steps</h2>
-              <ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-700">
-                <li>Invite treasury users into their organisation.</li>
-                <li>Connect accounting sources for recurring book balances.</li>
-                <li>Upload bank statements through statement intake.</li>
-              </ul>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Xero Connection</h2>
+                    <div className="mt-2 text-sm leading-6 text-zinc-600">
+                      {xeroLoading ? (
+                        <Spinner label="Checking Xero" />
+                      ) : xeroStatus?.connected ? (
+                        <span className="font-medium text-emerald-800">Connected</span>
+                      ) : (
+                        "Not connected"
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={connectXero}
+                    disabled={xeroConnecting || xeroLoading}
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  >
+                    {xeroConnecting ? "Opening Xero" : xeroStatus?.connected ? "Reconnect" : "Connect"}
+                  </button>
+                </div>
+
+                {xeroNotice ? (
+                  <div className="mt-4">
+                    <Notice tone={xeroNotice.tone} title={xeroNotice.title}>
+                      {xeroNotice.message}
+                    </Notice>
+                  </div>
+                ) : null}
+
+                {xeroError ? (
+                  <div className="mt-4">
+                    <Notice tone="warning" title="Xero Status Unavailable">
+                      {xeroError}
+                    </Notice>
+                  </div>
+                ) : null}
+
+                {xeroStatus?.connected && xeroStatus.tenants.length ? (
+                  <div className="mt-4 border-t border-zinc-100 pt-4">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Tenants</div>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                      {xeroStatus.tenants.map((tenant) => (
+                        <li key={tenant.id} className="truncate">
+                          {tenant.name}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <h2 className="text-sm font-semibold text-zinc-950">Next Setup Steps</h2>
+                <ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-700">
+                  <li>Invite treasury users into their organisation.</li>
+                  <li>Connect accounting sources for recurring book balances.</li>
+                  <li>Upload bank statements through statement intake.</li>
+                </ul>
+              </div>
             </div>
           </section>
         </main>
