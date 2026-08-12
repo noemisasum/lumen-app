@@ -15,10 +15,10 @@ Server-side API routes that write private integration records also require:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-For email-link signup to work, the values must match the same Supabase project and the project must be active. In Supabase Dashboard → Authentication → URL Configuration:
+For email/password signup and login to work, the values must match the same Supabase project and the project must be active. If email confirmation is enabled in Supabase, password signup still sends a confirmation email. In Supabase Dashboard → Authentication → URL Configuration:
 
 - Set the site URL to the deployed Lumen origin.
-- Add redirect URLs for each deployment that can send auth links, including `https://your-domain.example/auth/callback` and local development `http://localhost:3000/auth/callback` when testing locally.
+- Add redirect URLs for each deployment that can receive email confirmation callbacks, including `https://your-domain.example/auth/callback` and local development `http://localhost:3000/auth/callback` when testing locally.
 
 Do not commit Supabase keys or secrets to the repo. Configure them in the deployment environment or a local `.env.local` file.
 
