@@ -14,11 +14,14 @@ This app expects these environment variables to exist (Vercel Supabase integrati
 Server-side API routes that write private integration records also require:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `LUMEN_ADMIN_RECOVERY_EMAILS` (optional comma-separated allowlist for server-side admin access repair)
 
 For email/password signup and login to work, the values must match the same Supabase project and the project must be active. The current production Supabase project autoconfirms new email/password users, so signup should not depend on a confirmation email. If email confirmation is re-enabled in Supabase later, password signup will send a confirmation email. In Supabase Dashboard → Authentication → URL Configuration:
 
 - Set the site URL to the deployed Lumen origin.
-- Add redirect URLs for each deployment that can receive email confirmation callbacks, including `https://your-domain.example/auth/callback` and local development `http://localhost:3000/auth/callback` when testing locally.
+- Add redirect URLs for each deployment that can receive email confirmation or password recovery callbacks, including `https://your-domain.example/auth/callback`, `https://your-domain.example/reset-password`, and local development `http://localhost:3000/auth/callback` plus `http://localhost:3000/reset-password` when testing locally.
+
+Lumen also exposes a signed-in account recovery route at `/api/account/recovery`. It can repair access to the default `Lumen` org and `Default Entity` when a confirmed user is missing membership. It only grants owner/admin access when the default org has no owner, the user is already an owner/admin, or the user's email is listed in `LUMEN_ADMIN_RECOVERY_EMAILS`.
 
 Do not commit Supabase keys or secrets to the repo. Configure them in the deployment environment or a local `.env.local` file.
 
