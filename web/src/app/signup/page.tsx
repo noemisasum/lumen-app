@@ -98,8 +98,8 @@ export default function SignupPage() {
       }
       setState({
         tone: "success",
-        title: "Check Your Email",
-        detail: "Your password is set. If this Supabase project requires email confirmation, open the confirmation email in this browser to activate your Lumen account.",
+        title: "Account Created",
+        detail: "Your account and password are set. If a confirmation email arrives, open it in this browser to activate your Lumen account. Otherwise, try signing in.",
       });
     } catch (err: unknown) {
       setState({
