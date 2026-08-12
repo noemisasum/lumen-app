@@ -15,7 +15,7 @@ Server-side API routes that write private integration records also require:
 
 - `SUPABASE_SERVICE_ROLE_KEY`
 
-For email/password signup and login to work, the values must match the same Supabase project and the project must be active. If email confirmation is enabled in Supabase, password signup still sends a confirmation email. In Supabase Dashboard → Authentication → URL Configuration:
+For email/password signup and login to work, the values must match the same Supabase project and the project must be active. The current production Supabase project autoconfirms new email/password users, so signup should not depend on a confirmation email. If email confirmation is re-enabled in Supabase later, password signup will send a confirmation email. In Supabase Dashboard → Authentication → URL Configuration:
 
 - Set the site URL to the deployed Lumen origin.
 - Add redirect URLs for each deployment that can receive email confirmation callbacks, including `https://your-domain.example/auth/callback` and local development `http://localhost:3000/auth/callback` when testing locally.

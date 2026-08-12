@@ -99,7 +99,7 @@ export default function SignupPage() {
       setState({
         tone: "success",
         title: "Account Created",
-        detail: "Your account and password are set. If a confirmation email arrives, open it in this browser to activate your Lumen account. Otherwise, try signing in.",
+        detail: "Your account and password are set. Try signing in with the email and password you just created.",
       });
     } catch (err: unknown) {
       setState({
@@ -116,7 +116,7 @@ export default function SignupPage() {
     <AuthShell
       eyebrow="Secure Onboarding"
       title="Create Your Treasury Workspace."
-      subtitle="Create your account with a work email and password. If email confirmation is enabled, Lumen will ask you to confirm your address before opening the dashboard."
+      subtitle="Create your account with a work email and password. Lumen will open the dashboard as soon as your account is ready."
     >
       <div>
         <h2 className="text-lg font-semibold text-zinc-950">Sign Up</h2>
