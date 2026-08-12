@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
-import { createOauthState, createXeroClient, getXeroEnvIssueNames, hashOauthState } from "@/lib/server/xero";
+import {
+  createOauthState,
+  createXeroClient,
+  getXeroEnvIssueNames,
+  getXeroRedirectOriginMismatch,
+  hashOauthState,
+} from "@/lib/server/xero";
 
 export const runtime = "nodejs";
 
@@ -11,6 +17,17 @@ function missingEnvResponse(missing: string[]) {
 export async function POST(request: Request) {
   const missing = [...getMissingSupabaseServerEnv(), ...getXeroEnvIssueNames()];
   if (missing.length) return missingEnvResponse(missing);
+
+  const redirectMismatch = getXeroRedirectOriginMismatch(request);
+  if (redirectMismatch) {
+    return NextResponse.json(
+      {
+        error: "Xero callback URL does not match this deployment.",
+        ...redirectMismatch,
+      },
+      { status: 500 },
+    );
+  }
 
   try {
     const { user } = await requireSupabaseUser(request);

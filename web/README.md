@@ -44,10 +44,10 @@ The app encrypts the Xero token set with AES-GCM before writing it to `public.xe
 
 Configure the Xero app callback URLs to include:
 
-- Production: `https://app.lumen-labs.com/api/xero/callback`
+- Production: `https://app.lumen-labs.io/api/xero/callback`
 - Local development: `http://localhost:3000/api/xero/callback`
 
-For production, set `XERO_REDIRECT_URI=https://app.lumen-labs.com/api/xero/callback`. For local development, set `XERO_REDIRECT_URI=http://localhost:3000/api/xero/callback` in `.env.local`.
+For production, set `XERO_REDIRECT_URI=https://app.lumen-labs.io/api/xero/callback`. For local development, set `XERO_REDIRECT_URI=http://localhost:3000/api/xero/callback` in `.env.local`.
 
 Apply `supabase/xero_oauth.sql` after the base Supabase schema. The Xero tables have RLS enabled, no client-role grants or policies, and are intended to be accessed only by API routes using `SUPABASE_SERVICE_ROLE_KEY`. Browser code should use `/api/xero/status` rather than querying these tables directly.
 

@@ -18,8 +18,21 @@ type XeroStatus = {
   tenants: Array<{ id: string; name: string }>;
 };
 
+type XeroErrorBody = {
+  error?: string;
+  expectedCallbackUri?: string;
+  configuredRedirectUri?: string;
+};
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
+}
+
+function getXeroErrorMessage(body: XeroErrorBody, fallback: string) {
+  const message = body.error || fallback;
+  if (!body.expectedCallbackUri) return message;
+
+  return `${message} Add ${body.expectedCallbackUri} in Xero, then set XERO_REDIRECT_URI to the same value in Vercel.`;
 }
 
 function xeroStatusMessage(status: string | null) {
@@ -131,8 +144,8 @@ export default function DashboardPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${session.accessToken}` },
       });
-      const body = (await response.json()) as { authorizationUrl?: string; error?: string };
-      if (!response.ok || !body.authorizationUrl) throw new Error(body.error || "Failed to start Xero connection.");
+      const body = (await response.json()) as { authorizationUrl?: string } & XeroErrorBody;
+      if (!response.ok || !body.authorizationUrl) throw new Error(getXeroErrorMessage(body, "Failed to start Xero connection."));
       window.location.assign(body.authorizationUrl);
     } catch (e: unknown) {
       setXeroError(getErrorMessage(e, "Failed to start Xero connection."));
