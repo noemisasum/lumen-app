@@ -1,15 +1,14 @@
 # Lumen Brand Assets
 
-Upload-ready brand assets copied from `/Users/simeonng/lumenai-website/public/brand`, plus the approved plain Lumen light-mode lockup generated for the app.
+Upload-ready brand assets copied from `/Users/simeonng/lumenai-website/public/brand`, plus the earlier plain Lumen light-mode lockup generated for the app.
 
 ## Rendered app logo
 
-The app renders the approved plain Lumen light-mode logo:
+The app renders the same light-background Lumen AI logo asset used by the main Lumen site asset set:
 
-- SVG rendered in UI: `/brand/lumen-logo-light-lumen.svg`
-- PNG export for upload use: `/brand/lumen-logo-light-lumen.png`
+- PNG rendered in UI: `/brand/lumen-logo-light.png`
 
-This logo says "Lumen" and is the chosen app lockup for light backgrounds.
+This logo says "Lumen AI" and matches `/Users/simeonng/lumenai-website/public/brand/lumen-logo-light.png`.
 
 ## Source and reference assets
 
@@ -22,4 +21,4 @@ This logo says "Lumen" and is the chosen app lockup for light backgrounds.
 - SVG lockup for light backgrounds: `/brand/lumen-logo-lockup-light.svg`
 - SVG lockup for dark backgrounds: `/brand/lumen-logo-lockup-dark.svg`
 
-The older Lumen AI lockups and marks are retained only as source/reference assets. They are not the rendered app logo.
+The plain Lumen-only lockups are retained only as source/reference assets. They are not the rendered app logo.
