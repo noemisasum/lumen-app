@@ -62,6 +62,12 @@ type NoticeState = {
 const selectClassName =
   "h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white py-0 pl-3 pr-10 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
 
+const iconButtonClassName =
+  "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+
+const dangerButtonClassName =
+  "inline-flex h-9 items-center justify-center rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -105,6 +111,7 @@ export default function EntityManagementPage() {
   const [newOrgEntityCode, setNewOrgEntityCode] = useState("");
   const [newEntityName, setNewEntityName] = useState("");
   const [newEntityCode, setNewEntityCode] = useState("");
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const manageableOrgs = state.orgs.filter((org) => org.role === "owner" || org.role === "admin");
   const selectedOrg = state.orgs.find((org) => org.id === selectedOrgId) ?? state.orgs[0] ?? null;
@@ -120,7 +127,7 @@ export default function EntityManagementPage() {
       if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load organisation setup.");
       const loaded = body as ManagementState;
       setState(loaded);
-      setSelectedOrgId((current) => current || loaded.orgs[0]?.id || "");
+      setSelectedOrgId((current) => (loaded.orgs.some((org) => org.id === current) ? current : loaded.orgs[0]?.id || ""));
     },
     [],
   );
@@ -291,6 +298,57 @@ export default function EntityManagementPage() {
       setError(getErrorMessage(e, "Failed to remove Xero mapping."));
     } finally {
       setMappingEntityId(null);
+    }
+  }
+
+  async function deleteEntity(entity: EntityRow) {
+    if (!session || !entity.canAdmin) return;
+    const confirmedName = window.prompt(`Type ${entity.name} to delete this entity and its related records.`);
+    if (confirmedName !== entity.name) return;
+
+    setPendingAction(`entity:${entity.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const params = new URLSearchParams({ entityId: entity.id });
+      const response = await fetch(`/api/entities?${params.toString()}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to delete entity.");
+      setNotice({ tone: "info", title: "Entity Deleted", message: `${entity.name} has been removed.` });
+      await refresh();
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to delete entity."));
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function deleteOrg(org: OrgRow) {
+    if (!session || org.role !== "owner") return;
+    const confirmedName = window.prompt(`Type ${org.name} to delete this organisation, its entities, and related records.`);
+    if (confirmedName !== org.name) return;
+
+    setPendingAction(`org:${org.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const params = new URLSearchParams({ orgId: org.id });
+      const response = await fetch(`/api/orgs?${params.toString()}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to delete organisation.");
+      setSelectedOrgId("");
+      setNotice({ tone: "info", title: "Organisation Deleted", message: `${org.name} has been removed.` });
+      await refresh();
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to delete organisation."));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -481,17 +539,29 @@ export default function EntityManagementPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-sm font-semibold text-zinc-950">Accessible Entities</h2>
                   {state.orgs.length ? (
-                    <SelectControl
-                      value={selectedOrg?.id ?? ""}
-                      onChange={(event) => setSelectedOrgId(event.target.value)}
-                      className="mt-0 sm:w-56"
-                    >
-                      {state.orgs.map((org) => (
-                        <option key={org.id} value={org.id}>
-                          {org.name}
-                        </option>
-                      ))}
-                    </SelectControl>
+                    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                      <SelectControl
+                        value={selectedOrg?.id ?? ""}
+                        onChange={(event) => setSelectedOrgId(event.target.value)}
+                        className="mt-0 sm:w-56"
+                      >
+                        {state.orgs.map((org) => (
+                          <option key={org.id} value={org.id}>
+                            {org.name}
+                          </option>
+                        ))}
+                      </SelectControl>
+                      {selectedOrg?.role === "owner" ? (
+                        <button
+                          type="button"
+                          onClick={() => void deleteOrg(selectedOrg)}
+                          disabled={pendingAction === `org:${selectedOrg.id}`}
+                          className={dangerButtonClassName}
+                        >
+                          {pendingAction === `org:${selectedOrg.id}` ? <Spinner label="Deleting" /> : "Delete Org"}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -510,6 +580,8 @@ export default function EntityManagementPage() {
                   {visibleEntities.map((entity) => {
                     const mappedTenantName = tenantLabel(state.xero.tenants, entity.xeroMapping);
                     const isMapping = mappingEntityId === entity.id;
+                    const isDeletingEntity = pendingAction === `entity:${entity.id}`;
+                    const canDeleteEntity = entity.canAdmin && selectedOrg?.role === "owner";
 
                     return (
                       <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[1fr_280px] lg:items-center">
@@ -524,7 +596,7 @@ export default function EntityManagementPage() {
                           <div className="mt-1 text-xs text-zinc-500">{entity.canAdmin ? "Admin access" : `Role: ${entity.role || "org member"}`}</div>
                         </div>
 
-                        <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:flex-col">
+                        <div className="flex min-w-0 flex-col gap-2">
                           <SelectControl
                             value={entity.xeroMapping?.connection_tenant_id ?? ""}
                             onChange={(event) => {
@@ -541,16 +613,30 @@ export default function EntityManagementPage() {
                               </option>
                             ))}
                           </SelectControl>
-                          {entity.xeroMapping ? (
-                            <button
-                              type="button"
-                              onClick={() => unmapEntity(entity.id)}
-                              disabled={!entity.canAdmin || isMapping}
-                              className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                            >
-                              {isMapping ? <Spinner label="Updating" /> : "Unmap"}
-                            </button>
-                          ) : null}
+                          <div className="flex items-center justify-end gap-2">
+                            {entity.xeroMapping ? (
+                              <button
+                                type="button"
+                                onClick={() => void unmapEntity(entity.id)}
+                                disabled={!entity.canAdmin || isMapping || isDeletingEntity}
+                                className={iconButtonClassName}
+                                aria-label={`Unmap ${entity.name} from Xero`}
+                                title="Unmap Xero tenant"
+                              >
+                                {isMapping ? <Spinner label="Updating" /> : "X"}
+                              </button>
+                            ) : null}
+                            {canDeleteEntity ? (
+                              <button
+                                type="button"
+                                onClick={() => void deleteEntity(entity)}
+                                disabled={isMapping || isDeletingEntity}
+                                className={dangerButtonClassName}
+                              >
+                                {isDeletingEntity ? <Spinner label="Deleting" /> : "Delete Entity"}
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     );
