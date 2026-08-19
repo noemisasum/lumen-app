@@ -365,6 +365,21 @@ export default function DashboardPage() {
               <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Entity Setup</h2>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Create Lumen orgs and entities, then map each entity to the right Xero tenant before bank statement ingestion.</p>
+                  </div>
+                  <Link
+                    href="/dashboard/entities"
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                  >
+                    Manage
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
                     <h2 className="text-sm font-semibold text-zinc-950">Account Recovery</h2>
                     <p className="mt-2 text-sm leading-6 text-zinc-600">Repair default workspace access if your account exists but admin membership is missing.</p>
                   </div>

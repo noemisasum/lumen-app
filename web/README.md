@@ -54,6 +54,18 @@ For production, set `XERO_REDIRECT_URI=https://app.lumen-labs.io/api/xero/callba
 
 Apply `supabase/xero_oauth.sql` after the base Supabase schema. The Xero tables have RLS enabled, no client-role grants or policies, and are intended to be accessed only by API routes using `SUPABASE_SERVICE_ROLE_KEY`. Browser code should use `/api/xero/status` rather than querying these tables directly.
 
+## Multi-entity setup and Xero mapping
+
+Use `/dashboard/entities` after signing in to create Lumen organisations and legal entities. Creating a new organisation also creates the first entity and grants the signed-in user owner/admin membership. Adding an entity to an existing organisation requires owner or admin access.
+
+The same page lists connected Xero tenants and maps one tenant to one Lumen entity. Mapping and unmapping are handled by authenticated API routes with server-side authorization checks:
+
+- `/api/orgs` lists accessible orgs/entities, Xero tenants, and current mappings; `POST` creates an org and first entity for the signed-in user.
+- `/api/entities` creates an entity under an org where the signed-in user is owner/admin.
+- `/api/entity-xero-mappings` maps or unmaps entities only when the signed-in user can administer that entity.
+
+The `entity_xero_mappings` table is created by `supabase/xero_oauth.sql` because it links multi-org entities to service-only Xero connection rows. Keep applying `supabase/schema_multi_org.sql` before `supabase/xero_oauth.sql` for the multi-entity deployment. The migration also adds low-risk `entity_bank_accounts` and `bank_statement_imports` placeholders so the later bank statement importer can attach to an entity and its mapped Xero tenant.
+
 ## Run locally
 
 ```bash
