@@ -68,6 +68,33 @@ function tenantLabel(tenants: XeroTenant[], mapping: EntityXeroMapping | null) {
   return tenants.find((tenant) => tenant.id === mapping.connection_tenant_id)?.name || mapping.xero_tenant_id;
 }
 
+const panelClass = "rounded-lg border border-zinc-200/80 bg-white shadow-sm";
+const fieldClass =
+  "mt-1 h-11 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 hover:border-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
+const selectClass = `${fieldClass} appearance-none truncate pr-10`;
+
+function SelectChevron() {
+  return (
+    <svg
+      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500"
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path d="m6 8 4 4 4-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SelectShell({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`relative min-w-0 ${className}`}>
+      {children}
+      <SelectChevron />
+    </div>
+  );
+}
+
 export default function EntityManagementPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -286,7 +313,7 @@ export default function EntityManagementPage() {
               <div className="text-sm font-medium text-zinc-700">Entities</div>
             </div>
           </header>
-          <main className="mt-8 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+          <main className={`mt-8 p-5 ${panelClass}`}>
             {error ? (
               <Notice tone="error" title="Entity Setup Needs Configuration">
                 {error}
@@ -313,24 +340,25 @@ export default function EntityManagementPage() {
           </div>
           <Link
             href="/dashboard"
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
           >
             Back to Dashboard
           </Link>
         </header>
 
         <main className="mt-8 space-y-5">
-          <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
+          <section className={`p-5 sm:p-6 ${panelClass}`}>
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Entity Setup</div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Map Lumen Entities to Xero.</h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950 sm:text-3xl">Map Lumen Entities to Xero.</h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
                   Create the organisations and entities your team works across, then choose the matching Xero tenant before bank statement ingestion is enabled.
                 </p>
               </div>
-              <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                Signed in as <span className="font-medium text-zinc-950">{session.email || session.userId}</span>
+              <div className="w-full border-t border-zinc-100 pt-4 text-sm text-zinc-700 sm:w-auto lg:max-w-sm lg:border-t-0 lg:pt-0 lg:text-right">
+                <div className="text-xs font-medium uppercase tracking-[0.12em] text-zinc-500">Signed in</div>
+                <div className="mt-1 truncate font-medium text-zinc-950">{session.email || session.userId}</div>
               </div>
             </div>
           </section>
@@ -353,17 +381,20 @@ export default function EntityManagementPage() {
             </Notice>
           ) : null}
 
-          <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+          <section className="grid items-start gap-4 lg:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.2fr)]">
             <div className="space-y-4">
-              <form onSubmit={createOrg} className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <h2 className="text-sm font-semibold text-zinc-950">New Organisation</h2>
+              <form onSubmit={createOrg} className={`p-5 ${panelClass}`}>
+                <div className="border-b border-zinc-100 pb-4">
+                  <h2 className="text-base font-semibold text-zinc-950">New Organisation</h2>
+                  <p className="mt-1 text-sm leading-5 text-zinc-600">Create a workspace and its first operating entity.</p>
+                </div>
                 <div className="mt-4 space-y-3">
                   <label className="block text-sm font-medium text-zinc-800">
                     Organisation Name
                     <input
                       value={newOrgName}
                       onChange={(event) => setNewOrgName(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      className={fieldClass}
                       placeholder="Lumen Holdings"
                       maxLength={120}
                       required
@@ -374,7 +405,7 @@ export default function EntityManagementPage() {
                     <input
                       value={newOrgEntityName}
                       onChange={(event) => setNewOrgEntityName(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      className={fieldClass}
                       placeholder="Lumen HK Limited"
                       maxLength={120}
                       required
@@ -385,7 +416,7 @@ export default function EntityManagementPage() {
                     <input
                       value={newOrgEntityCode}
                       onChange={(event) => setNewOrgEntityCode(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      className={fieldClass}
                       placeholder="HK"
                       maxLength={40}
                     />
@@ -394,40 +425,45 @@ export default function EntityManagementPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
                   {saving ? <Spinner label="Creating" /> : "Create Org and Entity"}
                 </button>
               </form>
 
-              <form onSubmit={createEntity} className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <h2 className="text-sm font-semibold text-zinc-950">New Entity</h2>
+              <form onSubmit={createEntity} className={`p-5 ${panelClass}`}>
+                <div className="border-b border-zinc-100 pb-4">
+                  <h2 className="text-base font-semibold text-zinc-950">New Entity</h2>
+                  <p className="mt-1 text-sm leading-5 text-zinc-600">Add another entity to an organisation you administer.</p>
+                </div>
                 <div className="mt-4 space-y-3">
                   <label className="block text-sm font-medium text-zinc-800">
                     Organisation
-                    <select
-                      value={selectedAdminOrg?.id ?? ""}
-                      onChange={(event) => setSelectedOrgId(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
-                      disabled={!manageableOrgs.length}
-                    >
-                      {manageableOrgs.length ? (
-                        manageableOrgs.map((org) => (
-                          <option key={org.id} value={org.id}>
-                            {org.name}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">No admin orgs</option>
-                      )}
-                    </select>
+                    <SelectShell>
+                      <select
+                        value={selectedAdminOrg?.id ?? ""}
+                        onChange={(event) => setSelectedOrgId(event.target.value)}
+                        className={selectClass}
+                        disabled={!manageableOrgs.length}
+                      >
+                        {manageableOrgs.length ? (
+                          manageableOrgs.map((org) => (
+                            <option key={org.id} value={org.id}>
+                              {org.name}
+                            </option>
+                          ))
+                        ) : (
+                          <option value="">No admin orgs</option>
+                        )}
+                      </select>
+                    </SelectShell>
                   </label>
                   <label className="block text-sm font-medium text-zinc-800">
                     Entity Name
                     <input
                       value={newEntityName}
                       onChange={(event) => setNewEntityName(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      className={fieldClass}
                       placeholder="Lumen US Inc."
                       maxLength={120}
                       required
@@ -439,7 +475,7 @@ export default function EntityManagementPage() {
                     <input
                       value={newEntityCode}
                       onChange={(event) => setNewEntityCode(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                      className={fieldClass}
                       placeholder="US"
                       maxLength={40}
                       disabled={!manageableOrgs.length}
@@ -449,29 +485,33 @@ export default function EntityManagementPage() {
                 <button
                   type="submit"
                   disabled={saving || !manageableOrgs.length}
-                  className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  className="mt-4 inline-flex h-11 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
                   {saving ? <Spinner label="Creating" /> : "Add Entity"}
                 </button>
               </form>
             </div>
 
-            <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+            <div className={panelClass}>
               <div className="border-b border-zinc-100 px-5 py-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <h2 className="text-sm font-semibold text-zinc-950">Accessible Entities</h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="text-base font-semibold text-zinc-950">Accessible Entities</h2>
+                    <p className="mt-1 text-sm leading-5 text-zinc-600">Choose the Lumen organisation, then map each entity to its Xero tenant.</p>
+                  </div>
                   {state.orgs.length ? (
-                    <select
-                      value={selectedOrg?.id ?? ""}
-                      onChange={(event) => setSelectedOrgId(event.target.value)}
-                      className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:w-56"
-                    >
-                      {state.orgs.map((org) => (
-                        <option key={org.id} value={org.id}>
-                          {org.name}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="w-full text-sm font-medium text-zinc-800 sm:w-64">
+                      <span className="sr-only">Organisation</span>
+                      <SelectShell>
+                        <select value={selectedOrg?.id ?? ""} onChange={(event) => setSelectedOrgId(event.target.value)} className={selectClass}>
+                          {state.orgs.map((org) => (
+                            <option key={org.id} value={org.id}>
+                              {org.name}
+                            </option>
+                          ))}
+                        </select>
+                      </SelectShell>
+                    </label>
                   ) : null}
                 </div>
               </div>
@@ -492,11 +532,18 @@ export default function EntityManagementPage() {
                     const isMapping = mappingEntityId === entity.id;
 
                     return (
-                      <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[1fr_280px] lg:items-center">
+                      <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,300px)] lg:items-center">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="truncate text-sm font-semibold text-zinc-950">{entity.name}</h3>
                             {entity.code ? <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">{entity.code}</span> : null}
+                            <span
+                              className={`rounded-md px-2 py-1 text-xs font-medium ${
+                                entity.xeroMapping ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"
+                              }`}
+                            >
+                              {entity.xeroMapping ? "Mapped" : "Not mapped"}
+                            </span>
                           </div>
                           <div className="mt-2 text-sm leading-6 text-zinc-600">
                             Xero: <span className={entity.xeroMapping ? "font-medium text-emerald-800" : "font-medium text-amber-800"}>{mappedTenantName}</span>
@@ -505,28 +552,30 @@ export default function EntityManagementPage() {
                         </div>
 
                         <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:flex-col">
-                          <select
-                            value={entity.xeroMapping?.connection_tenant_id ?? ""}
-                            onChange={(event) => {
-                              if (event.target.value) void mapEntity(entity.id, event.target.value);
-                            }}
-                            disabled={!entity.canAdmin || !state.xero.tenants.length || isMapping}
-                            className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                            aria-label={`Map ${entity.name} to Xero tenant`}
-                          >
-                            <option value="">{state.xero.tenants.length ? "Choose Xero tenant" : "No Xero tenants"}</option>
-                            {state.xero.tenants.map((tenant) => (
-                              <option key={tenant.id} value={tenant.id}>
-                                {tenant.name}
-                              </option>
-                            ))}
-                          </select>
+                          <SelectShell className="flex-1 lg:flex-none">
+                            <select
+                              value={entity.xeroMapping?.connection_tenant_id ?? ""}
+                              onChange={(event) => {
+                                if (event.target.value) void mapEntity(entity.id, event.target.value);
+                              }}
+                              disabled={!entity.canAdmin || !state.xero.tenants.length || isMapping}
+                              className={selectClass}
+                              aria-label={`Map ${entity.name} to Xero tenant`}
+                            >
+                              <option value="">{state.xero.tenants.length ? "Choose Xero tenant" : "No Xero tenants"}</option>
+                              {state.xero.tenants.map((tenant) => (
+                                <option key={tenant.id} value={tenant.id}>
+                                  {tenant.name}
+                                </option>
+                              ))}
+                            </select>
+                          </SelectShell>
                           {entity.xeroMapping ? (
                             <button
                               type="button"
                               onClick={() => unmapEntity(entity.id)}
                               disabled={!entity.canAdmin || isMapping}
-                              className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                              className="inline-flex h-11 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:min-w-24"
                             >
                               {isMapping ? <Spinner label="Updating" /> : "Unmap"}
                             </button>
