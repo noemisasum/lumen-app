@@ -12,10 +12,11 @@ export type AuthenticatedRequest = {
 };
 
 export function getMissingSupabaseServerEnv() {
+  const serverAdminKey = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   const entries: Array<[string, string | undefined]> = [
     ["NEXT_PUBLIC_SUPABASE_URL", process.env.NEXT_PUBLIC_SUPABASE_URL],
     ["NEXT_PUBLIC_SUPABASE_ANON_KEY", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY],
-    ["SUPABASE_SERVICE_ROLE_KEY", process.env.SUPABASE_SERVICE_ROLE_KEY],
+    ["SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY", serverAdminKey],
   ];
 
   return entries.filter(([, value]) => !value).map(([name]) => name);
@@ -30,7 +31,7 @@ function getServerEnv(): ServerEnv {
   return {
     url: process.env.NEXT_PUBLIC_SUPABASE_URL as string,
     anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
-    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY as string,
+    serviceRoleKey: (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY) as string,
   };
 }
 
