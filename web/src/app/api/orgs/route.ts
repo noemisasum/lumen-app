@@ -79,6 +79,11 @@ export async function GET(request: Request) {
       .select("org_id,role")
       .eq("user_id", user.id);
     if (membershipError) {
+      console.error("orgs: failed to load organisation access", {
+        code: membershipError.code,
+        message: membershipError.message,
+        details: membershipError.details,
+      });
       return NextResponse.json({ error: "Failed to load organisation access." }, { status: 500 });
     }
 

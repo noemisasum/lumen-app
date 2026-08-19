@@ -52,6 +52,11 @@ export function getSupabaseUserClient(accessToken: string): SupabaseClient {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
     accessToken: async () => accessToken,
   });
 }
