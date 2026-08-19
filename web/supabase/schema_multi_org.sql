@@ -255,9 +255,12 @@ revoke all on function app_private.is_org_member(uuid) from public;
 revoke all on function app_private.is_entity_member(uuid) from public;
 revoke all on function public.create_org_with_default_entity(uuid, text, text, text, text) from public;
 revoke all on function public.create_entity_with_membership(uuid, uuid, text, text) from public;
-grant usage on schema app_private to authenticated;
-grant execute on function app_private.is_org_member(uuid) to authenticated;
-grant execute on function app_private.is_entity_member(uuid) to authenticated;
+grant usage on schema public to authenticated, service_role;
+grant select on public.orgs, public.org_members, public.entities, public.entity_members to authenticated;
+grant all on public.orgs, public.org_members, public.entities, public.entity_members to service_role;
+grant usage on schema app_private to authenticated, service_role;
+grant execute on function app_private.is_org_member(uuid) to authenticated, service_role;
+grant execute on function app_private.is_entity_member(uuid) to authenticated, service_role;
 grant execute on function public.create_org_with_default_entity(uuid, text, text, text, text) to service_role;
 grant execute on function public.create_entity_with_membership(uuid, uuid, text, text) to service_role;
 
