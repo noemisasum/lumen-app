@@ -45,6 +45,17 @@ export function getSupabaseServiceClient(): SupabaseClient {
   });
 }
 
+export function getSupabaseUserClient(accessToken: string): SupabaseClient {
+  const env = getServerEnv();
+  return createClient(env.url, env.anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    accessToken: async () => accessToken,
+  });
+}
+
 export async function requireSupabaseUser(request: Request): Promise<AuthenticatedRequest> {
   const auth = request.headers.get("authorization") ?? "";
   const match = auth.match(/^Bearer\s+(.+)$/i);

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
+import { getMissingSupabaseServerEnv, getSupabaseServiceClient, getSupabaseUserClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { uniqueOrgSlug } from "@/lib/server/orgs";
 
 export const runtime = "nodejs";
@@ -70,10 +70,11 @@ export async function GET(request: Request) {
   if (missing.length) return missingEnvResponse(missing);
 
   try {
-    const { user } = await requireSupabaseUser(request);
-    const supabase = getSupabaseServiceClient();
+    const { user, accessToken } = await requireSupabaseUser(request);
+    const userSupabase = getSupabaseUserClient(accessToken);
+    const serviceSupabase = getSupabaseServiceClient();
 
-    const { data: orgMemberships, error: membershipError } = await supabase
+    const { data: orgMemberships, error: membershipError } = await userSupabase
       .from("org_members")
       .select("org_id,role")
       .eq("user_id", user.id);
@@ -86,13 +87,13 @@ export async function GET(request: Request) {
 
     const [orgResult, entityResult, entityMemberResult, connectionResult] = await Promise.all([
       orgIds.length
-        ? supabase.from("orgs").select("id,name,slug,created_at").in("id", orgIds).order("name")
+        ? userSupabase.from("orgs").select("id,name,slug,created_at").in("id", orgIds).order("name")
         : Promise.resolve({ data: [], error: null }),
       orgIds.length
-        ? supabase.from("entities").select("id,org_id,name,code,xero_tenant_id,created_at").in("org_id", orgIds).order("name")
+        ? userSupabase.from("entities").select("id,org_id,name,code,xero_tenant_id,created_at").in("org_id", orgIds).order("name")
         : Promise.resolve({ data: [], error: null }),
-      supabase.from("entity_members").select("entity_id,role").eq("user_id", user.id),
-      supabase
+      userSupabase.from("entity_members").select("entity_id,role").eq("user_id", user.id),
+      serviceSupabase
         .from("xero_connections")
         .select("id,connected_at,updated_at")
         .eq("user_id", user.id)
@@ -115,14 +116,14 @@ export async function GET(request: Request) {
 
     const [tenantResult, mappingResult] = await Promise.all([
       connection
-        ? supabase
+        ? serviceSupabase
             .from("xero_connection_tenants")
             .select("id,connection_id,tenant_id,tenant_name,tenant_type")
             .eq("connection_id", connection.id)
             .order("tenant_name")
         : Promise.resolve({ data: [], error: null }),
       entityIds.length
-        ? supabase
+        ? serviceSupabase
             .from("entity_xero_mappings")
             .select("id,entity_id,connection_id,connection_tenant_id,xero_tenant_id,mapped_by,created_at,updated_at")
             .in("entity_id", entityIds)
