@@ -54,6 +54,10 @@ create trigger set_invoices_updated_at
 before update on public.invoices
 for each row execute function public.set_updated_at();
 
+grant select, insert, update, delete on public.invoices, public.invoice_files to service_role;
+grant select, insert, update on public.invoices to authenticated;
+grant select, insert on public.invoice_files to authenticated;
+
 -- RLS
 alter table public.invoices enable row level security;
 alter table public.invoice_files enable row level security;

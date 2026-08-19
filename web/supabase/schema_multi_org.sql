@@ -260,6 +260,9 @@ grant execute on function app_private.is_org_member(uuid) to authenticated;
 grant execute on function app_private.is_entity_member(uuid) to authenticated;
 grant execute on function public.create_org_with_default_entity(uuid, text, text, text, text) to service_role;
 grant execute on function public.create_entity_with_membership(uuid, uuid, text, text) to service_role;
+grant select, insert, update, delete on public.invoices, public.invoice_files to service_role;
+grant select, insert, update on public.invoices to authenticated;
+grant select, insert on public.invoice_files to authenticated;
 
 -- RLS
 alter table public.orgs enable row level security;
