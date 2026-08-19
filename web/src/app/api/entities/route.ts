@@ -31,23 +31,18 @@ export async function POST(request: Request) {
     const supabase = getSupabaseServiceClient();
     await requireOrgAdmin(supabase, orgId, user.id);
 
-    const { data: entity, error: entityError } = await supabase
-      .from("entities")
-      .insert({ org_id: orgId, name, code })
-      .select("id,org_id,name,code,xero_tenant_id,created_at")
-      .single();
+    const { data: entity, error: entityError } = await supabase.rpc("create_entity_with_membership", {
+      p_org_id: orgId,
+      p_user_id: user.id,
+      p_name: name,
+      p_code: code,
+    });
 
     if (entityError || !entity) {
       return NextResponse.json({ error: "Failed to create entity. Check that the name is unique in this organisation." }, { status: 500 });
     }
 
-    const entityRow = entity as { id: string };
-    const { error: membershipError } = await supabase.from("entity_members").insert({ entity_id: entityRow.id, user_id: user.id, role: "admin" });
-    if (membershipError) {
-      return NextResponse.json({ error: "Failed to create entity membership." }, { status: 500 });
-    }
-
-    return NextResponse.json({ entity: { ...entity, role: "admin", canAdmin: true, xeroMapping: null } });
+    return NextResponse.json({ entity });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create entity." }, { status: 500 });

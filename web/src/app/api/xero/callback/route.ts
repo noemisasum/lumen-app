@@ -19,10 +19,6 @@ type StateRow = {
   expires_at: string;
 };
 
-type ExistingTenantRow = {
-  tenant_id: string;
-};
-
 function dashboardRedirect(request: Request, status: string) {
   const url = new URL("/dashboard", request.url);
   url.searchParams.set("xero", status);
@@ -122,34 +118,19 @@ export async function GET(request: Request) {
         .upsert(tenantRows, { onConflict: "connection_id,tenant_id" });
       if (tenantError) throw tenantError;
 
-      const currentTenantIds = new Set(tenantRows.map((tenant) => tenant.tenant_id));
-      const { data: existingTenants, error: existingTenantError } = await supabase
-        .from("xero_connection_tenants")
-        .select("tenant_id")
-        .eq("connection_id", connection.id);
+      const { error: cleanupTenantError } = await supabase.rpc("cleanup_stale_xero_connection_tenants", {
+        p_connection_id: connection.id,
+        p_current_tenant_ids: tenantRows.map((tenant) => tenant.tenant_id),
+      });
 
-      if (existingTenantError) throw existingTenantError;
-
-      const staleTenantIds = ((existingTenants ?? []) as ExistingTenantRow[])
-        .map((tenant) => tenant.tenant_id)
-        .filter((tenantId) => !currentTenantIds.has(tenantId));
-
-      for (const tenantId of staleTenantIds) {
-        const { error: deleteTenantError } = await supabase
-          .from("xero_connection_tenants")
-          .delete()
-          .eq("connection_id", connection.id)
-          .eq("tenant_id", tenantId);
-
-        if (deleteTenantError) throw deleteTenantError;
-      }
+      if (cleanupTenantError) throw cleanupTenantError;
     } else {
-      const { error: deleteTenantError } = await supabase
-        .from("xero_connection_tenants")
-        .delete()
-        .eq("connection_id", connection.id);
+      const { error: cleanupTenantError } = await supabase.rpc("cleanup_stale_xero_connection_tenants", {
+        p_connection_id: connection.id,
+        p_current_tenant_ids: [],
+      });
 
-      if (deleteTenantError) throw deleteTenantError;
+      if (cleanupTenantError) throw cleanupTenantError;
     }
 
     return dashboardRedirect(request, "connected");

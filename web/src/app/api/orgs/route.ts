@@ -191,36 +191,19 @@ export async function POST(request: Request) {
     const supabase = getSupabaseServiceClient();
     const slug = await uniqueOrgSlug(supabase, orgName);
 
-    const { data: org, error: orgError } = await supabase.from("orgs").insert({ slug, name: orgName }).select("id,name,slug").single();
-    if (orgError || !org) {
-      return NextResponse.json({ error: "Failed to create organisation." }, { status: 500 });
-    }
-
-    const orgRow = org as Pick<OrgRow, "id" | "name" | "slug">;
-    const { error: orgMemberError } = await supabase.from("org_members").insert({ org_id: orgRow.id, user_id: user.id, role: "owner" });
-    if (orgMemberError) {
-      return NextResponse.json({ error: "Failed to create organisation membership." }, { status: 500 });
-    }
-
-    const { data: entity, error: entityError } = await supabase
-      .from("entities")
-      .insert({ org_id: orgRow.id, name: entityName, code: entityCode })
-      .select("id,org_id,name,code")
-      .single();
-    if (entityError || !entity) {
-      return NextResponse.json({ error: "Failed to create entity." }, { status: 500 });
-    }
-
-    const entityRow = entity as Pick<EntityRow, "id" | "org_id" | "name" | "code">;
-    const { error: entityMemberError } = await supabase.from("entity_members").insert({ entity_id: entityRow.id, user_id: user.id, role: "admin" });
-    if (entityMemberError) {
-      return NextResponse.json({ error: "Failed to create entity membership." }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      org: { ...orgRow, role: "owner" },
-      entity: { ...entityRow, role: "admin", canAdmin: true, xeroMapping: null },
+    const { data, error } = await supabase.rpc("create_org_with_default_entity", {
+      p_user_id: user.id,
+      p_org_name: orgName,
+      p_org_slug: slug,
+      p_entity_name: entityName,
+      p_entity_code: entityCode,
     });
+
+    if (error || !data) {
+      return NextResponse.json({ error: "Failed to create organisation and entity." }, { status: 500 });
+    }
+
+    return NextResponse.json(data);
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create organisation and entity." }, { status: 500 });

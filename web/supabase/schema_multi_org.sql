@@ -51,6 +51,124 @@ create table if not exists public.entity_members (
 );
 create index if not exists entity_members_user_id_idx on public.entity_members(user_id);
 
+create or replace function public.create_org_with_default_entity(
+  p_user_id uuid,
+  p_org_name text,
+  p_org_slug text,
+  p_entity_name text,
+  p_entity_code text default null
+)
+returns jsonb as $$
+declare
+  v_org public.orgs%rowtype;
+  v_entity public.entities%rowtype;
+begin
+  if p_user_id is null then
+    raise exception 'User is required.';
+  end if;
+
+  if nullif(trim(p_org_name), '') is null or length(trim(p_org_name)) > 120 then
+    raise exception 'Organisation name is invalid.';
+  end if;
+
+  if nullif(trim(p_org_slug), '') is null then
+    raise exception 'Organisation slug is invalid.';
+  end if;
+
+  if nullif(trim(p_entity_name), '') is null or length(trim(p_entity_name)) > 120 then
+    raise exception 'Entity name is invalid.';
+  end if;
+
+  insert into public.orgs (slug, name)
+  values (trim(p_org_slug), trim(p_org_name))
+  returning * into v_org;
+
+  insert into public.org_members (org_id, user_id, role)
+  values (v_org.id, p_user_id, 'owner');
+
+  insert into public.entities (org_id, name, code)
+  values (v_org.id, trim(p_entity_name), nullif(trim(p_entity_code), ''))
+  returning * into v_entity;
+
+  insert into public.entity_members (entity_id, user_id, role)
+  values (v_entity.id, p_user_id, 'admin');
+
+  return jsonb_build_object(
+    'org', jsonb_build_object(
+      'id', v_org.id,
+      'name', v_org.name,
+      'slug', v_org.slug,
+      'created_at', v_org.created_at,
+      'role', 'owner'
+    ),
+    'entity', jsonb_build_object(
+      'id', v_entity.id,
+      'org_id', v_entity.org_id,
+      'name', v_entity.name,
+      'code', v_entity.code,
+      'xero_tenant_id', v_entity.xero_tenant_id,
+      'created_at', v_entity.created_at,
+      'role', 'admin',
+      'canAdmin', true,
+      'xeroMapping', null
+    )
+  );
+end;
+$$ language plpgsql
+security definer
+set search_path = public, pg_temp;
+
+create or replace function public.create_entity_with_membership(
+  p_org_id uuid,
+  p_user_id uuid,
+  p_name text,
+  p_code text default null
+)
+returns jsonb as $$
+declare
+  v_entity public.entities%rowtype;
+begin
+  if p_org_id is null or p_user_id is null then
+    raise exception 'Organisation and user are required.';
+  end if;
+
+  if nullif(trim(p_name), '') is null or length(trim(p_name)) > 120 then
+    raise exception 'Entity name is invalid.';
+  end if;
+
+  if not exists (
+    select 1
+    from public.org_members
+    where org_id = p_org_id
+      and user_id = p_user_id
+      and role in ('owner', 'admin')
+  ) then
+    raise exception 'User is not an organisation admin.';
+  end if;
+
+  insert into public.entities (org_id, name, code)
+  values (p_org_id, trim(p_name), nullif(trim(p_code), ''))
+  returning * into v_entity;
+
+  insert into public.entity_members (entity_id, user_id, role)
+  values (v_entity.id, p_user_id, 'admin');
+
+  return jsonb_build_object(
+    'id', v_entity.id,
+    'org_id', v_entity.org_id,
+    'name', v_entity.name,
+    'code', v_entity.code,
+    'xero_tenant_id', v_entity.xero_tenant_id,
+    'created_at', v_entity.created_at,
+    'role', 'admin',
+    'canAdmin', true,
+    'xeroMapping', null
+  );
+end;
+$$ language plpgsql
+security definer
+set search_path = public, pg_temp;
+
 -- Invoices
 create table if not exists public.invoices (
   id uuid primary key default gen_random_uuid(),
@@ -135,9 +253,13 @@ set search_path = public, pg_temp;
 
 revoke all on function app_private.is_org_member(uuid) from public;
 revoke all on function app_private.is_entity_member(uuid) from public;
+revoke all on function public.create_org_with_default_entity(uuid, text, text, text, text) from public;
+revoke all on function public.create_entity_with_membership(uuid, uuid, text, text) from public;
 grant usage on schema app_private to authenticated;
 grant execute on function app_private.is_org_member(uuid) to authenticated;
 grant execute on function app_private.is_entity_member(uuid) to authenticated;
+grant execute on function public.create_org_with_default_entity(uuid, text, text, text, text) to service_role;
+grant execute on function public.create_entity_with_membership(uuid, uuid, text, text) to service_role;
 
 -- RLS
 alter table public.orgs enable row level security;

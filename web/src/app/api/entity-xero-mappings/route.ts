@@ -11,8 +11,6 @@ type MappingBody = {
 
 type TenantRow = {
   id: string;
-  connection_id: string;
-  tenant_id: string;
 };
 
 function mappingConfigError(missing: string[]) {
@@ -49,31 +47,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Xero tenant not found for this account." }, { status: 404 });
     }
 
-    const tenantRow = tenant as TenantRow;
-    const now = new Date().toISOString();
-    const { data: mapping, error: mappingError } = await supabase
-      .from("entity_xero_mappings")
-      .upsert(
-        {
-          entity_id: entityId,
-          connection_id: tenantRow.connection_id,
-          connection_tenant_id: tenantRow.id,
-          xero_tenant_id: tenantRow.tenant_id,
-          mapped_by: user.id,
-          updated_at: now,
-        },
-        { onConflict: "entity_id" },
-      )
-      .select("id,entity_id,connection_id,connection_tenant_id,xero_tenant_id,mapped_by,created_at,updated_at")
-      .single();
+    const { data: mapping, error: mappingError } = await supabase.rpc("map_entity_to_xero_tenant", {
+      p_entity_id: entityId,
+      p_connection_tenant_id: (tenant as TenantRow).id,
+      p_user_id: user.id,
+    });
 
     if (mappingError || !mapping) {
       return NextResponse.json({ error: "Failed to map entity to Xero tenant. The tenant may already be mapped." }, { status: 500 });
-    }
-
-    const { error: entityUpdateError } = await supabase.from("entities").update({ xero_tenant_id: tenantRow.tenant_id }).eq("id", entityId);
-    if (entityUpdateError) {
-      return NextResponse.json({ error: "Mapped tenant, but failed to update entity compatibility field." }, { status: 500 });
     }
 
     return NextResponse.json({ mapping });
@@ -97,14 +78,12 @@ export async function DELETE(request: Request) {
     const supabase = getSupabaseServiceClient();
     await requireEntityAdmin(supabase, entityId, user.id);
 
-    const { error: deleteError } = await supabase.from("entity_xero_mappings").delete().eq("entity_id", entityId);
+    const { error: deleteError } = await supabase.rpc("unmap_entity_from_xero_tenant", {
+      p_entity_id: entityId,
+      p_user_id: user.id,
+    });
     if (deleteError) {
       return NextResponse.json({ error: "Failed to remove Xero mapping." }, { status: 500 });
-    }
-
-    const { error: entityUpdateError } = await supabase.from("entities").update({ xero_tenant_id: null }).eq("id", entityId);
-    if (entityUpdateError) {
-      return NextResponse.json({ error: "Removed mapping, but failed to clear entity compatibility field." }, { status: 500 });
     }
 
     return NextResponse.json({ ok: true });

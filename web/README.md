@@ -52,7 +52,7 @@ Configure the Xero app callback URLs to include:
 
 For production, set `XERO_REDIRECT_URI=https://app.lumen-labs.io/api/xero/callback`. For local development, set `XERO_REDIRECT_URI=http://localhost:3000/api/xero/callback` in `.env.local`.
 
-Apply `supabase/xero_oauth.sql` after the base Supabase schema. The Xero tables have RLS enabled, no client-role grants or policies, and are intended to be accessed only by API routes using `SUPABASE_SERVICE_ROLE_KEY`. Browser code should use `/api/xero/status` rather than querying these tables directly.
+Apply `supabase/xero_oauth.sql` after `supabase/schema_multi_org.sql`. The migration includes entity mapping functions and references the multi-org entity/membership tables, so it is not intended for the legacy single-user `schema.sql` path. The Xero tables have RLS enabled, no client-role grants or policies, and are intended to be accessed only by API routes using `SUPABASE_SERVICE_ROLE_KEY`. Browser code should use `/api/xero/status` rather than querying these tables directly.
 
 ## Multi-entity setup and Xero mapping
 
