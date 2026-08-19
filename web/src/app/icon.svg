@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Lumen app icon</title>
+  <rect width="512" height="512" rx="104" fill="#FFFFFF" />
+  <rect x="30" y="30" width="452" height="452" rx="82" fill="none" stroke="#0D1117" stroke-opacity=".08" />
+  <g transform="translate(88 104) scale(2.35)">
+    <path fill="#050D13" d="M18 17 58 33v62l-40 16Z" />
+    <path fill="#C8A14A" d="m58 33 42 31-42 31Z" />
+    <path fill="none" stroke="#C8A14A" stroke-linecap="square" stroke-linejoin="miter" stroke-width="7" d="m104 38 23-15v82l-23-15" />
+  </g>
+</svg>

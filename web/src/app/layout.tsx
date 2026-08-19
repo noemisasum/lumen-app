@@ -18,6 +18,20 @@ export const metadata: Metadata = {
     template: "%s | Lumen",
   },
   description: "Treasury visibility and reconciliation workflows for finance teams.",
+  icons: {
+    icon: [
+      {
+        url: "/icon.svg",
+        type: "image/svg+xml",
+      },
+    ],
+    apple: [
+      {
+        url: "/brand/lumen-app-icon-light.svg",
+        type: "image/svg+xml",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

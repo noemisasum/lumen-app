@@ -59,6 +59,9 @@ type NoticeState = {
   message: string;
 };
 
+const selectClassName =
+  "h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white py-0 pl-3 pr-10 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -66,6 +69,24 @@ function getErrorMessage(err: unknown, fallback: string) {
 function tenantLabel(tenants: XeroTenant[], mapping: EntityXeroMapping | null) {
   if (!mapping) return "Not mapped";
   return tenants.find((tenant) => tenant.id === mapping.connection_tenant_id)?.name || mapping.xero_tenant_id;
+}
+
+function SelectControl({
+  children,
+  className = "",
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  return (
+    <span className={`relative mt-1 block ${className}`}>
+      <select {...props} className={selectClassName}>
+        {children}
+      </select>
+      <span
+        className="pointer-events-none absolute right-3 top-1/2 h-2 w-2 -translate-y-[60%] rotate-45 border-b border-r border-zinc-500"
+        aria-hidden="true"
+      />
+    </span>
+  );
 }
 
 export default function EntityManagementPage() {
@@ -405,10 +426,9 @@ export default function EntityManagementPage() {
                 <div className="mt-4 space-y-3">
                   <label className="block text-sm font-medium text-zinc-800">
                     Organisation
-                    <select
+                    <SelectControl
                       value={selectedAdminOrg?.id ?? ""}
                       onChange={(event) => setSelectedOrgId(event.target.value)}
-                      className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
                       disabled={!manageableOrgs.length}
                     >
                       {manageableOrgs.length ? (
@@ -420,7 +440,7 @@ export default function EntityManagementPage() {
                       ) : (
                         <option value="">No admin orgs</option>
                       )}
-                    </select>
+                    </SelectControl>
                   </label>
                   <label className="block text-sm font-medium text-zinc-800">
                     Entity Name
@@ -461,17 +481,17 @@ export default function EntityManagementPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h2 className="text-sm font-semibold text-zinc-950">Accessible Entities</h2>
                   {state.orgs.length ? (
-                    <select
+                    <SelectControl
                       value={selectedOrg?.id ?? ""}
                       onChange={(event) => setSelectedOrgId(event.target.value)}
-                      className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:w-56"
+                      className="mt-0 sm:w-56"
                     >
                       {state.orgs.map((org) => (
                         <option key={org.id} value={org.id}>
                           {org.name}
                         </option>
                       ))}
-                    </select>
+                    </SelectControl>
                   ) : null}
                 </div>
               </div>
@@ -505,13 +525,13 @@ export default function EntityManagementPage() {
                         </div>
 
                         <div className="flex min-w-0 flex-col gap-2 sm:flex-row lg:flex-col">
-                          <select
+                          <SelectControl
                             value={entity.xeroMapping?.connection_tenant_id ?? ""}
                             onChange={(event) => {
                               if (event.target.value) void mapEntity(entity.id, event.target.value);
                             }}
                             disabled={!entity.canAdmin || !state.xero.tenants.length || isMapping}
-                            className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                            className="mt-0"
                             aria-label={`Map ${entity.name} to Xero tenant`}
                           >
                             <option value="">{state.xero.tenants.length ? "Choose Xero tenant" : "No Xero tenants"}</option>
@@ -520,7 +540,7 @@ export default function EntityManagementPage() {
                                 {tenant.name}
                               </option>
                             ))}
-                          </select>
+                          </SelectControl>
                           {entity.xeroMapping ? (
                             <button
                               type="button"
