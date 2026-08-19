@@ -49,10 +49,10 @@ on conflict (entity_id, user_id) do update set role = excluded.role;
 - `schema_multi_org.sql` adds **orgs + entities + membership** and scopes access by membership (future-proof for real teams).
 - `schema_multi_org.sql` also creates a private `invoices` storage bucket and authenticated upload/read policies scoped to each user's own top-level object folder.
 
-## 3) Xero OAuth tables
+## 3) Xero OAuth tables and entity mapping
 
-Run `supabase/xero_oauth.sql` after either base schema when enabling the Xero connection UI.
+Run `supabase/xero_oauth.sql` only after `supabase/schema_multi_org.sql` when enabling the Xero connection and entity mapping UI. The migration references `public.entities`, `public.org_members`, and `public.entity_members`, so it is not compatible with the legacy single-user `schema.sql` path.
 
-The migration creates `public.xero_oauth_states`, `public.xero_connections`, and `public.xero_connection_tenants`. These tables are RLS-enabled, have no client-role grants or policies, and are not meant to be queried from browser code. The Next.js API routes write them with `SUPABASE_SERVICE_ROLE_KEY`; keep that key server-only.
+The migration creates `public.xero_oauth_states`, `public.xero_connections`, `public.xero_connection_tenants`, and the multi-entity Xero mapping tables/functions. These tables are RLS-enabled, have no client-role grants or policies, and are not meant to be queried from browser code. The Next.js API routes write them with `SUPABASE_SERVICE_ROLE_KEY`; keep that key server-only.
 
 Xero token sets are encrypted in the API route before storage. Set `XERO_TOKEN_ENCRYPTION_KEY` to generated key material, not a passphrase or arbitrary string. Use either `openssl rand -base64 32` for a 32-byte base64 key or `openssl rand -hex 32` for a 64-character hex key.

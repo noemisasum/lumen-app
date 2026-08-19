@@ -33,6 +33,7 @@ export default function AuthCallbackPage() {
         if (callbackError) throw new Error(callbackError);
 
         const code = url.searchParams.get("code");
+        const callbackType = url.searchParams.get("type");
         if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
@@ -42,6 +43,15 @@ export default function AuthCallbackPage() {
         if (error) throw error;
         if (!data.session) {
           throw new Error("We could not find an active session. The link may have expired.");
+        }
+
+        if (callbackType === "recovery") {
+          setStatus("ok");
+          setMessage("Your recovery link is ready. Opening password reset.");
+          redirectTimer = setTimeout(() => {
+            window.location.replace("/reset-password");
+          }, 500);
+          return;
         }
 
         setStatus("ok");

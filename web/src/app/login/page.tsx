@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { AuthShell } from "@/components/auth-shell";
 import { Notice, Spinner } from "@/components/ui";
@@ -13,6 +14,7 @@ function getErrorMessage(err: unknown, fallback: string) {
 }
 
 export default function LoginPage() {
+  const router = useRouter();
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
   const [email, setEmail] = useState("");
@@ -41,7 +43,7 @@ export default function LoginPage() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      window.location.assign("/dashboard");
+      router.push("/dashboard");
     } catch (err: unknown) {
       setState({
         title: "Could Not Sign You In",
@@ -56,7 +58,7 @@ export default function LoginPage() {
     <AuthShell
       eyebrow="Treasury Operations"
       title="Sign In to Your Lumen Dashboard."
-      subtitle="Use password authentication for returning users. Email-link onboarding is available from the signup page."
+      subtitle="Use your email and password to return to your Lumen workspace."
       actionHref="/signup"
       actionLabel="Sign Up"
     >
@@ -90,9 +92,17 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="login-password" className="text-sm font-medium text-zinc-800">
-            Password
-          </label>
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="login-password" className="text-sm font-medium text-zinc-800">
+              Password
+            </label>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-zinc-700 underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+            >
+              Forgot Password?
+            </Link>
+          </div>
           <input
             id="login-password"
             name="password"

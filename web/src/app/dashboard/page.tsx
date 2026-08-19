@@ -18,8 +18,21 @@ type XeroStatus = {
   tenants: Array<{ id: string; name: string }>;
 };
 
+type XeroErrorBody = {
+  error?: string;
+  expectedCallbackUri?: string;
+  configuredRedirectUri?: string;
+};
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
+}
+
+function getXeroErrorMessage(body: XeroErrorBody, fallback: string) {
+  const message = body.error || fallback;
+  if (!body.expectedCallbackUri) return message;
+
+  return `${message} Add ${body.expectedCallbackUri} in Xero, then set XERO_REDIRECT_URI to the same value in Vercel.`;
 }
 
 function xeroStatusMessage(status: string | null) {
@@ -53,6 +66,8 @@ export default function DashboardPage() {
   const [xeroConnecting, setXeroConnecting] = useState(false);
   const [xeroError, setXeroError] = useState<string | null>(null);
   const [xeroNotice, setXeroNotice] = useState<ReturnType<typeof xeroStatusMessage>>(null);
+  const [recoveringAccess, setRecoveringAccess] = useState(false);
+  const [accessRecoveryNotice, setAccessRecoveryNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -131,8 +146,8 @@ export default function DashboardPage() {
         method: "POST",
         headers: { Authorization: `Bearer ${session.accessToken}` },
       });
-      const body = (await response.json()) as { authorizationUrl?: string; error?: string };
-      if (!response.ok || !body.authorizationUrl) throw new Error(body.error || "Failed to start Xero connection.");
+      const body = (await response.json()) as { authorizationUrl?: string } & XeroErrorBody;
+      if (!response.ok || !body.authorizationUrl) throw new Error(getXeroErrorMessage(body, "Failed to start Xero connection."));
       window.location.assign(body.authorizationUrl);
     } catch (e: unknown) {
       setXeroError(getErrorMessage(e, "Failed to start Xero connection."));
@@ -145,6 +160,33 @@ export default function DashboardPage() {
     setSigningOut(true);
     await supabase.auth.signOut();
     window.location.replace("/login");
+  }
+
+  async function recoverAccountAccess() {
+    if (!session) return;
+    setRecoveringAccess(true);
+    setAccessRecoveryNotice(null);
+    try {
+      const response = await fetch("/api/account/recovery", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.accessToken}` },
+      });
+      const body = (await response.json()) as { error?: string; orgRole?: string; entityRole?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to recover account access.");
+      setAccessRecoveryNotice({
+        tone: "success",
+        title: "Access Recovered",
+        message: `Your Lumen workspace access is active as ${body.orgRole ?? "owner"} and entity ${body.entityRole ?? "admin"}.`,
+      });
+    } catch (e: unknown) {
+      setAccessRecoveryNotice({
+        tone: "warning",
+        title: "Access Recovery Needs Admin",
+        message: getErrorMessage(e, "Ask an existing owner to invite or promote this account."),
+      });
+    } finally {
+      setRecoveringAccess(false);
+    }
   }
 
   if (loading || !session) {
@@ -321,12 +363,42 @@ export default function DashboardPage() {
               </div>
 
               <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <h2 className="text-sm font-semibold text-zinc-950">Next Setup Steps</h2>
-                <ul className="mt-4 space-y-3 text-sm leading-6 text-zinc-700">
-                  <li>Invite treasury users into their organisation.</li>
-                  <li>Connect accounting sources for recurring book balances.</li>
-                  <li>Upload bank statements through statement intake.</li>
-                </ul>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Entity Setup</h2>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Create Lumen orgs and entities, then map each entity to the right Xero tenant before bank statement ingestion.</p>
+                  </div>
+                  <Link
+                    href="/dashboard/entities"
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                  >
+                    Manage
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Account Recovery</h2>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Repair default workspace access if your account exists but admin membership is missing.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={recoverAccountAccess}
+                    disabled={recoveringAccess}
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    {recoveringAccess ? "Recovering" : "Repair"}
+                  </button>
+                </div>
+                {accessRecoveryNotice ? (
+                  <div className="mt-4">
+                    <Notice tone={accessRecoveryNotice.tone} title={accessRecoveryNotice.title}>
+                      {accessRecoveryNotice.message}
+                    </Notice>
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>

@@ -27,6 +27,47 @@ export function getXeroEnvIssueNames() {
   return [...missing, ...invalid.map((name) => `${name} (must be 32-byte base64 or 64-character hex)`)];
 }
 
+export function getConfiguredXeroRedirectUri() {
+  return process.env.XERO_REDIRECT_URI ?? null;
+}
+
+export function getRequestOrigin(request: Request) {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto.split(",")[0].trim()}://${forwardedHost.split(",")[0].trim()}`;
+  }
+
+  return new URL(request.url).origin;
+}
+
+export function getXeroRedirectOriginMismatch(request: Request) {
+  const configuredRedirectUri = getConfiguredXeroRedirectUri();
+  if (!configuredRedirectUri) return null;
+
+  try {
+    const configured = new URL(configuredRedirectUri);
+    const requestOrigin = getRequestOrigin(request);
+    const expectedCallbackUri = new URL("/api/xero/callback", requestOrigin).toString();
+
+    if (configured.origin !== requestOrigin) {
+      return {
+        configuredRedirectUri,
+        expectedCallbackUri,
+        requestOrigin,
+      };
+    }
+  } catch {
+    return {
+      configuredRedirectUri,
+      expectedCallbackUri: new URL("/api/xero/callback", getRequestOrigin(request)).toString(),
+      requestOrigin: getRequestOrigin(request),
+    };
+  }
+
+  return null;
+}
+
 export function createOauthState() {
   return randomBytes(32).toString("base64url");
 }
