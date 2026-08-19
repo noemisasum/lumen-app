@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
+import { removeInvoiceStorageObjects } from "@/lib/server/invoice-storage";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
-import { uniqueOrgSlug } from "@/lib/server/orgs";
+import { requireOrgOwner, uniqueOrgSlug } from "@/lib/server/orgs";
 
 export const runtime = "nodejs";
 
@@ -207,5 +208,41 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create organisation and entity." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const missing = getMissingSupabaseServerEnv();
+  if (missing.length) return missingEnvResponse(missing);
+
+  try {
+    const { user } = await requireSupabaseUser(request);
+    const requestUrl = new URL(request.url);
+    const orgId = requestUrl.searchParams.get("orgId")?.trim();
+
+    if (!orgId) return NextResponse.json({ error: "Choose an organisation." }, { status: 400 });
+
+    const supabase = getSupabaseServiceClient();
+    await requireOrgOwner(supabase, orgId, user.id);
+
+    const { data: files, error: filesError } = await supabase
+      .from("invoice_files")
+      .select("provider,bucket,object_key")
+      .eq("org_id", orgId);
+    if (filesError) {
+      return NextResponse.json({ error: "Failed to inspect organisation files before deletion." }, { status: 500 });
+    }
+
+    await removeInvoiceStorageObjects(supabase, files ?? []);
+
+    const { error: deleteError } = await supabase.from("orgs").delete().eq("id", orgId);
+    if (deleteError) {
+      return NextResponse.json({ error: "Failed to delete organisation." }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    return NextResponse.json({ error: "Failed to delete organisation." }, { status: 500 });
   }
 }

@@ -63,6 +63,18 @@ export async function requireOrgAdmin(supabase: SupabaseClient, orgId: string, u
   return role;
 }
 
+export async function requireOrgOwner(supabase: SupabaseClient, orgId: string, userId: string) {
+  const role = await getOrgRole(supabase, orgId, userId);
+  if (role !== "owner") {
+    throw new Response(JSON.stringify({ error: "You need org owner access for this action." }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  return role;
+}
+
 export async function requireEntityAdmin(supabase: SupabaseClient, entityId: string, userId: string) {
   const { data: entity, error: entityError } = await supabase.from("entities").select("org_id").eq("id", entityId).maybeSingle();
   if (entityError) throw entityError;
