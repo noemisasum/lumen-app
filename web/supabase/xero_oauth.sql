@@ -215,9 +215,33 @@ create table if not exists public.bank_statement_imports (
   statement_period_end date,
   raw_file_id uuid references public.invoice_files(id) on delete set null,
   error_message text,
+  reprocess_attempt_count integer not null default 0 check (reprocess_attempt_count >= 0),
+  last_reprocess_attempt_at timestamptz,
+  next_reprocess_after timestamptz,
+  last_reprocess_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.bank_statement_imports
+  add column if not exists reprocess_attempt_count integer not null default 0;
+alter table public.bank_statement_imports
+  add column if not exists last_reprocess_attempt_at timestamptz;
+alter table public.bank_statement_imports
+  add column if not exists next_reprocess_after timestamptz;
+alter table public.bank_statement_imports
+  add column if not exists last_reprocess_error text;
+alter table public.bank_statement_imports
+  alter column reprocess_attempt_count set default 0;
+update public.bank_statement_imports
+  set reprocess_attempt_count = 0
+  where reprocess_attempt_count is null;
+alter table public.bank_statement_imports
+  alter column reprocess_attempt_count set not null;
+alter table public.bank_statement_imports
+  drop constraint if exists bank_statement_imports_reprocess_attempt_count_check;
+alter table public.bank_statement_imports
+  add constraint bank_statement_imports_reprocess_attempt_count_check
+  check (reprocess_attempt_count >= 0);
 alter table public.bank_statement_imports
   drop constraint if exists bank_statement_imports_status_check;
 alter table public.bank_statement_imports
@@ -225,6 +249,9 @@ alter table public.bank_statement_imports
   check (status in ('queued','pending_parse','processing','imported','failed'));
 create index if not exists bank_statement_imports_entity_id_idx on public.bank_statement_imports(entity_id);
 create index if not exists bank_statement_imports_status_idx on public.bank_statement_imports(status);
+create index if not exists bank_statement_imports_reprocess_due_idx
+  on public.bank_statement_imports(next_reprocess_after, reprocess_attempt_count, created_at)
+  where source = 'manual' and status in ('queued','pending_parse','failed');
 do $$
 begin
   if to_regclass('public.bank_statement_imports_manual_raw_file_account_uidx') is null then
@@ -246,6 +273,29 @@ begin
   end if;
 end;
 $$;
+
+create table if not exists public.bank_statement_import_processing_logs (
+  id uuid primary key default gen_random_uuid(),
+  statement_import_id uuid not null references public.bank_statement_imports(id) on delete cascade,
+  entity_id uuid not null references public.entities(id) on delete cascade,
+  bank_account_id uuid references public.entity_bank_accounts(id) on delete set null,
+  raw_file_id uuid references public.invoice_files(id) on delete set null,
+  trigger text not null check (trigger in ('manual_upload','maintenance_reprocess','maintenance_cron')),
+  status text not null default 'started' check (status in ('started','imported','pending_parse','failed','skipped')),
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  transaction_count integer not null default 0 check (transaction_count >= 0),
+  balance_count integer not null default 0 check (balance_count >= 0),
+  warning_message text,
+  error_message text,
+  created_at timestamptz not null default now()
+);
+create index if not exists bank_statement_import_processing_logs_import_idx
+  on public.bank_statement_import_processing_logs(statement_import_id, started_at desc);
+create index if not exists bank_statement_import_processing_logs_entity_idx
+  on public.bank_statement_import_processing_logs(entity_id, started_at desc);
+create index if not exists bank_statement_import_processing_logs_status_idx
+  on public.bank_statement_import_processing_logs(status, started_at desc);
 
 -- Shared bank ledger tables. Manual statement parsing and Xero sync both write
 -- here so downstream reconciliation code has one transaction/balance model.
@@ -588,6 +638,7 @@ alter table public.xero_connection_tenants enable row level security;
 alter table public.entity_xero_mappings enable row level security;
 alter table public.entity_bank_accounts enable row level security;
 alter table public.bank_statement_imports enable row level security;
+alter table public.bank_statement_import_processing_logs enable row level security;
 alter table public.bank_account_transactions enable row level security;
 alter table public.bank_account_balances enable row level security;
 
@@ -597,6 +648,7 @@ revoke all on public.xero_connection_tenants from public;
 revoke all on public.entity_xero_mappings from public;
 revoke all on public.entity_bank_accounts from public;
 revoke all on public.bank_statement_imports from public;
+revoke all on public.bank_statement_import_processing_logs from public;
 revoke all on public.bank_account_transactions from public;
 revoke all on public.bank_account_balances from public;
 revoke all on public.xero_oauth_states from anon;
@@ -605,6 +657,7 @@ revoke all on public.xero_connection_tenants from anon;
 revoke all on public.entity_xero_mappings from anon;
 revoke all on public.entity_bank_accounts from anon;
 revoke all on public.bank_statement_imports from anon;
+revoke all on public.bank_statement_import_processing_logs from anon;
 revoke all on public.bank_account_transactions from anon;
 revoke all on public.bank_account_balances from anon;
 revoke all on public.xero_oauth_states from authenticated;
@@ -613,6 +666,7 @@ revoke all on public.xero_connection_tenants from authenticated;
 revoke all on public.entity_xero_mappings from authenticated;
 revoke all on public.entity_bank_accounts from authenticated;
 revoke all on public.bank_statement_imports from authenticated;
+revoke all on public.bank_statement_import_processing_logs from authenticated;
 revoke all on public.bank_account_transactions from authenticated;
 revoke all on public.bank_account_balances from authenticated;
 
@@ -622,6 +676,7 @@ grant all on public.xero_connection_tenants to service_role;
 grant all on public.entity_xero_mappings to service_role;
 grant all on public.entity_bank_accounts to service_role;
 grant all on public.bank_statement_imports to service_role;
+grant all on public.bank_statement_import_processing_logs to service_role;
 grant all on public.bank_account_transactions to service_role;
 grant all on public.bank_account_balances to service_role;
 
