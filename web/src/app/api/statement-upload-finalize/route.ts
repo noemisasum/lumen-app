@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { removeInvoiceStorageObjects } from "@/lib/server/invoice-storage";
 import { requireEntityAccess } from "@/lib/server/orgs";
+import { parseManualStatementImport } from "@/lib/server/statement-import-parser";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 
 export const runtime = "nodejs";
@@ -17,6 +18,18 @@ type FinalizeUploadBody = {
 
 type StorageFileRow = {
   name: string;
+};
+
+type InvoiceFileRow = {
+  id: string;
+  invoice_id: string;
+  org_id: string;
+  entity_id: string;
+  created_by: string;
+};
+
+type StatementImportRow = {
+  id: string;
 };
 
 function missingEnvResponse(missing: string[]) {
@@ -41,6 +54,74 @@ function cleanupUpload(
     invoiceId ? supabase.from("invoices").delete().eq("id", invoiceId) : Promise.resolve(),
     removeInvoiceStorageObjects(supabase, [{ provider: "supabase", bucket, object_key: objectKey }]),
   ]);
+}
+
+function cleanupInvoice(supabase: ReturnType<typeof getSupabaseServiceClient>, invoiceId: string) {
+  return supabase.from("invoices").delete().eq("id", invoiceId);
+}
+
+async function loadInvoiceFileByObject(supabase: ReturnType<typeof getSupabaseServiceClient>, bucket: string, objectKey: string) {
+  const { data, error } = await supabase
+    .from("invoice_files")
+    .select("id,invoice_id,org_id,entity_id,created_by")
+    .eq("provider", "supabase")
+    .eq("bucket", bucket)
+    .eq("object_key", objectKey)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as InvoiceFileRow | null) ?? null;
+}
+
+async function loadStatementImport(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  rawFileId: string,
+  bankAccountId: string,
+  entityId: string,
+) {
+  const { data, error } = await supabase
+    .from("bank_statement_imports")
+    .select("id")
+    .eq("raw_file_id", rawFileId)
+    .eq("bank_account_id", bankAccountId)
+    .eq("entity_id", entityId)
+    .eq("source", "manual")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as StatementImportRow | null) ?? null;
+}
+
+async function createOrLoadStatementImport(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  input: { entityId: string; bankAccountId: string; userId: string; rawFileId: string },
+) {
+  const existing = await loadStatementImport(supabase, input.rawFileId, input.bankAccountId, input.entityId);
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from("bank_statement_imports")
+    .insert({
+      entity_id: input.entityId,
+      bank_account_id: input.bankAccountId,
+      created_by: input.userId,
+      source: "manual",
+      status: "pending_parse",
+      raw_file_id: input.rawFileId,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      const concurrent = await loadStatementImport(supabase, input.rawFileId, input.bankAccountId, input.entityId);
+      if (concurrent) return concurrent;
+    }
+    throw error;
+  }
+  if (!data) throw new Error("Missing statement import row.");
+  return data as StatementImportRow;
 }
 
 export async function POST(request: Request) {
@@ -101,6 +182,42 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Uploaded file was not found in storage." }, { status: 400 });
     }
 
+    const existingFile = await loadInvoiceFileByObject(supabase, bucket, normalized);
+    if (existingFile) {
+      if (existingFile.org_id !== entityAccess.orgId || existingFile.entity_id !== entityId || existingFile.created_by !== user.id) {
+        return NextResponse.json({ error: "Uploaded file is already linked to a different entity." }, { status: 409 });
+      }
+
+      const statementImport = await createOrLoadStatementImport(supabase, {
+        entityId,
+        bankAccountId,
+        userId: user.id,
+        rawFileId: existingFile.id,
+      });
+
+      cleanupBucket = "";
+      cleanupObjectKey = "";
+
+      const parseResult = await parseManualStatementImport(supabase, {
+        statementImportId: statementImport.id,
+        entityId,
+        bankAccountId,
+        rawFileId: existingFile.id,
+        bucket,
+        objectKey: normalized,
+        mimeType,
+        sizeBytes,
+      });
+
+      return NextResponse.json({
+        ok: true,
+        invoiceId: existingFile.invoice_id,
+        rawFileId: existingFile.id,
+        statementImportId: statementImport.id,
+        parse: parseResult,
+      });
+    }
+
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
       .insert({
@@ -131,23 +248,76 @@ export async function POST(request: Request) {
       })
       .select("id")
       .single();
-    if (fileError || !invoiceFile) throw fileError ?? new Error("Missing invoice file row.");
+    if (fileError) {
+      if (fileError.code === "23505") {
+        const duplicateInvoiceId = cleanupInvoiceId;
+        cleanupInvoiceId = "";
+        cleanupBucket = "";
+        cleanupObjectKey = "";
+        await cleanupInvoice(supabase, duplicateInvoiceId);
+        const concurrentFile = await loadInvoiceFileByObject(supabase, bucket, normalized);
+        if (!concurrentFile || concurrentFile.org_id !== entityAccess.orgId || concurrentFile.entity_id !== entityId || concurrentFile.created_by !== user.id) {
+          return NextResponse.json({ error: "Uploaded file is already linked to a different entity." }, { status: 409 });
+        }
+        const statementImport = await createOrLoadStatementImport(supabase, {
+          entityId,
+          bankAccountId,
+          userId: user.id,
+          rawFileId: concurrentFile.id,
+        });
 
-    const { error: importError } = await supabase.from("bank_statement_imports").insert({
-      entity_id: entityId,
-      bank_account_id: bankAccountId,
-      created_by: user.id,
-      source: "manual",
-      status: "queued",
-      raw_file_id: invoiceFile.id,
+        const parseResult = await parseManualStatementImport(supabase, {
+          statementImportId: statementImport.id,
+          entityId,
+          bankAccountId,
+          rawFileId: concurrentFile.id,
+          bucket,
+          objectKey: normalized,
+          mimeType,
+          sizeBytes,
+        });
+
+        return NextResponse.json({
+          ok: true,
+          invoiceId: concurrentFile.invoice_id,
+          rawFileId: concurrentFile.id,
+          statementImportId: statementImport.id,
+          parse: parseResult,
+        });
+      }
+      throw fileError;
+    }
+    if (!invoiceFile) throw new Error("Missing invoice file row.");
+
+    const statementImport = await createOrLoadStatementImport(supabase, {
+      entityId,
+      bankAccountId,
+      userId: user.id,
+      rawFileId: invoiceFile.id,
     });
-    if (importError) throw importError;
 
     cleanupInvoiceId = "";
     cleanupBucket = "";
     cleanupObjectKey = "";
 
-    return NextResponse.json({ ok: true, invoiceId: invoice.id, rawFileId: invoiceFile.id });
+    const parseResult = await parseManualStatementImport(supabase, {
+      statementImportId: statementImport.id,
+      entityId,
+      bankAccountId,
+      rawFileId: invoiceFile.id as string,
+      bucket,
+      objectKey: normalized,
+      mimeType,
+      sizeBytes,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      invoiceId: invoice.id,
+      rawFileId: invoiceFile.id,
+      statementImportId: statementImport.id,
+      parse: parseResult,
+    });
   } catch (error) {
     if (cleanupBucket && cleanupObjectKey) {
       await cleanupUpload(supabase, cleanupBucket, cleanupObjectKey, cleanupInvoiceId);

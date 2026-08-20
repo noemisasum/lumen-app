@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
+import { parseManualStatementImport } from "@/lib/server/statement-import-parser";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 
 export const runtime = "nodejs";
@@ -10,8 +11,40 @@ type CreateImportBody = {
   rawFileId?: string;
 };
 
+type StatementImportRow = {
+  id: string;
+};
+
+type RawFileRow = {
+  id: string;
+  provider: string;
+  bucket: string;
+  object_key: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+};
+
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Statement imports are not configured.", missing }, { status: 500 });
+}
+
+async function loadStatementImport(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  rawFileId: string,
+  bankAccountId: string,
+  entityId: string,
+) {
+  const { data, error } = await supabase
+    .from("bank_statement_imports")
+    .select("id")
+    .eq("raw_file_id", rawFileId)
+    .eq("bank_account_id", bankAccountId)
+    .eq("entity_id", entityId)
+    .eq("source", "manual")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as StatementImportRow | null) ?? null;
 }
 
 export async function POST(request: Request) {
@@ -44,25 +77,63 @@ export async function POST(request: Request) {
 
     const { data: file, error: fileError } = await supabase
       .from("invoice_files")
-      .select("id")
+      .select("id,provider,bucket,object_key,mime_type,size_bytes")
       .eq("id", rawFileId)
       .eq("entity_id", entityId)
       .eq("created_by", user.id)
       .maybeSingle();
     if (fileError) throw fileError;
     if (!file) return NextResponse.json({ error: "Uploaded file does not belong to the selected entity." }, { status: 400 });
+    const rawFile = file as RawFileRow;
 
-    const { error: createError } = await supabase.from("bank_statement_imports").insert({
-      entity_id: entityId,
-      bank_account_id: bankAccountId,
-      created_by: user.id,
-      source: "manual",
-      status: "queued",
-      raw_file_id: rawFileId,
+    const existing = await loadStatementImport(supabase, rawFileId, bankAccountId, entityId);
+    if (existing) {
+      const parseResult = await parseManualStatementImport(supabase, {
+        statementImportId: existing.id,
+        entityId,
+        bankAccountId,
+        rawFileId,
+        bucket: rawFile.provider === "supabase" ? rawFile.bucket : null,
+        objectKey: rawFile.provider === "supabase" ? rawFile.object_key : null,
+        mimeType: rawFile.mime_type,
+        sizeBytes: rawFile.size_bytes,
+      });
+      return NextResponse.json({ ok: true, statementImportId: existing.id, parse: parseResult });
+    }
+
+    const { data: statementImport, error: createError } = await supabase
+      .from("bank_statement_imports")
+      .insert({
+        entity_id: entityId,
+        bank_account_id: bankAccountId,
+        created_by: user.id,
+        source: "manual",
+        status: "pending_parse",
+        raw_file_id: rawFileId,
+      })
+      .select("id")
+      .single();
+    if (createError) {
+      if (createError.code === "23505") {
+        const concurrent = await loadStatementImport(supabase, rawFileId, bankAccountId, entityId);
+        if (concurrent) return NextResponse.json({ ok: true, statementImportId: concurrent.id });
+      }
+      throw createError;
+    }
+    if (!statementImport) throw new Error("Missing statement import row.");
+
+    const parseResult = await parseManualStatementImport(supabase, {
+      statementImportId: statementImport.id,
+      entityId,
+      bankAccountId,
+      rawFileId,
+      bucket: rawFile.provider === "supabase" ? rawFile.bucket : null,
+      objectKey: rawFile.provider === "supabase" ? rawFile.object_key : null,
+      mimeType: rawFile.mime_type,
+      sizeBytes: rawFile.size_bytes,
     });
-    if (createError) throw createError;
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, statementImportId: statementImport.id, parse: parseResult });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create statement import." }, { status: 500 });

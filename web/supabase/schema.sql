@@ -39,6 +39,25 @@ create table if not exists public.invoice_files (
 
 create index if not exists invoice_files_invoice_id_idx on public.invoice_files(invoice_id);
 create index if not exists invoice_files_created_by_idx on public.invoice_files(created_by);
+do $$
+begin
+  if to_regclass('public.invoice_files_storage_object_uidx') is null then
+    if exists (
+      select 1
+      from public.invoice_files
+      group by provider, bucket, object_key
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create invoice_files_storage_object_uidx because duplicate invoice file storage object rows exist.',
+        hint = 'Resolve duplicate invoice_files rows for the same provider, bucket, and object_key before applying this schema.';
+    else
+      create unique index invoice_files_storage_object_uidx
+        on public.invoice_files(provider, bucket, object_key);
+    end if;
+  end if;
+end;
+$$;
 
 -- Updated-at trigger
 create or replace function public.set_updated_at()
