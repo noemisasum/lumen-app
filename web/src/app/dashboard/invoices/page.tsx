@@ -74,6 +74,18 @@ type InvoiceFileInsertPayload = {
   entity_id?: string;
 };
 
+type StagedUploadRow = {
+  id: string;
+  fileName: string;
+  mimeType: string | null;
+  sizeBytes: number;
+  objectKey: string;
+  bankAccountId: string;
+  accountHint: string;
+  status: "ready" | "finalizing";
+  error: string | null;
+};
+
 const statementFileAccept =
   "application/pdf,image/*,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -168,6 +180,12 @@ function statementUploadTitle(accountName?: string) {
   return normalizedName ? `${normalizedName} Statement Upload` : "Bank Statement Upload";
 }
 
+function formatFileSize(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) return `${Math.round(sizeBytes / 1024)} KB`;
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,7 +207,10 @@ export default function InvoicesPage() {
   const [bankAccountError, setBankAccountError] = useState<string | null>(null);
   const [manualAccountName, setManualAccountName] = useState("");
   const [creatingAccount, setCreatingAccount] = useState(false);
+  const [creatingRowAccountId, setCreatingRowAccountId] = useState<string | null>(null);
   const [accountSyncNote, setAccountSyncNote] = useState<string | null>(null);
+  const [stagedUploads, setStagedUploads] = useState<StagedUploadRow[]>([]);
+  const [finalizingUploads, setFinalizingUploads] = useState(false);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [filesByInvoice, setFilesByInvoice] = useState<Record<string, InvoiceFileRow[]>>({});
@@ -306,16 +327,69 @@ export default function InvoicesPage() {
     return entityName ? `${entityName} Statement Account` : "Statement Upload Account";
   }
 
-  async function ensureUploadBankAccount(files: File[], accessToken: string, selectedAccountId: string) {
+  async function ensureUploadBankAccount(files: File[], accessToken: string) {
     if (!multiOrgMode || !entityId) return null;
-    if (selectedAccountId) {
-      const accountName = bankAccounts.find((account) => account.id === selectedAccountId)?.accountName;
-      return { id: selectedAccountId, accountName };
+    if (bankAccountId) {
+      const accountName = bankAccounts.find((account) => account.id === bankAccountId)?.accountName;
+      return { id: bankAccountId, accountName };
     }
 
     const suggestedName = await suggestedAccountNameFromFiles(files);
     const account = await createManualBankAccount(suggestedName, accessToken, { allowDuplicate: true, select: false });
     return { id: account.id, accountName: account.accountName };
+  }
+
+  function selectedAccountName(nextBankAccountId: string) {
+    return bankAccounts.find((account) => account.id === nextBankAccountId)?.accountName;
+  }
+
+  function setStagedUploadAccount(rowId: string, nextBankAccountId: string) {
+    setStagedUploads((current) =>
+      current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              bankAccountId: nextBankAccountId,
+              error: nextBankAccountId ? null : row.error,
+            }
+          : row,
+      ),
+    );
+  }
+
+  function applyBankAccountToAll(nextBankAccountId: string) {
+    setBankAccountId(nextBankAccountId);
+    setStagedUploads((current) =>
+      current.map((row) => ({
+        ...row,
+        bankAccountId: nextBankAccountId,
+        error: nextBankAccountId ? null : row.error,
+      })),
+    );
+  }
+
+  async function createAccountForStagedRow(row: StagedUploadRow) {
+    try {
+      if (!supabase) throw new Error("Authentication is not configured for this deployment.");
+      const sess = await ensureSession();
+      if (!sess) return;
+
+      setCreatingRowAccountId(row.id);
+      setStagedUploads((current) => current.map((item) => (item.id === row.id ? { ...item, error: null } : item)));
+      const account = await createManualBankAccount(row.accountHint || titleCaseFromFileName(row.fileName) || "Statement Upload Account", sess.access_token, {
+        allowDuplicate: true,
+        select: false,
+      });
+      setStagedUploadAccount(row.id, account.id);
+    } catch (e: unknown) {
+      setStagedUploads((current) =>
+        current.map((item) =>
+          item.id === row.id ? { ...item, error: getErrorMessage(e, "Failed to create upload account for this file.") } : item,
+        ),
+      );
+  } finally {
+      setCreatingRowAccountId(null);
+    }
   }
 
   async function load() {
@@ -449,7 +523,6 @@ export default function InvoicesPage() {
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -457,11 +530,39 @@ export default function InvoicesPage() {
   useEffect(() => {
     // Reload when entity changes (multi-org mode)
     if (!entityId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    setStagedUploads([]);
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
+
+  async function stageStatementFile(file: File, userId: string, client: NonNullable<typeof supabase>) {
+    const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+    const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
+    const objectKey = `${userId}/statement-intake/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
+    const accountHint = await suggestedAccountNameFromFiles([file]);
+
+    const { error: uploadError } = await client.storage.from("invoices").upload(objectKey, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    setStagedUploads((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        fileName: file.name,
+        mimeType: file.type || null,
+        sizeBytes: file.size,
+        objectKey,
+        bankAccountId,
+        accountHint,
+        status: "ready",
+        error: null,
+      },
+    ]);
+  }
 
   async function uploadOneFile(
     file: File,
@@ -576,6 +677,80 @@ export default function InvoicesPage() {
     }
   }
 
+  async function finalizeStagedUploads() {
+    if (!stagedUploads.length) return;
+
+    const missingIds = new Set(stagedUploads.filter((row) => !row.bankAccountId).map((row) => row.id));
+    const finalizableRows = stagedUploads.filter((row) => row.bankAccountId);
+    if (missingIds.size) {
+      setStagedUploads((current) =>
+        current.map((row) => ({
+          ...row,
+          error: missingIds.has(row.id) ? "Choose a bank account for this file." : row.error,
+        })),
+      );
+      if (!finalizableRows.length) {
+        setUploadStatus(`${missingIds.size} file${missingIds.size === 1 ? "" : "s"} still need a bank account.`);
+        return;
+      }
+    }
+
+    try {
+      const sess = await ensureSession();
+      if (!sess) return;
+
+      setFinalizingUploads(true);
+      setError(null);
+      let finalizedCount = 0;
+      const failedRows: StagedUploadRow[] = stagedUploads
+        .filter((row) => missingIds.has(row.id))
+        .map((row) => ({ ...row, status: "ready", error: "Choose a bank account for this file." }));
+
+      for (const [index, row] of finalizableRows.entries()) {
+        setUploadStatus(`Finalizing ${index + 1} of ${finalizableRows.length} mapped files...`);
+        setStagedUploads((current) =>
+          current.map((item) => (item.id === row.id ? { ...item, status: "finalizing", error: null } : item)),
+        );
+
+        try {
+          const response = await fetch("/api/statement-upload-finalize", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${sess.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              entityId,
+              bankAccountId: row.bankAccountId,
+              bucket: "invoices",
+              objectKey: row.objectKey,
+              mimeType: row.mimeType,
+              sizeBytes: row.sizeBytes,
+              description: statementUploadTitle(selectedAccountName(row.bankAccountId)),
+            }),
+          });
+          const body = (await response.json()) as { error?: string };
+          if (!response.ok) throw new Error(body.error || "Failed to link upload to bank account.");
+          finalizedCount += 1;
+        } catch (e: unknown) {
+          failedRows.push({ ...row, status: "ready", error: getErrorMessage(e, "Failed to finalize this upload.") });
+        }
+      }
+
+      setStagedUploads(failedRows);
+      setUploadStatus(
+        failedRows.length
+          ? `Finalized ${finalizedCount} mapped file${finalizedCount === 1 ? "" : "s"}. Resolve the remaining rows and try again.`
+          : `Finalized ${finalizedCount} file${finalizedCount === 1 ? "" : "s"}.`,
+      );
+      if (finalizedCount > 0) await load();
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to finalize statement uploads."));
+    } finally {
+      setFinalizingUploads(false);
+    }
+  }
+
   async function onUpload(files: File[]) {
     if (!files.length) return;
 
@@ -589,24 +764,27 @@ export default function InvoicesPage() {
       setUploading(true);
       setError(null);
       setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading 1 of ${files.length} files...`);
-      const selectedAccountId = bankAccountId;
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading ${index + 1} of ${files.length} files...`);
-        const selectedBankAccount = await ensureUploadBankAccount([file], sess.access_token, selectedAccountId);
-        await uploadOneFile(file, sess.user.id, sess.access_token, supabase, selectedBankAccount?.id ?? "", selectedBankAccount?.accountName);
+        if (multiOrgMode && entityId && isStatementLikeFile(file)) {
+          await stageStatementFile(file, sess.user.id, supabase);
+        } else {
+          const selectedBankAccount = await ensureUploadBankAccount([file], sess.access_token);
+          await uploadOneFile(file, sess.user.id, sess.access_token, supabase, selectedBankAccount?.id ?? "", selectedBankAccount?.accountName);
+        }
         uploadedCount += 1;
       }
 
       setUploadStatus(
-        files.length === 1
-          ? "Uploaded 1 file."
-          : selectedAccountId
-            ? `Uploaded ${files.length} files.`
-            : `Uploaded ${files.length} files across ${files.length} bank accounts.`,
+        multiOrgMode && entityId
+          ? `Staged ${files.length} file${files.length === 1 ? "" : "s"} for bank account mapping.`
+          : files.length === 1
+            ? "Uploaded 1 file."
+            : `Uploaded ${files.length} files.`,
       );
-      await load();
+      if (!multiOrgMode || !entityId) await load();
     } catch (e: unknown) {
       if (uploadedCount > 0) {
         setUploadStatus(`Uploaded ${uploadedCount} of ${files.length} files before the batch stopped.`);
@@ -625,7 +803,7 @@ export default function InvoicesPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  const uploadUnavailable = !supabase || !authReady || uploading || (multiOrgMode && (!orgs.length || !entityId));
+  const uploadUnavailable = !supabase || !authReady || uploading || finalizingUploads || (multiOrgMode && (!orgs.length || !entityId));
 
   if (loading && !authReady) {
     return (
@@ -768,7 +946,7 @@ export default function InvoicesPage() {
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-zinc-950">Bank Account</h2>
                     <p className="mt-1 text-sm leading-6 text-zinc-600">
-                      Pick one account to attach every selected file, or leave blank to create one upload account per file.
+                      Pick a default account for newly staged files, or map each file below after upload.
                     </p>
                   </div>
                   <div className="flex min-h-6 shrink-0 items-center text-xs font-medium text-zinc-500">
@@ -789,7 +967,7 @@ export default function InvoicesPage() {
                       title="Bank account"
                       className="w-full"
                     >
-                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Create one account per uploaded file"}</option>
+                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Map each staged file separately"}</option>
                       {bankAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.accountName}
@@ -798,6 +976,17 @@ export default function InvoicesPage() {
                         </option>
                       ))}
                     </SelectControl>
+
+                    {stagedUploads.length && bankAccountId ? (
+                      <button
+                        type="button"
+                        onClick={() => applyBankAccountToAll(bankAccountId)}
+                        disabled={finalizingUploads}
+                        className="mt-3 inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                      >
+                        Apply to all staged files
+                      </button>
+                    ) : null}
 
                     {bankAccounts.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -849,7 +1038,7 @@ export default function InvoicesPage() {
                       </button>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-zinc-500">
-                      Clear the selected account when each uploaded file represents a different bank account.
+                      Create upload accounts here or from a staged row when Xero does not have the account.
                     </p>
                   </div>
                 </div>
@@ -862,6 +1051,73 @@ export default function InvoicesPage() {
                     </Notice>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {multiOrgMode && stagedUploads.length ? (
+              <div className="mt-5 rounded-lg border border-zinc-200 bg-white">
+                <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Map Staged Files</h2>
+                    <p className="mt-1 text-sm leading-6 text-zinc-600">Choose a bank account for each uploaded statement before finalizing.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={finalizeStagedUploads}
+                    disabled={finalizingUploads || uploading}
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400 disabled:text-white"
+                  >
+                    {finalizingUploads ? <Spinner label="Finalizing" /> : `Finalize ${stagedUploads.length} File${stagedUploads.length === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+
+                <div className="divide-y divide-zinc-100">
+                  {stagedUploads.map((row) => (
+                    <div key={row.id} className="grid gap-3 px-4 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-start">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-zinc-900">{row.fileName}</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          {formatFileSize(row.sizeBytes)}
+                          {row.accountHint ? ` · suggested: ${row.accountHint}` : ""}
+                        </div>
+                        {row.error ? <div className="mt-2 text-xs font-medium text-red-700">{row.error}</div> : null}
+                      </div>
+
+                      <div className="min-w-0">
+                        <label htmlFor={`staged-bank-account-${row.id}`} className="sr-only">
+                          Bank account for {row.fileName}
+                        </label>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <SelectControl
+                            id={`staged-bank-account-${row.id}`}
+                            value={row.bankAccountId}
+                            onChange={(event) => setStagedUploadAccount(row.id, event.target.value)}
+                            disabled={finalizingUploads || bankAccountsLoading || !bankAccounts.length}
+                            title={`Bank account for ${row.fileName}`}
+                            className="w-full"
+                          >
+                            <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Choose bank account"}</option>
+                            {bankAccounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.accountName}
+                                {account.currency ? ` · ${account.currency}` : ""}
+                                {account.source === "xero" ? " · Xero" : " · Upload"}
+                              </option>
+                            ))}
+                          </SelectControl>
+                          <button
+                            type="button"
+                            onClick={() => createAccountForStagedRow(row)}
+                            disabled={finalizingUploads || creatingRowAccountId === row.id}
+                            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:min-w-28"
+                          >
+                            {creatingRowAccountId === row.id ? <Spinner label="Creating" /> : "Create Account"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
 
