@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireEntityAccess } from "@/lib/server/orgs";
+import { requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { syncXeroBankLedger } from "@/lib/server/xero-bank-ledger";
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
-    await requireEntityAccess(supabase, entityId, user.id);
+    await requireEntityAdmin(supabase, entityId, user.id);
 
     const sync = await syncXeroBankLedger(supabase, entityId, {
       fromDate: body.fromDate,

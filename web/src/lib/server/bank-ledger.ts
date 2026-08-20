@@ -21,6 +21,11 @@ export type BankTransactionInput = {
   currency: string;
   externalId?: string | null;
   externalHash?: string | null;
+  /**
+   * Parser-provided stable row identity, such as CSV row index, FITID, or a
+   * statement import line id. Required for manual/imported rows without an externalId.
+   */
+  sourceRowId?: string | number | null;
   sourceRecordType?: string | null;
   statementImportId?: string | null;
   entityXeroMappingId?: string | null;
@@ -39,6 +44,11 @@ export type BankBalanceInput = {
   currency: string;
   externalId?: string | null;
   externalHash?: string | null;
+  /**
+   * Parser-provided stable row identity, such as statement balance type/index.
+   * Included in fallback hashes so repeated imported balances stay distinct.
+   */
+  sourceRowId?: string | number | null;
   sourceRecordType?: string | null;
   statementImportId?: string | null;
   entityXeroMappingId?: string | null;
@@ -84,9 +94,15 @@ function normalizeAmount(value: number) {
 }
 
 function transactionHash(input: BankTransactionInput) {
+  if ((input.source === "manual" || input.source === "bank_feed") && !input.externalId && !input.sourceRowId) {
+    throw new Error("Manual or imported ledger transactions require externalId or sourceRowId for stable row identity.");
+  }
+
   return hashPayload({
     source: input.source,
     externalId: input.externalId ?? null,
+    sourceRowId: input.sourceRowId ?? null,
+    statementImportId: input.statementImportId ?? null,
     bankAccountId: input.bankAccountId,
     transactionDate: isoDate(input.transactionDate),
     postedDate: input.postedDate ? isoDate(input.postedDate) : null,
@@ -102,6 +118,8 @@ function balanceHash(input: BankBalanceInput) {
   return hashPayload({
     source: input.source,
     externalId: input.externalId ?? null,
+    sourceRowId: input.sourceRowId ?? null,
+    statementImportId: input.statementImportId ?? null,
     bankAccountId: input.bankAccountId,
     balanceDate: isoDate(input.balanceDate),
     balanceType: input.balanceType ?? "reported",

@@ -226,6 +226,16 @@ function xeroReportBalances(
   return balances;
 }
 
+function isMissingReportsScopeError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const response = (error as { response?: { statusCode?: number; status?: number; body?: unknown }; body?: unknown; message?: string }).response;
+  const status = response?.statusCode ?? response?.status;
+  const body = response?.body ?? (error as { body?: unknown }).body;
+  const text = [JSON.stringify(body ?? ""), (error as { message?: string }).message ?? ""].join(" ").toLowerCase();
+
+  return (status === 401 || status === 403) && (text.includes("scope") || text.includes("permission") || text.includes("forbidden"));
+}
+
 export async function syncXeroBankLedger(
   supabase: SupabaseClient,
   entityId: string,
@@ -299,8 +309,10 @@ export async function syncXeroBankLedger(
     const balances = xeroReportBalances(reportResponse.body, accountsByXeroId, accountsByName, entityId, context.mapping.id, toDate);
     balanceResult = await upsertBankBalances(supabase, balances);
     if (!balances.length) warning = "Xero Bank Summary did not expose account balance rows that could be tied to synced bank accounts.";
-  } catch {
-    warning = "Xero Bank Summary balances were unavailable; transactions were synced without balance snapshots.";
+  } catch (error) {
+    warning = isMissingReportsScopeError(error)
+      ? "Xero Bank Summary balances require the accounting.reports.read scope. Reconnect Xero, then sync again to import balance snapshots."
+      : "Xero Bank Summary balances were unavailable; transactions were synced without balance snapshots.";
   }
 
   return {

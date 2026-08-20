@@ -109,6 +109,25 @@ alter table public.bank_statement_imports
   check (status in ('queued','pending_parse','processing','imported','failed'));
 create index if not exists bank_statement_imports_entity_id_idx on public.bank_statement_imports(entity_id);
 create index if not exists bank_statement_imports_status_idx on public.bank_statement_imports(status);
+do $$
+begin
+  if to_regclass('public.bank_statement_imports_manual_raw_file_account_uidx') is null then
+    if exists (
+      select 1
+      from public.bank_statement_imports
+      where raw_file_id is not null and bank_account_id is not null
+      group by raw_file_id, bank_account_id, source
+      having count(*) > 1
+    ) then
+      raise notice 'Skipping bank_statement_imports_manual_raw_file_account_uidx because duplicate import rows exist.';
+    else
+      create unique index bank_statement_imports_manual_raw_file_account_uidx
+        on public.bank_statement_imports(raw_file_id, bank_account_id, source)
+        where raw_file_id is not null and bank_account_id is not null;
+    end if;
+  end if;
+end;
+$$;
 
 -- Shared bank ledger tables. Manual statement parsing and Xero sync both write
 -- here so downstream reconciliation code has one transaction/balance model.

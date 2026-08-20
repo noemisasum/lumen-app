@@ -10,8 +10,31 @@ type CreateImportBody = {
   rawFileId?: string;
 };
 
+type StatementImportRow = {
+  id: string;
+};
+
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Statement imports are not configured.", missing }, { status: 500 });
+}
+
+async function loadStatementImport(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  rawFileId: string,
+  bankAccountId: string,
+  entityId: string,
+) {
+  const { data, error } = await supabase
+    .from("bank_statement_imports")
+    .select("id")
+    .eq("raw_file_id", rawFileId)
+    .eq("bank_account_id", bankAccountId)
+    .eq("entity_id", entityId)
+    .eq("source", "manual")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as StatementImportRow | null) ?? null;
 }
 
 export async function POST(request: Request) {
@@ -52,6 +75,9 @@ export async function POST(request: Request) {
     if (fileError) throw fileError;
     if (!file) return NextResponse.json({ error: "Uploaded file does not belong to the selected entity." }, { status: 400 });
 
+    const existing = await loadStatementImport(supabase, rawFileId, bankAccountId, entityId);
+    if (existing) return NextResponse.json({ ok: true, statementImportId: existing.id });
+
     const { data: statementImport, error: createError } = await supabase
       .from("bank_statement_imports")
       .insert({
@@ -64,7 +90,14 @@ export async function POST(request: Request) {
       })
       .select("id")
       .single();
-    if (createError || !statementImport) throw createError ?? new Error("Missing statement import row.");
+    if (createError) {
+      if (createError.code === "23505") {
+        const concurrent = await loadStatementImport(supabase, rawFileId, bankAccountId, entityId);
+        if (concurrent) return NextResponse.json({ ok: true, statementImportId: concurrent.id });
+      }
+      throw createError;
+    }
+    if (!statementImport) throw new Error("Missing statement import row.");
 
     return NextResponse.json({ ok: true, statementImportId: statementImport.id });
   } catch (error) {

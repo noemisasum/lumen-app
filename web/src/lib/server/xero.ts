@@ -2,7 +2,15 @@ import { createHash, randomBytes } from "crypto";
 import { XeroClient, type TokenSet } from "xero-node";
 import { validateXeroTokenEncryptionKey } from "@/lib/server/crypto";
 
-const XERO_SCOPES = ["openid", "profile", "email", "accounting.settings", "accounting.transactions", "offline_access"];
+const XERO_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "accounting.settings",
+  "accounting.transactions",
+  "accounting.reports.read",
+  "offline_access",
+];
 
 export type XeroTenant = {
   id?: string;
