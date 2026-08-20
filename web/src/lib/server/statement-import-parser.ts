@@ -52,48 +52,52 @@ export async function parseManualStatementImport(
   });
 
   async function finishLog(outcome: StatementParseOutcome) {
-    await finishStatementProcessingLog(supabase, {
-      logId: processingLog.id,
-      status: outcome.status,
-      transactionCount: outcome.transactionsParsed,
-      balanceCount: outcome.balancesParsed,
-      warning: outcome.status === "failed" ? null : outcome.warning,
-      error: outcome.status === "failed" ? outcome.warning : null,
-    });
+    try {
+      await finishStatementProcessingLog(supabase, {
+        logId: processingLog.id,
+        status: outcome.status,
+        transactionCount: outcome.transactionsParsed,
+        balanceCount: outcome.balancesParsed,
+        warning: outcome.status === "failed" ? null : outcome.warning,
+        error: outcome.status === "failed" ? outcome.warning : null,
+      });
+    } catch (error) {
+      console.error("Failed to finish statement processing log", error);
+    }
     return outcome;
   }
 
-  const file = await loadRawFile(supabase, input);
-  if (!file) {
-    return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", "Raw file is unavailable for automatic parsing."));
-  }
-
-  if (!isCsvFile(file.object_key, file.mime_type)) {
-    return finishLog(
-      await updateImportStatus(
-        supabase,
-        input.statementImportId,
-        "pending_parse",
-        "Automatic parsing currently supports CSV statements only. PDF, image, and Excel statements remain queued for manual parser support.",
-      ),
-    );
-  }
-
-  const sizeBytes = Number(file.size_bytes ?? input.sizeBytes ?? 0);
-  if (sizeBytes > maxCsvBytes) {
-    return finishLog(
-      await updateImportStatus(
-        supabase,
-        input.statementImportId,
-        "pending_parse",
-        "CSV statement is larger than the current automatic parser limit and remains queued.",
-      ),
-    );
-  }
-
-  await setImportProcessing(supabase, input.statementImportId);
-
   try {
+    const file = await loadRawFile(supabase, input);
+    if (!file) {
+      return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", "Raw file is unavailable for automatic parsing."));
+    }
+
+    if (!isCsvFile(file.object_key, file.mime_type)) {
+      return finishLog(
+        await updateImportStatus(
+          supabase,
+          input.statementImportId,
+          "pending_parse",
+          "Automatic parsing currently supports CSV statements only. PDF, image, and Excel statements remain queued for manual parser support.",
+        ),
+      );
+    }
+
+    const sizeBytes = Number(file.size_bytes ?? input.sizeBytes ?? 0);
+    if (sizeBytes > maxCsvBytes) {
+      return finishLog(
+        await updateImportStatus(
+          supabase,
+          input.statementImportId,
+          "pending_parse",
+          "CSV statement is larger than the current automatic parser limit and remains queued.",
+        ),
+      );
+    }
+
+    await setImportProcessing(supabase, input.statementImportId);
+
     const csvText = await downloadText(supabase, file.bucket, file.object_key);
     const accountCurrency = await loadAccountCurrency(supabase, input.bankAccountId, input.entityId);
     const parsed = parseCsvStatement(csvText, {
@@ -114,7 +118,7 @@ export async function parseManualStatementImport(
     return finishLog(outcome);
   } catch (error) {
     const message = getErrorMessage(error, "Failed to parse CSV statement.");
-    return finishLog(await updateImportStatus(supabase, input.statementImportId, "failed", message));
+    return finishLog(await failImportStatus(supabase, input.statementImportId, message));
   }
 }
 
@@ -216,6 +220,20 @@ async function updateImportStatus(
     balancesParsed: counts?.balancesParsed ?? 0,
     warning: conciseMessage ?? undefined,
   };
+}
+
+async function failImportStatus(supabase: SupabaseClient, statementImportId: string, message: string): Promise<StatementParseOutcome> {
+  try {
+    return await updateImportStatus(supabase, statementImportId, "failed", message);
+  } catch (error) {
+    const statusMessage = getErrorMessage(error, "Failed to mark statement import as failed.");
+    return {
+      status: "failed",
+      transactionsParsed: 0,
+      balancesParsed: 0,
+      warning: `${message} ${statusMessage}`.trim().slice(0, 500),
+    };
+  }
 }
 
 function compactWarning(warnings: string[]) {

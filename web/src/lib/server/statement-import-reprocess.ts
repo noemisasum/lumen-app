@@ -15,7 +15,7 @@ export type RawFileRow = {
 export type StatementImportRow = {
   id: string;
   entity_id: string;
-  bank_account_id: string;
+  bank_account_id: string | null;
   raw_file_id: string | null;
   status: string;
   raw_file: RawFileRow | RawFileRow[] | null;
@@ -86,6 +86,27 @@ async function skipped(
     balanceCount: 0,
     error,
   };
+}
+
+export function summarizeReprocessError(row: StatementImportRow, error: unknown): ReprocessSummary {
+  return {
+    statementImportId: row.id,
+    entityId: row.entity_id,
+    bankAccountId: row.bank_account_id,
+    status: "skipped",
+    transactionCount: 0,
+    balanceCount: 0,
+    error: error instanceof Error && error.message ? error.message : "Failed to reprocess statement import.",
+  };
+}
+
+export async function logSkippedReprocessAttempt(
+  supabase: SupabaseClient,
+  row: StatementImportRow,
+  trigger: StatementProcessingTrigger,
+  error: string,
+) {
+  await skipped(supabase, row, trigger, error);
 }
 
 export async function loadSingleStatementImport(supabase: SupabaseClient, statementImportId: string) {
@@ -170,7 +191,16 @@ export async function reprocessStatementImport(
     return skipped(supabase, row, trigger, "Linked raw file belongs to a different entity.");
   }
 
-  const hasAccount = await validateBankAccount(supabase, row.bank_account_id, row.entity_id);
+  if (!row.bank_account_id) {
+    return skipped(supabase, row, trigger, "Statement import is not linked to a bank account.");
+  }
+
+  let hasAccount: boolean;
+  try {
+    hasAccount = await validateBankAccount(supabase, row.bank_account_id, row.entity_id);
+  } catch (error) {
+    return skipped(supabase, row, trigger, summarizeReprocessError(row, error).error ?? "Failed to reprocess statement import.");
+  }
   if (!hasAccount) {
     return skipped(supabase, row, trigger, "Bank account does not belong to the import entity or is archived.");
   }
@@ -189,12 +219,7 @@ export async function reprocessStatementImport(
     });
     return summarize(row, outcome);
   } catch (error) {
-    return skipped(
-      supabase,
-      row,
-      trigger,
-      error instanceof Error && error.message ? error.message : "Failed to reprocess statement import.",
-    );
+    return skipped(supabase, row, trigger, summarizeReprocessError(row, error).error ?? "Failed to reprocess statement import.");
   }
 }
 

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import {
+  logSkippedReprocessAttempt,
   loadStatementImportsNeedingAttention,
   recordAutomatedReprocessAttempt,
   reprocessStatementImport,
+  summarizeReprocessError,
   type ReprocessSummary,
 } from "@/lib/server/statement-import-reprocess";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient } from "@/lib/server/supabase";
@@ -64,8 +66,30 @@ export async function GET(request: Request) {
     const results: ReprocessSummary[] = [];
 
     for (const row of rows) {
-      const result = await reprocessStatementImport(supabase, row, "maintenance_cron");
-      await recordAutomatedReprocessAttempt(supabase, row, result, { maxAttempts });
+      let result: ReprocessSummary;
+      try {
+        result = await reprocessStatementImport(supabase, row, "maintenance_cron");
+      } catch (error) {
+        result = summarizeReprocessError(row, error);
+        try {
+          await logSkippedReprocessAttempt(supabase, row, "maintenance_cron", result.error ?? "Failed to reprocess statement import.");
+        } catch (logError) {
+          console.error("Failed to log skipped statement reprocess attempt", logError);
+        }
+      }
+
+      try {
+        await recordAutomatedReprocessAttempt(supabase, row, result, { maxAttempts });
+      } catch (error) {
+        console.error("Failed to record automated statement reprocess attempt", error);
+        result = {
+          ...result,
+          status: "skipped",
+          error: `Failed to record automated reprocess attempt: ${
+            error instanceof Error && error.message ? error.message : "Unknown error"
+          }`,
+        };
+      }
       results.push(result);
     }
 
