@@ -133,21 +133,25 @@ export async function POST(request: Request) {
       .single();
     if (fileError || !invoiceFile) throw fileError ?? new Error("Missing invoice file row.");
 
-    const { error: importError } = await supabase.from("bank_statement_imports").insert({
-      entity_id: entityId,
-      bank_account_id: bankAccountId,
-      created_by: user.id,
-      source: "manual",
-      status: "queued",
-      raw_file_id: invoiceFile.id,
-    });
-    if (importError) throw importError;
+    const { data: statementImport, error: importError } = await supabase
+      .from("bank_statement_imports")
+      .insert({
+        entity_id: entityId,
+        bank_account_id: bankAccountId,
+        created_by: user.id,
+        source: "manual",
+        status: "pending_parse",
+        raw_file_id: invoiceFile.id,
+      })
+      .select("id")
+      .single();
+    if (importError || !statementImport) throw importError ?? new Error("Missing statement import row.");
 
     cleanupInvoiceId = "";
     cleanupBucket = "";
     cleanupObjectKey = "";
 
-    return NextResponse.json({ ok: true, invoiceId: invoice.id, rawFileId: invoiceFile.id });
+    return NextResponse.json({ ok: true, invoiceId: invoice.id, rawFileId: invoiceFile.id, statementImportId: statementImport.id });
   } catch (error) {
     if (cleanupBucket && cleanupObjectKey) {
       await cleanupUpload(supabase, cleanupBucket, cleanupObjectKey, cleanupInvoiceId);

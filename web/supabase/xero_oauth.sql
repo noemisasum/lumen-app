@@ -94,7 +94,7 @@ create table if not exists public.bank_statement_imports (
   bank_account_id uuid references public.entity_bank_accounts(id) on delete set null,
   created_by uuid not null references auth.users(id) on delete cascade,
   source text not null default 'manual' check (source in ('manual','xero','bank_feed')),
-  status text not null default 'queued' check (status in ('queued','processing','imported','failed')),
+  status text not null default 'queued',
   statement_period_start date,
   statement_period_end date,
   raw_file_id uuid references public.invoice_files(id) on delete set null,
@@ -102,8 +102,79 @@ create table if not exists public.bank_statement_imports (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.bank_statement_imports
+  drop constraint if exists bank_statement_imports_status_check;
+alter table public.bank_statement_imports
+  add constraint bank_statement_imports_status_check
+  check (status in ('queued','pending_parse','processing','imported','failed'));
 create index if not exists bank_statement_imports_entity_id_idx on public.bank_statement_imports(entity_id);
 create index if not exists bank_statement_imports_status_idx on public.bank_statement_imports(status);
+
+-- Shared bank ledger tables. Manual statement parsing and Xero sync both write
+-- here so downstream reconciliation code has one transaction/balance model.
+create table if not exists public.bank_account_transactions (
+  id uuid primary key default gen_random_uuid(),
+  entity_id uuid not null references public.entities(id) on delete cascade,
+  bank_account_id uuid not null references public.entity_bank_accounts(id) on delete cascade,
+  statement_import_id uuid references public.bank_statement_imports(id) on delete set null,
+  entity_xero_mapping_id uuid references public.entity_xero_mappings(id) on delete set null,
+  source text not null check (source in ('manual','xero','bank_feed')),
+  source_record_type text,
+  transaction_date date not null,
+  posted_date date,
+  description text not null default '',
+  payee text,
+  reference text,
+  amount numeric not null,
+  signed_amount numeric not null,
+  direction text not null default 'unknown' check (direction in ('inflow','outflow','unknown')),
+  currency text not null,
+  external_id text,
+  external_hash text not null,
+  raw_payload jsonb not null default '{}'::jsonb,
+  status text not null default 'posted' check (status in ('pending','posted','reconciled','voided','failed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (bank_account_id, source, external_hash)
+);
+create unique index if not exists bank_account_transactions_external_id_uidx
+  on public.bank_account_transactions(bank_account_id, source, external_id)
+  where external_id is not null;
+create index if not exists bank_account_transactions_account_date_idx
+  on public.bank_account_transactions(bank_account_id, transaction_date desc);
+create index if not exists bank_account_transactions_entity_date_idx
+  on public.bank_account_transactions(entity_id, transaction_date desc);
+create index if not exists bank_account_transactions_import_id_idx
+  on public.bank_account_transactions(statement_import_id)
+  where statement_import_id is not null;
+
+create table if not exists public.bank_account_balances (
+  id uuid primary key default gen_random_uuid(),
+  entity_id uuid not null references public.entities(id) on delete cascade,
+  bank_account_id uuid not null references public.entity_bank_accounts(id) on delete cascade,
+  statement_import_id uuid references public.bank_statement_imports(id) on delete set null,
+  entity_xero_mapping_id uuid references public.entity_xero_mappings(id) on delete set null,
+  source text not null check (source in ('manual','xero','bank_feed')),
+  source_record_type text,
+  balance_date date not null,
+  as_of timestamptz not null default now(),
+  balance_type text not null default 'reported' check (balance_type in ('opening','closing','available','current','statement','reported')),
+  amount numeric not null,
+  currency text not null,
+  external_id text,
+  external_hash text not null,
+  raw_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (bank_account_id, source, external_hash)
+);
+create unique index if not exists bank_account_balances_external_id_uidx
+  on public.bank_account_balances(bank_account_id, source, external_id)
+  where external_id is not null;
+create index if not exists bank_account_balances_account_date_idx
+  on public.bank_account_balances(bank_account_id, balance_date desc, balance_type);
+create index if not exists bank_account_balances_entity_date_idx
+  on public.bank_account_balances(entity_id, balance_date desc);
 
 create or replace function public.map_entity_to_xero_tenant(
   p_entity_id uuid,
@@ -298,12 +369,24 @@ create trigger set_bank_statement_imports_updated_at
 before update on public.bank_statement_imports
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_bank_account_transactions_updated_at on public.bank_account_transactions;
+create trigger set_bank_account_transactions_updated_at
+before update on public.bank_account_transactions
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_bank_account_balances_updated_at on public.bank_account_balances;
+create trigger set_bank_account_balances_updated_at
+before update on public.bank_account_balances
+for each row execute function public.set_updated_at();
+
 alter table public.xero_oauth_states enable row level security;
 alter table public.xero_connections enable row level security;
 alter table public.xero_connection_tenants enable row level security;
 alter table public.entity_xero_mappings enable row level security;
 alter table public.entity_bank_accounts enable row level security;
 alter table public.bank_statement_imports enable row level security;
+alter table public.bank_account_transactions enable row level security;
+alter table public.bank_account_balances enable row level security;
 
 revoke all on public.xero_oauth_states from public;
 revoke all on public.xero_connections from public;
@@ -311,18 +394,24 @@ revoke all on public.xero_connection_tenants from public;
 revoke all on public.entity_xero_mappings from public;
 revoke all on public.entity_bank_accounts from public;
 revoke all on public.bank_statement_imports from public;
+revoke all on public.bank_account_transactions from public;
+revoke all on public.bank_account_balances from public;
 revoke all on public.xero_oauth_states from anon;
 revoke all on public.xero_connections from anon;
 revoke all on public.xero_connection_tenants from anon;
 revoke all on public.entity_xero_mappings from anon;
 revoke all on public.entity_bank_accounts from anon;
 revoke all on public.bank_statement_imports from anon;
+revoke all on public.bank_account_transactions from anon;
+revoke all on public.bank_account_balances from anon;
 revoke all on public.xero_oauth_states from authenticated;
 revoke all on public.xero_connections from authenticated;
 revoke all on public.xero_connection_tenants from authenticated;
 revoke all on public.entity_xero_mappings from authenticated;
 revoke all on public.entity_bank_accounts from authenticated;
 revoke all on public.bank_statement_imports from authenticated;
+revoke all on public.bank_account_transactions from authenticated;
+revoke all on public.bank_account_balances from authenticated;
 
 grant all on public.xero_oauth_states to service_role;
 grant all on public.xero_connections to service_role;
@@ -330,6 +419,8 @@ grant all on public.xero_connection_tenants to service_role;
 grant all on public.entity_xero_mappings to service_role;
 grant all on public.entity_bank_accounts to service_role;
 grant all on public.bank_statement_imports to service_role;
+grant all on public.bank_account_transactions to service_role;
+grant all on public.bank_account_balances to service_role;
 
 revoke all on function public.map_entity_to_xero_tenant(uuid, uuid, uuid) from public;
 revoke all on function public.unmap_entity_from_xero_tenant(uuid, uuid) from public;

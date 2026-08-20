@@ -52,17 +52,21 @@ export async function POST(request: Request) {
     if (fileError) throw fileError;
     if (!file) return NextResponse.json({ error: "Uploaded file does not belong to the selected entity." }, { status: 400 });
 
-    const { error: createError } = await supabase.from("bank_statement_imports").insert({
-      entity_id: entityId,
-      bank_account_id: bankAccountId,
-      created_by: user.id,
-      source: "manual",
-      status: "queued",
-      raw_file_id: rawFileId,
-    });
-    if (createError) throw createError;
+    const { data: statementImport, error: createError } = await supabase
+      .from("bank_statement_imports")
+      .insert({
+        entity_id: entityId,
+        bank_account_id: bankAccountId,
+        created_by: user.id,
+        source: "manual",
+        status: "pending_parse",
+        raw_file_id: rawFileId,
+      })
+      .select("id")
+      .single();
+    if (createError || !statementImport) throw createError ?? new Error("Missing statement import row.");
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, statementImportId: statementImport.id });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create statement import." }, { status: 500 });
