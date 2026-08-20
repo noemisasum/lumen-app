@@ -15,6 +15,8 @@ type EntityMemberRoleRow = {
   role: EntityRole;
 };
 
+type EntityAccessRole = OrgRole | EntityRole;
+
 export function slugifyOrgName(name: string) {
   const base = name
     .trim()
@@ -106,4 +108,37 @@ export async function requireEntityAdmin(supabase: SupabaseClient, entityId: str
   }
 
   return { orgId: entityRow.org_id, role: entityRole };
+}
+
+export async function requireEntityAccess(supabase: SupabaseClient, entityId: string, userId: string) {
+  const { data: entity, error: entityError } = await supabase.from("entities").select("org_id").eq("id", entityId).maybeSingle();
+  if (entityError) throw entityError;
+  if (!entity) {
+    throw new Response(JSON.stringify({ error: "Entity not found." }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  const entityRow = entity as EntityWithOrgRow;
+  const orgRole = await getOrgRole(supabase, entityRow.org_id, userId);
+  if (orgRole) return { orgId: entityRow.org_id, role: orgRole as EntityAccessRole };
+
+  const { data: membership, error: membershipError } = await supabase
+    .from("entity_members")
+    .select("role")
+    .eq("entity_id", entityId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (membershipError) throw membershipError;
+  const entityRole = (membership as EntityMemberRoleRow | null)?.role ?? null;
+  if (!entityRole) {
+    throw new Response(JSON.stringify({ error: "You need access to this entity." }), {
+      status: 403,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  return { orgId: entityRow.org_id, role: entityRole as EntityAccessRole };
 }

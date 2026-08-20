@@ -12,6 +12,19 @@ type OrgRow = { id: string; name: string; slug: string };
 
 type EntityRow = { id: string; org_id: string; name: string; code: string | null };
 
+type BankAccountRow = {
+  id: string;
+  entityId: string;
+  entityXeroMappingId: string | null;
+  xeroBankAccountId: string | null;
+  accountName: string;
+  currency: string | null;
+  status: string;
+  source: "xero" | "manual";
+  createdAt: string;
+  updatedAt: string;
+};
+
 type InvoiceRow = {
   id: string;
   org_id: string;
@@ -61,8 +74,93 @@ type InvoiceFileInsertPayload = {
   entity_id?: string;
 };
 
+const statementFileAccept =
+  "application/pdf,image/*,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+const selectClassName =
+  "h-10 w-full min-w-0 appearance-none truncate rounded-lg border border-zinc-300 bg-white py-0 pl-2.5 pr-9 text-[13px] text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:pl-3 sm:pr-10 sm:text-sm";
+
+function SelectControl({
+  children,
+  className = "",
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  return (
+    <span className={`relative block min-w-0 ${className}`}>
+      <select {...props} className={selectClassName}>
+        {children}
+      </select>
+      <span
+        className="pointer-events-none absolute right-3 top-1/2 h-2.5 w-2.5 -translate-y-[60%] rotate-45 border-b border-r border-zinc-500"
+        aria-hidden="true"
+      />
+    </span>
+  );
+}
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
+}
+
+function isStatementLikeFile(file: File) {
+  const fileName = file.name.toLowerCase();
+  const mimeType = file.type.toLowerCase();
+  return (
+    mimeType === "application/pdf" ||
+    mimeType.startsWith("image/") ||
+    mimeType.includes("csv") ||
+    mimeType.includes("spreadsheet") ||
+    mimeType.includes("excel") ||
+    /\.(csv|xls|xlsx|pdf|png|jpe?g|webp|heic|tiff?)$/i.test(fileName)
+  );
+}
+
+function titleCaseFromFileName(fileName: string) {
+  const baseName = fileName.replace(/\.[^.]+$/, "");
+  const cleaned = baseName
+    .replace(/[_-]+/g, " ")
+    .replace(/\b(statement|bank|transactions?|export|download|csv|xlsx?|pdf|image)\b/gi, " ")
+    .replace(/\b(20\d{2}|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (cleaned.length < 3) return "";
+  return cleaned
+    .split(" ")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function csvCells(line: string) {
+  return line
+    .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+    .map((cell) => cell.replace(/^"|"$/g, "").trim())
+    .filter(Boolean);
+}
+
+async function extractCsvAccountHint(file: File) {
+  if (!file.name.toLowerCase().endsWith(".csv") && !file.type.toLowerCase().includes("csv")) return "";
+
+  const text = await file.slice(0, 16_384).text().catch(() => "");
+  const rows = text
+    .split(/\r?\n/)
+    .slice(0, 12)
+    .map(csvCells)
+    .filter((row) => row.length);
+
+  for (const row of rows) {
+    const joined = row.join(" ").toLowerCase();
+    const valueCell = row.find((cell, index) => {
+      const previous = row[index - 1]?.toLowerCase() ?? "";
+      return /account\s*(name|identifier|number|no\.?|id)?/.test(previous) && cell.length >= 3;
+    });
+    if (valueCell) return valueCell.slice(0, 80);
+
+    const labeledValue = joined.match(/account\s*(?:name|identifier|number|no\.?|id)?\s*[:=-]\s*([a-z0-9][a-z0-9 ._-]{2,80})/i);
+    if (labeledValue?.[1]) return labeledValue[1].trim();
+  }
+
+  return "";
 }
 
 export default function InvoicesPage() {
@@ -73,12 +171,20 @@ export default function InvoicesPage() {
   const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [orgId, setOrgId] = useState<string>("");
   const [entityId, setEntityId] = useState<string>("");
   const [multiOrgMode, setMultiOrgMode] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<BankAccountRow[]>([]);
+  const [bankAccountId, setBankAccountId] = useState<string>("");
+  const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
+  const [bankAccountError, setBankAccountError] = useState<string | null>(null);
+  const [manualAccountName, setManualAccountName] = useState("");
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [accountSyncNote, setAccountSyncNote] = useState<string | null>(null);
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [filesByInvoice, setFilesByInvoice] = useState<Record<string, InvoiceFileRow[]>>({});
@@ -92,6 +198,112 @@ export default function InvoicesPage() {
       return null;
     }
     return data.session;
+  }
+
+  async function loadBankAccounts(nextEntityId: string, accessToken: string) {
+    if (!nextEntityId) {
+      setBankAccounts([]);
+      setBankAccountId("");
+      setAccountSyncNote(null);
+      return;
+    }
+
+    setBankAccountsLoading(true);
+    setBankAccountError(null);
+    setAccountSyncNote(null);
+
+    try {
+      const params = new URLSearchParams({ entityId: nextEntityId, syncXero: "1" });
+      const response = await fetch(`/api/entity-bank-accounts?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = (await response.json()) as {
+        accounts?: BankAccountRow[];
+        sync?: { synced?: boolean; count?: number; warning?: string };
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || "Failed to load bank accounts.");
+
+      const accounts = body.accounts ?? [];
+      setBankAccounts(accounts);
+      setBankAccountId((current) => (accounts.some((account) => account.id === current) ? current : accounts[0]?.id ?? ""));
+
+      if (body.sync?.warning) {
+        setAccountSyncNote(body.sync.warning);
+      } else if (body.sync?.synced && body.sync.count) {
+        setAccountSyncNote(`Synced ${body.sync.count} Xero bank account${body.sync.count === 1 ? "" : "s"}.`);
+      }
+    } catch (e: unknown) {
+      setBankAccounts([]);
+      setBankAccountId("");
+      setBankAccountError(getErrorMessage(e, "Failed to load bank accounts."));
+    } finally {
+      setBankAccountsLoading(false);
+    }
+  }
+
+  async function createManualBankAccount(accountName: string, accessToken: string) {
+    const normalizedName = accountName.trim().replace(/\s+/g, " ");
+    if (!entityId || !normalizedName) throw new Error("Choose an entity and enter a bank account name.");
+
+    const response = await fetch("/api/entity-bank-accounts", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ entityId, accountName: normalizedName }),
+    });
+    const body = (await response.json()) as { account?: BankAccountRow; error?: string };
+    if (!response.ok || !body.account) throw new Error(body.error || "Failed to create bank account.");
+
+    setBankAccounts((current) => {
+      const withoutDuplicate = current.filter((account) => account.id !== body.account?.id);
+      return [...withoutDuplicate, body.account as BankAccountRow].sort((left, right) => left.accountName.localeCompare(right.accountName));
+    });
+    setBankAccountId(body.account.id);
+    setManualAccountName("");
+    return body.account;
+  }
+
+  async function onCreateManualAccount() {
+    try {
+      if (!supabase) throw new Error("Authentication is not configured for this deployment.");
+      const sess = await ensureSession();
+      if (!sess) return;
+
+      setCreatingAccount(true);
+      setBankAccountError(null);
+      await createManualBankAccount(manualAccountName, sess.access_token);
+    } catch (e: unknown) {
+      setBankAccountError(getErrorMessage(e, "Failed to create bank account."));
+    } finally {
+      setCreatingAccount(false);
+    }
+  }
+
+  async function suggestedAccountNameFromFiles(files: File[]) {
+    for (const file of files) {
+      const csvHint = await extractCsvAccountHint(file);
+      if (csvHint) return csvHint;
+    }
+
+    for (const file of files) {
+      const nameHint = titleCaseFromFileName(file.name);
+      if (nameHint) return nameHint;
+    }
+
+    const entityName = entities.find((entity) => entity.id === entityId)?.name;
+    return entityName ? `${entityName} Statement Account` : "Statement Upload Account";
+  }
+
+  async function ensureUploadBankAccount(files: File[], accessToken: string) {
+    if (!multiOrgMode || !entityId) return "";
+    if (bankAccountId) return bankAccountId;
+
+    const suggestedName = await suggestedAccountNameFromFiles(files);
+    const account = await createManualBankAccount(suggestedName, accessToken);
+    return account.id;
   }
 
   async function load() {
@@ -132,8 +344,12 @@ export default function InvoicesPage() {
         if (!currentEntityId) {
           setInvoices([]);
           setFilesByInvoice({});
+          setBankAccounts([]);
+          setBankAccountId("");
           return;
         }
+
+        await loadBankAccounts(currentEntityId, sess.access_token);
 
         const { data: invs, error: invErr } = await supabase
           .from("invoices")
@@ -171,6 +387,8 @@ export default function InvoicesPage() {
 
       if (!detectedMultiOrg) {
         setMultiOrgMode(false);
+        setBankAccounts([]);
+        setBankAccountId("");
         // Single-user mode (schema.sql)
         const { data: invs, error: invErr } = await supabase
           .from("invoices")
@@ -233,7 +451,116 @@ export default function InvoicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
 
-  async function onUpload(file: File) {
+  async function uploadOneFile(file: File, userId: string, accessToken: string, client: NonNullable<typeof supabase>, selectedBankAccountId: string) {
+    if (entityId && selectedBankAccountId && isStatementLikeFile(file)) {
+      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+      const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
+      const objectKey = `${userId}/statement-intake/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
+
+      const { error: uploadError } = await client.storage.from("invoices").upload(objectKey, file, {
+        contentType: file.type || undefined,
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+
+      try {
+        const response = await fetch("/api/statement-upload-finalize", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            entityId,
+            bankAccountId: selectedBankAccountId,
+            bucket: "invoices",
+            objectKey,
+            mimeType: file.type || null,
+            sizeBytes: file.size,
+          }),
+        });
+        const body = (await response.json()) as { error?: string };
+        if (!response.ok) throw new Error(body.error || "Failed to link upload to bank account.");
+      } catch (e) {
+        await client.storage.from("invoices").remove([objectKey]);
+        throw e;
+      }
+
+      return;
+    }
+
+    // 1) Create invoice row
+    const insertPayload: InvoiceInsertPayload = {
+      created_by: userId,
+      status: "UPLOADED",
+      currency: "USD",
+    };
+    // In multi-org schema, entity/org are required.
+    if (orgId && entityId) {
+      insertPayload.org_id = orgId;
+      insertPayload.entity_id = entityId;
+    }
+
+    const { data: created, error: cErr } = await client
+      .from("invoices")
+      .insert(insertPayload)
+      .select("id")
+      .single();
+
+    if (cErr) throw cErr;
+    const invoiceId = created.id as string;
+
+    // 2) Upload file to storage
+    const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+    const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
+    const objectKey = `${userId}/${invoiceId}/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
+
+    const { error: uErr } = await client.storage.from("invoices").upload(objectKey, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+    if (uErr) throw uErr;
+
+    // 3) Create invoice_files row (future-proof ref)
+    const filePayload: InvoiceFileInsertPayload = {
+      invoice_id: invoiceId,
+      created_by: userId,
+      provider: "supabase",
+      bucket: "invoices",
+      object_key: objectKey,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+    };
+    if (orgId && entityId) {
+      filePayload.org_id = orgId;
+      filePayload.entity_id = entityId;
+    }
+    const { data: createdFile, error: fErr } = await client.from("invoice_files").insert(filePayload).select("id").single();
+    if (fErr) throw fErr;
+
+    if (entityId && selectedBankAccountId && isStatementLikeFile(file)) {
+      const response = await fetch("/api/bank-statement-imports", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entityId,
+          bankAccountId: selectedBankAccountId,
+          rawFileId: createdFile.id,
+        }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to link upload to bank account.");
+    }
+  }
+
+  async function onUpload(files: File[]) {
+    if (!files.length) return;
+
+    let uploadedCount = 0;
+
     try {
       if (!supabase) throw new Error("Authentication is not configured for this deployment.");
       const sess = await ensureSession();
@@ -241,58 +568,23 @@ export default function InvoicesPage() {
 
       setUploading(true);
       setError(null);
+      setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading 1 of ${files.length} files...`);
 
-      // 1) Create invoice row
-      const insertPayload: InvoiceInsertPayload = {
-        created_by: sess.user.id,
-        status: "UPLOADED",
-        currency: "USD",
-      };
-      // In multi-org schema, entity/org are required.
-      if (orgId && entityId) {
-        insertPayload.org_id = orgId;
-        insertPayload.entity_id = entityId;
+      const selectedBankAccountId = await ensureUploadBankAccount(files, sess.access_token);
+
+      for (let index = 0; index < files.length; index += 1) {
+        setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading ${index + 1} of ${files.length} files...`);
+        await uploadOneFile(files[index], sess.user.id, sess.access_token, supabase, selectedBankAccountId);
+        uploadedCount += 1;
       }
 
-      const { data: created, error: cErr } = await supabase
-        .from("invoices")
-        .insert(insertPayload)
-        .select("id")
-        .single();
-
-      if (cErr) throw cErr;
-      const invoiceId = created.id as string;
-
-      // 2) Upload file to storage
-      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
-      const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
-      const objectKey = `${sess.user.id}/${invoiceId}/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
-
-      const { error: uErr } = await supabase.storage.from("invoices").upload(objectKey, file, {
-        contentType: file.type || undefined,
-        upsert: false,
-      });
-      if (uErr) throw uErr;
-
-      // 3) Create invoice_files row (future-proof ref)
-      const filePayload: InvoiceFileInsertPayload = {
-        invoice_id: invoiceId,
-        created_by: sess.user.id,
-        provider: "supabase",
-        bucket: "invoices",
-        object_key: objectKey,
-        mime_type: file.type || null,
-        size_bytes: file.size,
-      };
-      if (orgId && entityId) {
-        filePayload.org_id = orgId;
-        filePayload.entity_id = entityId;
-      }
-      const { error: fErr } = await supabase.from("invoice_files").insert(filePayload);
-      if (fErr) throw fErr;
-
+      setUploadStatus(files.length === 1 ? "Uploaded 1 file." : `Uploaded ${files.length} files.`);
       await load();
     } catch (e: unknown) {
+      if (uploadedCount > 0) {
+        setUploadStatus(`Uploaded ${uploadedCount} of ${files.length} files before the batch stopped.`);
+        await load();
+      }
       setError(getErrorMessage(e, "Upload failed"));
     } finally {
       setUploading(false);
@@ -386,22 +678,24 @@ export default function InvoicesPage() {
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement Intake</div>
                 <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload Invoices and Statements.</h1>
                 <div className="mt-2 min-h-6 text-sm leading-6 text-zinc-600">
-                  {multiOrgMode && !orgs.length ? "Create an organisation and entity before uploading." : "PDF and image files are accepted."}
+                  {multiOrgMode && !orgs.length
+                    ? "Create an organisation and entity before uploading."
+                    : "Select one or more PDF, image, Excel, or CSV files for the chosen entity."}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[22rem] sm:flex-row sm:items-center sm:justify-end">
                 {multiOrgMode && orgs.length ? (
-                  <div className="space-y-1">
+                  <div className="w-full sm:min-w-44 sm:flex-1">
                     <label htmlFor="invoice-entity" className="sr-only">
                       Entity
                     </label>
-                    <select
+                    <SelectControl
                       id="invoice-entity"
                       value={entityId}
                       onChange={(e) => setEntityId(e.target.value)}
-                      className="h-10 w-full min-w-44 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
                       title="Entity"
+                      className="w-full"
                     >
                       {entities
                         .filter((x) => x.org_id === orgId)
@@ -410,7 +704,7 @@ export default function InvoicesPage() {
                             {e.name}
                           </option>
                         ))}
-                    </select>
+                    </SelectControl>
                   </div>
                 ) : null}
 
@@ -418,13 +712,14 @@ export default function InvoicesPage() {
                   ref={fileInputRef}
                   type="file"
                   className="sr-only"
-                  accept="application/pdf,image/*"
+                  accept={statementFileAccept}
+                  multiple
                   disabled={uploadUnavailable}
-                  aria-label="Choose invoice or statement file"
+                  aria-label="Choose invoice or statement files"
                   tabIndex={-1}
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onUpload(f);
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) void onUpload(files);
                     e.currentTarget.value = "";
                   }}
                 />
@@ -435,10 +730,114 @@ export default function InvoicesPage() {
                   className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400 disabled:text-white"
                   aria-describedby={multiOrgMode && (!orgs.length || !entityId) ? "upload-disabled-reason" : undefined}
                 >
-                  {uploading ? <Spinner label="Uploading" /> : "Upload"}
+                  {uploading ? <Spinner label="Uploading" /> : "Upload Files"}
                 </button>
               </div>
             </div>
+
+            {multiOrgMode && entityId ? (
+              <div className="mt-5 rounded-lg border border-zinc-200 bg-zinc-50/70 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-zinc-950">Bank Account</h2>
+                    <p className="mt-1 text-sm leading-6 text-zinc-600">
+                      Use a mapped Xero bank account when available, or create an upload account for this entity.
+                    </p>
+                  </div>
+                  <div className="flex min-h-6 shrink-0 items-center text-xs font-medium text-zinc-500">
+                    {bankAccountsLoading ? <Spinner label="Loading Accounts" /> : `${bankAccounts.length} account${bankAccounts.length === 1 ? "" : "s"}`}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                  <div className="min-w-0">
+                    <label htmlFor="statement-bank-account" className="sr-only">
+                      Bank account
+                    </label>
+                    <SelectControl
+                      id="statement-bank-account"
+                      value={bankAccountId}
+                      onChange={(event) => setBankAccountId(event.target.value)}
+                      disabled={bankAccountsLoading || !bankAccounts.length}
+                      title="Bank account"
+                      className="w-full"
+                    >
+                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Add a bank account to link uploads"}</option>
+                      {bankAccounts.map((account) => (
+                        <option key={account.id} value={account.id}>
+                          {account.accountName}
+                          {account.currency ? ` · ${account.currency}` : ""}
+                          {account.source === "xero" ? " · Xero" : " · Upload"}
+                        </option>
+                      ))}
+                    </SelectControl>
+
+                    {bankAccounts.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {bankAccounts.slice(0, 6).map((account) => (
+                          <button
+                            key={account.id}
+                            type="button"
+                            onClick={() => setBankAccountId(account.id)}
+                            className={`min-h-9 max-w-full rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 ${
+                              account.id === bankAccountId
+                                ? "border-zinc-950 bg-zinc-950 text-white"
+                                : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+                            }`}
+                            aria-pressed={account.id === bankAccountId}
+                          >
+                            <span className="block max-w-52 truncate sm:max-w-64">{account.accountName}</span>
+                            <span className={account.id === bankAccountId ? "text-zinc-300" : "text-zinc-500"}>
+                              {account.source === "xero" ? "Xero" : "Upload"}
+                              {account.currency ? ` · ${account.currency}` : ""}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0">
+                    <label htmlFor="manual-bank-account" className="sr-only">
+                      New bank account name
+                    </label>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        id="manual-bank-account"
+                        type="text"
+                        value={manualAccountName}
+                        onChange={(event) => setManualAccountName(event.target.value)}
+                        disabled={creatingAccount || uploading}
+                        placeholder="Add upload account"
+                        className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={onCreateManualAccount}
+                        disabled={!manualAccountName.trim() || creatingAccount || uploading}
+                        className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                      >
+                        {creatingAccount ? <Spinner label="Adding" /> : "Add"}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-zinc-500">
+                      If no account is selected, upload will create one from a clear CSV or file-name hint.
+                    </p>
+                  </div>
+                </div>
+
+                {accountSyncNote ? <div className="mt-3 text-xs leading-5 text-zinc-500">{accountSyncNote}</div> : null}
+                {bankAccountError ? (
+                  <div className="mt-3">
+                    <Notice tone="warning" title="Bank Accounts Unavailable">
+                      {bankAccountError}
+                    </Notice>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {uploadStatus ? <div className="mt-4 text-sm text-zinc-600">{uploadStatus}</div> : null}
 
             {multiOrgMode && orgs.length && !entityId ? (
               <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
