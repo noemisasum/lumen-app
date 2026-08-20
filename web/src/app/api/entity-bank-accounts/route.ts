@@ -44,6 +44,7 @@ type CreateAccountBody = {
   entityId?: string;
   accountName?: string;
   currency?: string;
+  allowDuplicate?: boolean;
 };
 
 function missingEnvResponse(missing: string[]) {
@@ -194,6 +195,7 @@ export async function POST(request: Request) {
     const entityId = body.entityId?.trim();
     const accountName = sanitizeAccountName(body.accountName);
     const currency = body.currency?.trim().toUpperCase().slice(0, 3) || null;
+    const allowDuplicate = body.allowDuplicate === true;
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
     if (!accountName || accountName.length < 2) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
@@ -201,9 +203,11 @@ export async function POST(request: Request) {
     const supabase = getSupabaseServiceClient();
     await requireEntityAccess(supabase, entityId, user.id);
 
-    const existingAccounts = await loadAccounts(supabase, entityId);
-    const existing = existingAccounts.find((account) => !account.xero_bank_account_id && normalizeAccountName(account.account_name) === normalizeAccountName(accountName));
-    if (existing) return NextResponse.json({ account: serializeAccount(existing), created: false });
+    if (!allowDuplicate) {
+      const existingAccounts = await loadAccounts(supabase, entityId);
+      const existing = existingAccounts.find((account) => !account.xero_bank_account_id && normalizeAccountName(account.account_name) === normalizeAccountName(accountName));
+      if (existing) return NextResponse.json({ account: serializeAccount(existing), created: false });
+    }
 
     const { data: created, error: createError } = await supabase
       .from("entity_bank_accounts")
