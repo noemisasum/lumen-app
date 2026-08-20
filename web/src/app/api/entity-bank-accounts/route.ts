@@ -47,6 +47,14 @@ type CreateAccountBody = {
   allowDuplicate?: boolean;
 };
 
+type UpdateAccountBody = {
+  entityId?: string;
+  accountId?: string;
+  accountName?: string;
+};
+
+const accountSelectColumns = "id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at";
+
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Entity bank accounts are not configured.", missing }, { status: 500 });
 }
@@ -81,7 +89,7 @@ function normalizeAccountName(value: string) {
 async function loadAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string) {
   const { data, error } = await supabase
     .from("entity_bank_accounts")
-    .select("id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at")
+    .select(accountSelectColumns)
     .eq("entity_id", entityId)
     .neq("status", "archived")
     .order("account_name");
@@ -218,7 +226,7 @@ export async function POST(request: Request) {
         currency,
         status: "active",
       })
-      .select("id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at")
+      .select(accountSelectColumns)
       .single();
 
     if (createError || !created) throw createError ?? new Error("Missing bank account row.");
@@ -227,5 +235,96 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create bank account." }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  const missing = getMissingSupabaseServerEnv();
+  if (missing.length) return missingEnvResponse(missing);
+
+  try {
+    const { user } = await requireSupabaseUser(request);
+    const body = (await request.json().catch(() => ({}))) as UpdateAccountBody;
+    const entityId = body.entityId?.trim();
+    const accountId = body.accountId?.trim();
+    const accountName = sanitizeAccountName(body.accountName);
+
+    if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
+    if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
+    if (!accountName || accountName.length < 2) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
+
+    const supabase = getSupabaseServiceClient();
+    await requireEntityAccess(supabase, entityId, user.id);
+
+    const accounts = await loadAccounts(supabase, entityId);
+    const target = accounts.find((account) => account.id === accountId);
+    if (!target) return NextResponse.json({ error: "Bank account does not belong to the selected entity." }, { status: 404 });
+    if (target.xero_bank_account_id) return NextResponse.json({ error: "Xero bank account names are managed in Xero." }, { status: 400 });
+
+    const normalizedName = normalizeAccountName(accountName);
+    const duplicate = accounts.find(
+      (account) =>
+        account.id !== accountId &&
+        !account.xero_bank_account_id &&
+        normalizeAccountName(account.account_name) === normalizedName,
+    );
+    if (duplicate) return NextResponse.json({ error: "An upload bank account with that name already exists." }, { status: 409 });
+
+    const { data: updated, error: updateError } = await supabase
+      .from("entity_bank_accounts")
+      .update({ account_name: accountName })
+      .eq("id", accountId)
+      .eq("entity_id", entityId)
+      .is("xero_bank_account_id", null)
+      .neq("status", "archived")
+      .select(accountSelectColumns)
+      .single();
+
+    if (updateError || !updated) throw updateError ?? new Error("Missing bank account row.");
+
+    return NextResponse.json({ account: serializeAccount(updated as BankAccountRow) });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    return NextResponse.json({ error: "Failed to update bank account." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const missing = getMissingSupabaseServerEnv();
+  if (missing.length) return missingEnvResponse(missing);
+
+  try {
+    const { user } = await requireSupabaseUser(request);
+    const requestUrl = new URL(request.url);
+    const entityId = requestUrl.searchParams.get("entityId")?.trim();
+    const accountId = requestUrl.searchParams.get("accountId")?.trim();
+
+    if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
+    if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
+
+    const supabase = getSupabaseServiceClient();
+    await requireEntityAccess(supabase, entityId, user.id);
+
+    const accounts = await loadAccounts(supabase, entityId);
+    const target = accounts.find((account) => account.id === accountId);
+    if (!target) return NextResponse.json({ error: "Bank account does not belong to the selected entity." }, { status: 404 });
+    if (target.xero_bank_account_id) return NextResponse.json({ error: "Xero bank accounts are managed in Xero." }, { status: 400 });
+
+    const { data: archived, error: archiveError } = await supabase
+      .from("entity_bank_accounts")
+      .update({ status: "archived" })
+      .eq("id", accountId)
+      .eq("entity_id", entityId)
+      .is("xero_bank_account_id", null)
+      .neq("status", "archived")
+      .select(accountSelectColumns)
+      .single();
+
+    if (archiveError || !archived) throw archiveError ?? new Error("Missing bank account row.");
+
+    return NextResponse.json({ account: serializeAccount(archived as BankAccountRow), archived: true });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    return NextResponse.json({ error: "Failed to archive bank account." }, { status: 500 });
   }
 }
