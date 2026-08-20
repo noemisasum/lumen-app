@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { removeInvoiceStorageObjects } from "@/lib/server/invoice-storage";
 import { requireEntityAccess } from "@/lib/server/orgs";
+import { parseManualStatementImport } from "@/lib/server/statement-import-parser";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 
 export const runtime = "nodejs";
@@ -197,11 +198,23 @@ export async function POST(request: Request) {
       cleanupBucket = "";
       cleanupObjectKey = "";
 
+      const parseResult = await parseManualStatementImport(supabase, {
+        statementImportId: statementImport.id,
+        entityId,
+        bankAccountId,
+        rawFileId: existingFile.id,
+        bucket,
+        objectKey: normalized,
+        mimeType,
+        sizeBytes,
+      });
+
       return NextResponse.json({
         ok: true,
         invoiceId: existingFile.invoice_id,
         rawFileId: existingFile.id,
         statementImportId: statementImport.id,
+        parse: parseResult,
       });
     }
 
@@ -253,11 +266,23 @@ export async function POST(request: Request) {
           rawFileId: concurrentFile.id,
         });
 
+        const parseResult = await parseManualStatementImport(supabase, {
+          statementImportId: statementImport.id,
+          entityId,
+          bankAccountId,
+          rawFileId: concurrentFile.id,
+          bucket,
+          objectKey: normalized,
+          mimeType,
+          sizeBytes,
+        });
+
         return NextResponse.json({
           ok: true,
           invoiceId: concurrentFile.invoice_id,
           rawFileId: concurrentFile.id,
           statementImportId: statementImport.id,
+          parse: parseResult,
         });
       }
       throw fileError;
@@ -275,7 +300,24 @@ export async function POST(request: Request) {
     cleanupBucket = "";
     cleanupObjectKey = "";
 
-    return NextResponse.json({ ok: true, invoiceId: invoice.id, rawFileId: invoiceFile.id, statementImportId: statementImport.id });
+    const parseResult = await parseManualStatementImport(supabase, {
+      statementImportId: statementImport.id,
+      entityId,
+      bankAccountId,
+      rawFileId: invoiceFile.id as string,
+      bucket,
+      objectKey: normalized,
+      mimeType,
+      sizeBytes,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      invoiceId: invoice.id,
+      rawFileId: invoiceFile.id,
+      statementImportId: statementImport.id,
+      parse: parseResult,
+    });
   } catch (error) {
     if (cleanupBucket && cleanupObjectKey) {
       await cleanupUpload(supabase, cleanupBucket, cleanupObjectKey, cleanupInvoiceId);

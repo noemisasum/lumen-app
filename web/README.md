@@ -64,7 +64,15 @@ The same page lists connected Xero tenants and maps one tenant to one Lumen enti
 - `/api/entities` creates an entity under an org where the signed-in user is owner/admin.
 - `/api/entity-xero-mappings` maps or unmaps entities only when the signed-in user can administer that entity.
 
-The `entity_xero_mappings` table is created by `supabase/xero_oauth.sql` because it links multi-org entities to service-only Xero connection rows. Keep applying `supabase/schema_multi_org.sql` before `supabase/xero_oauth.sql` for the multi-entity deployment. The migration also adds low-risk `entity_bank_accounts` and `bank_statement_imports` placeholders so the later bank statement importer can attach to an entity and its mapped Xero tenant.
+The `entity_xero_mappings` table is created by `supabase/xero_oauth.sql` because it links multi-org entities to service-only Xero connection rows. Keep applying `supabase/schema_multi_org.sql` before `supabase/xero_oauth.sql` for the multi-entity deployment. The migration also adds `entity_bank_accounts`, `bank_statement_imports`, and shared bank ledger tables so manual statement imports and Xero bank syncs can attach to an entity and mapped Xero tenant.
+
+## Manual bank statement parsing
+
+Manual bank statement uploads now parse CSV files server-side when `/api/statement-upload-finalize` links the uploaded Supabase Storage object, and when the legacy `/api/bank-statement-imports` route can access the raw Supabase file. The parser supports quoted CSV fields, embedded commas/newlines in quoted fields, common transaction date headers, description/payee/reference headers, signed amount columns, debit/credit columns, optional currency columns, and optional running balance columns. Parsed transactions are upserted into `bank_account_transactions`; running balance values are stored in `bank_account_balances`.
+
+Idempotency is based on bank-provided external transaction IDs when present, otherwise on the statement import id plus CSV source row number, so repeated imports update the same rows while duplicate same-day/same-amount statement rows remain distinct. Currency comes from the CSV when present, then the selected bank account, then `USD`.
+
+PDF, image, and Excel statement files are not parsed automatically yet. They remain in `pending_parse` with a concise warning instead of pretending ingestion succeeded.
 
 ## Run locally
 

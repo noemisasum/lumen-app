@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
+import { parseManualStatementImport } from "@/lib/server/statement-import-parser";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 
 export const runtime = "nodejs";
@@ -12,6 +13,15 @@ type CreateImportBody = {
 
 type StatementImportRow = {
   id: string;
+};
+
+type RawFileRow = {
+  id: string;
+  provider: string;
+  bucket: string;
+  object_key: string;
+  mime_type: string | null;
+  size_bytes: number | null;
 };
 
 function missingEnvResponse(missing: string[]) {
@@ -67,16 +77,29 @@ export async function POST(request: Request) {
 
     const { data: file, error: fileError } = await supabase
       .from("invoice_files")
-      .select("id")
+      .select("id,provider,bucket,object_key,mime_type,size_bytes")
       .eq("id", rawFileId)
       .eq("entity_id", entityId)
       .eq("created_by", user.id)
       .maybeSingle();
     if (fileError) throw fileError;
     if (!file) return NextResponse.json({ error: "Uploaded file does not belong to the selected entity." }, { status: 400 });
+    const rawFile = file as RawFileRow;
 
     const existing = await loadStatementImport(supabase, rawFileId, bankAccountId, entityId);
-    if (existing) return NextResponse.json({ ok: true, statementImportId: existing.id });
+    if (existing) {
+      const parseResult = await parseManualStatementImport(supabase, {
+        statementImportId: existing.id,
+        entityId,
+        bankAccountId,
+        rawFileId,
+        bucket: rawFile.provider === "supabase" ? rawFile.bucket : null,
+        objectKey: rawFile.provider === "supabase" ? rawFile.object_key : null,
+        mimeType: rawFile.mime_type,
+        sizeBytes: rawFile.size_bytes,
+      });
+      return NextResponse.json({ ok: true, statementImportId: existing.id, parse: parseResult });
+    }
 
     const { data: statementImport, error: createError } = await supabase
       .from("bank_statement_imports")
@@ -99,7 +122,18 @@ export async function POST(request: Request) {
     }
     if (!statementImport) throw new Error("Missing statement import row.");
 
-    return NextResponse.json({ ok: true, statementImportId: statementImport.id });
+    const parseResult = await parseManualStatementImport(supabase, {
+      statementImportId: statementImport.id,
+      entityId,
+      bankAccountId,
+      rawFileId,
+      bucket: rawFile.provider === "supabase" ? rawFile.bucket : null,
+      objectKey: rawFile.provider === "supabase" ? rawFile.object_key : null,
+      mimeType: rawFile.mime_type,
+      sizeBytes: rawFile.size_bytes,
+    });
+
+    return NextResponse.json({ ok: true, statementImportId: statementImport.id, parse: parseResult });
   } catch (error) {
     if (error instanceof Response) return error;
     return NextResponse.json({ error: "Failed to create statement import." }, { status: 500 });
