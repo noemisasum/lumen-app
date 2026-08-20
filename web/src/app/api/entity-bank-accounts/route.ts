@@ -1,0 +1,215 @@
+import { NextResponse } from "next/server";
+import { encryptJson, decryptJson } from "@/lib/server/crypto";
+import { requireEntityAccess } from "@/lib/server/orgs";
+import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
+import { createXeroClient, getXeroEnvIssueNames, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import type { TokenSet } from "xero-node";
+
+export const runtime = "nodejs";
+
+type BankAccountRow = {
+  id: string;
+  entity_id: string;
+  entity_xero_mapping_id: string | null;
+  xero_bank_account_id: string | null;
+  account_name: string;
+  currency: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type EntityXeroMappingRow = {
+  id: string;
+  connection_id: string;
+  connection_tenant_id: string;
+  xero_tenant_id: string;
+};
+
+type XeroConnectionRow = {
+  id: string;
+  token_ciphertext: string;
+};
+
+type XeroAccount = {
+  accountID?: string;
+  name?: string;
+  code?: string;
+  type?: string;
+  status?: string;
+  currencyCode?: string;
+};
+
+type CreateAccountBody = {
+  entityId?: string;
+  accountName?: string;
+  currency?: string;
+};
+
+function missingEnvResponse(missing: string[]) {
+  return NextResponse.json({ error: "Entity bank accounts are not configured.", missing }, { status: 500 });
+}
+
+function accountSource(account: BankAccountRow) {
+  return account.xero_bank_account_id ? "xero" : "manual";
+}
+
+function serializeAccount(account: BankAccountRow) {
+  return {
+    id: account.id,
+    entityId: account.entity_id,
+    entityXeroMappingId: account.entity_xero_mapping_id,
+    xeroBankAccountId: account.xero_bank_account_id,
+    accountName: account.account_name,
+    currency: account.currency,
+    status: account.status,
+    source: accountSource(account),
+    createdAt: account.created_at,
+    updatedAt: account.updated_at,
+  };
+}
+
+function sanitizeAccountName(value: string | undefined) {
+  return value?.trim().replace(/\s+/g, " ").slice(0, 120) ?? "";
+}
+
+function normalizeAccountName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+async function loadAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string) {
+  const { data, error } = await supabase
+    .from("entity_bank_accounts")
+    .select("id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at")
+    .eq("entity_id", entityId)
+    .neq("status", "archived")
+    .order("account_name");
+
+  if (error) throw error;
+  return (data ?? []) as BankAccountRow[];
+}
+
+async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string, userId: string) {
+  const { data: mapping, error: mappingError } = await supabase
+    .from("entity_xero_mappings")
+    .select("id,connection_id,connection_tenant_id,xero_tenant_id")
+    .eq("entity_id", entityId)
+    .maybeSingle();
+  if (mappingError) throw mappingError;
+  if (!mapping) return { synced: false, count: 0 };
+
+  const xeroIssues = getXeroEnvIssueNames();
+  if (xeroIssues.length) return { synced: false, count: 0, warning: "Xero is not configured for account sync." };
+
+  const mappingRow = mapping as EntityXeroMappingRow;
+  const { data: connection, error: connectionError } = await supabase
+    .from("xero_connections")
+    .select("id,token_ciphertext")
+    .eq("id", mappingRow.connection_id)
+    .eq("user_id", userId)
+    .is("disconnected_at", null)
+    .maybeSingle();
+  if (connectionError) throw connectionError;
+  if (!connection) return { synced: false, count: 0, warning: "The mapped Xero connection is not available for this user." };
+
+  const connectionRow = connection as XeroConnectionRow;
+  const xero = createXeroClient();
+  xero.setTokenSet(decryptJson<TokenSet>(connectionRow.token_ciphertext));
+
+  const tokenSet = await xero.refreshToken();
+  const encryptedTokenSet = encryptJson(serializeTokenSet(tokenSet));
+  await supabase.from("xero_connections").update({ token_ciphertext: encryptedTokenSet, updated_at: new Date().toISOString() }).eq("id", connectionRow.id);
+  xero.setTokenSet(tokenSet);
+
+  const tenants = (await xero.updateTenants(false)) as XeroTenant[];
+  const hasTenant = tenants.some((tenant) => tenant.tenantId === mappingRow.xero_tenant_id);
+  if (!hasTenant) return { synced: false, count: 0, warning: "The mapped Xero tenant is not available on the active connection." };
+
+  const accountResponse = await xero.accountingApi.getAccounts(mappingRow.xero_tenant_id, undefined, 'Type=="BANK"');
+  const accounts = ((accountResponse.body.accounts ?? []) as XeroAccount[]).filter((account) => account.accountID && account.name);
+
+  if (!accounts.length) return { synced: true, count: 0 };
+
+  const now = new Date().toISOString();
+  const rows = accounts.map((account) => ({
+    entity_id: entityId,
+    entity_xero_mapping_id: mappingRow.id,
+    xero_bank_account_id: account.accountID,
+    account_name: account.name,
+    currency: account.currencyCode ?? null,
+    status: account.status === "ARCHIVED" ? "archived" : "active",
+    updated_at: now,
+  }));
+
+  const { error: upsertError } = await supabase.from("entity_bank_accounts").upsert(rows, { onConflict: "entity_id,xero_bank_account_id" });
+  if (upsertError) throw upsertError;
+
+  return { synced: true, count: rows.length };
+}
+
+export async function GET(request: Request) {
+  const missing = getMissingSupabaseServerEnv();
+  if (missing.length) return missingEnvResponse(missing);
+
+  try {
+    const { user } = await requireSupabaseUser(request);
+    const requestUrl = new URL(request.url);
+    const entityId = requestUrl.searchParams.get("entityId")?.trim();
+    const shouldSync = requestUrl.searchParams.get("syncXero") === "1";
+
+    if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
+
+    const supabase = getSupabaseServiceClient();
+    await requireEntityAccess(supabase, entityId, user.id);
+
+    const sync = shouldSync ? await syncXeroBankAccounts(supabase, entityId, user.id) : { synced: false, count: 0 };
+    const accounts = await loadAccounts(supabase, entityId);
+
+    return NextResponse.json({ accounts: accounts.map(serializeAccount), sync });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    return NextResponse.json({ error: "Failed to load entity bank accounts." }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  const missing = getMissingSupabaseServerEnv();
+  if (missing.length) return missingEnvResponse(missing);
+
+  try {
+    const { user } = await requireSupabaseUser(request);
+    const body = (await request.json().catch(() => ({}))) as CreateAccountBody;
+    const entityId = body.entityId?.trim();
+    const accountName = sanitizeAccountName(body.accountName);
+    const currency = body.currency?.trim().toUpperCase().slice(0, 3) || null;
+
+    if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
+    if (!accountName || accountName.length < 2) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
+
+    const supabase = getSupabaseServiceClient();
+    await requireEntityAccess(supabase, entityId, user.id);
+
+    const existingAccounts = await loadAccounts(supabase, entityId);
+    const existing = existingAccounts.find((account) => !account.xero_bank_account_id && normalizeAccountName(account.account_name) === normalizeAccountName(accountName));
+    if (existing) return NextResponse.json({ account: serializeAccount(existing), created: false });
+
+    const { data: created, error: createError } = await supabase
+      .from("entity_bank_accounts")
+      .insert({
+        entity_id: entityId,
+        xero_bank_account_id: null,
+        account_name: accountName,
+        currency,
+        status: "active",
+      })
+      .select("id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at")
+      .single();
+
+    if (createError || !created) throw createError ?? new Error("Missing bank account row.");
+
+    return NextResponse.json({ account: serializeAccount(created as BankAccountRow), created: true });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    return NextResponse.json({ error: "Failed to create bank account." }, { status: 500 });
+  }
+}
