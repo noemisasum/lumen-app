@@ -43,7 +43,9 @@ type ReprocessSummary = {
 
 const defaultBatchLimit = 25;
 const maxBatchLimit = 100;
-const supportedStatusFilters = new Set(["pending_parse", "failed", "processing", "imported"]);
+const defaultBatchStatuses = ["pending_parse", "queued"] as const;
+const supportedStatusFilters = new Set([...defaultBatchStatuses, "failed", "processing", "imported"]);
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Statement import reprocessing is not configured.", missing }, { status: 500 });
@@ -55,8 +57,14 @@ function parseLimit(value: number | undefined) {
 }
 
 function normalizeStatus(value: string | undefined) {
-  const status = value?.trim() || "pending_parse";
-  return supportedStatusFilters.has(status) ? status : null;
+  const status = value?.trim();
+  if (!status) return [...defaultBatchStatuses];
+  return supportedStatusFilters.has(status) ? [status] : null;
+}
+
+function validateUuid(value: string | undefined, fieldName: string) {
+  if (!value || uuidPattern.test(value)) return null;
+  return NextResponse.json({ error: `${fieldName} must be a valid UUID.` }, { status: 400 });
 }
 
 function firstRawFile(rawFile: StatementImportRow["raw_file"]) {
@@ -88,7 +96,7 @@ async function loadSingleImport(supabase: ReturnType<typeof getSupabaseServiceCl
 
 async function loadBatchImports(
   supabase: ReturnType<typeof getSupabaseServiceClient>,
-  input: { entityId: string; bankAccountId?: string; status: string; limit: number },
+  input: { entityId: string; bankAccountId?: string; statuses: string[]; limit: number },
 ) {
   let query = supabase
     .from("bank_statement_imports")
@@ -97,7 +105,7 @@ async function loadBatchImports(
     )
     .eq("entity_id", input.entityId)
     .eq("source", "manual")
-    .eq("status", input.status)
+    .in("status", input.statuses)
     .order("created_at", { ascending: true })
     .limit(input.limit);
 
@@ -183,6 +191,12 @@ export async function POST(request: Request) {
     const status = normalizeStatus(body.status);
 
     if (!status) return NextResponse.json({ error: "Unsupported status filter for statement import reprocessing." }, { status: 400 });
+    const invalidStatementImportId = validateUuid(statementImportId, "statementImportId");
+    if (invalidStatementImportId) return invalidStatementImportId;
+    const invalidEntityId = validateUuid(entityId, "entityId");
+    if (invalidEntityId) return invalidEntityId;
+    const invalidBankAccountId = validateUuid(bankAccountId, "bankAccountId");
+    if (invalidBankAccountId) return invalidBankAccountId;
     if (statementImportId && entityId) {
       return NextResponse.json({ error: "Use either statementImportId or an entity batch filter, not both." }, { status: 400 });
     }
@@ -203,7 +217,7 @@ export async function POST(request: Request) {
       rows = await loadBatchImports(supabase, {
         entityId: entityId as string,
         bankAccountId,
-        status,
+        statuses: status,
         limit: parseLimit(body.limit),
       });
     }
