@@ -94,7 +94,10 @@ function normalizeAmount(value: number) {
 }
 
 function transactionHash(input: BankTransactionInput) {
-  if ((input.source === "manual" || input.source === "bank_feed") && !input.externalId && !input.sourceRowId) {
+  const externalIdMissing = input.externalId == null || input.externalId.trim() === "";
+  const sourceRowIdMissing = input.sourceRowId == null || (typeof input.sourceRowId === "string" && input.sourceRowId.trim() === "");
+
+  if ((input.source === "manual" || input.source === "bank_feed") && externalIdMissing && sourceRowIdMissing) {
     throw new Error("Manual or imported ledger transactions require externalId or sourceRowId for stable row identity.");
   }
 

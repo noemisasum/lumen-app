@@ -10,13 +10,34 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.xero_oauth_states (
   id uuid primary key default gen_random_uuid(),
-  state_hash text not null unique,
+  state_hash text not null,
   user_id uuid not null references auth.users(id) on delete cascade,
   redirect_after text not null default '/dashboard',
   expires_at timestamptz not null,
   consumed_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if to_regclass('public.xero_oauth_states_state_hash_key') is null
+    and to_regclass('public.xero_oauth_states_state_hash_uidx') is null then
+    if exists (
+      select 1
+      from public.xero_oauth_states
+      group by state_hash
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create xero_oauth_states_state_hash_uidx because duplicate Xero OAuth state hashes exist.',
+        hint = 'Resolve duplicate xero_oauth_states rows for the same state_hash before applying this schema.';
+    end if;
+
+    create unique index xero_oauth_states_state_hash_uidx
+      on public.xero_oauth_states(state_hash);
+  end if;
+end;
+$$;
 
 create index if not exists xero_oauth_states_user_id_idx on public.xero_oauth_states(user_id);
 create index if not exists xero_oauth_states_expires_at_idx on public.xero_oauth_states(expires_at);
@@ -32,9 +53,29 @@ create table if not exists public.xero_connections (
   refresh_token_expires_at timestamptz,
   connected_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  disconnected_at timestamptz,
-  unique (user_id)
+  disconnected_at timestamptz
 );
+
+do $$
+begin
+  if to_regclass('public.xero_connections_user_id_key') is null
+    and to_regclass('public.xero_connections_user_id_uidx') is null then
+    if exists (
+      select 1
+      from public.xero_connections
+      group by user_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create xero_connections_user_id_uidx because duplicate Xero connection users exist.',
+        hint = 'Resolve duplicate xero_connections rows for the same user_id before applying this schema.';
+    end if;
+
+    create unique index xero_connections_user_id_uidx
+      on public.xero_connections(user_id);
+  end if;
+end;
+$$;
 
 create index if not exists xero_connections_user_id_idx on public.xero_connections(user_id);
 create index if not exists xero_connections_active_idx on public.xero_connections(user_id) where disconnected_at is null;
@@ -48,9 +89,29 @@ create table if not exists public.xero_connection_tenants (
   tenant_type text,
   xero_connection_id text,
   raw_metadata jsonb not null default '{}'::jsonb,
-  updated_at timestamptz not null default now(),
-  unique (connection_id, tenant_id)
+  updated_at timestamptz not null default now()
 );
+
+do $$
+begin
+  if to_regclass('public.xero_connection_tenants_connection_id_tenant_id_key') is null
+    and to_regclass('public.xero_connection_tenants_connection_tenant_uidx') is null then
+    if exists (
+      select 1
+      from public.xero_connection_tenants
+      group by connection_id, tenant_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create xero_connection_tenants_connection_tenant_uidx because duplicate Xero tenant connections exist.',
+        hint = 'Resolve duplicate xero_connection_tenants rows for the same connection_id and tenant_id before applying this schema.';
+    end if;
+
+    create unique index xero_connection_tenants_connection_tenant_uidx
+      on public.xero_connection_tenants(connection_id, tenant_id);
+  end if;
+end;
+$$;
 
 create index if not exists xero_connection_tenants_user_id_idx on public.xero_connection_tenants(user_id);
 create index if not exists xero_connection_tenants_tenant_id_idx on public.xero_connection_tenants(tenant_id);
@@ -65,10 +126,45 @@ create table if not exists public.entity_xero_mappings (
   xero_tenant_id text not null,
   mapped_by uuid references auth.users(id) on delete set null,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (entity_id),
-  unique (connection_tenant_id)
+  updated_at timestamptz not null default now()
 );
+do $$
+begin
+  if to_regclass('public.entity_xero_mappings_entity_id_key') is null
+    and to_regclass('public.entity_xero_mappings_entity_id_uidx') is null then
+    if exists (
+      select 1
+      from public.entity_xero_mappings
+      group by entity_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create entity_xero_mappings_entity_id_uidx because duplicate entity Xero mappings exist.',
+        hint = 'Resolve duplicate entity_xero_mappings rows for the same entity_id before applying this schema.';
+    end if;
+
+    create unique index entity_xero_mappings_entity_id_uidx
+      on public.entity_xero_mappings(entity_id);
+  end if;
+
+  if to_regclass('public.entity_xero_mappings_connection_tenant_id_key') is null
+    and to_regclass('public.entity_xero_mappings_connection_tenant_uidx') is null then
+    if exists (
+      select 1
+      from public.entity_xero_mappings
+      group by connection_tenant_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create entity_xero_mappings_connection_tenant_uidx because duplicate Xero tenant entity mappings exist.',
+        hint = 'Resolve duplicate entity_xero_mappings rows for the same connection_tenant_id before applying this schema.';
+    end if;
+
+    create unique index entity_xero_mappings_connection_tenant_uidx
+      on public.entity_xero_mappings(connection_tenant_id);
+  end if;
+end;
+$$;
 create index if not exists entity_xero_mappings_connection_id_idx on public.entity_xero_mappings(connection_id);
 create index if not exists entity_xero_mappings_xero_tenant_id_idx on public.entity_xero_mappings(xero_tenant_id);
 
@@ -83,9 +179,29 @@ create table if not exists public.entity_bank_accounts (
   currency text,
   status text not null default 'pending' check (status in ('pending','active','archived')),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (entity_id, xero_bank_account_id)
+  updated_at timestamptz not null default now()
 );
+do $$
+begin
+  if to_regclass('public.entity_bank_accounts_entity_id_xero_bank_account_id_key') is null
+    and to_regclass('public.entity_bank_accounts_entity_xero_account_uidx') is null then
+    if exists (
+      select 1
+      from public.entity_bank_accounts
+      where xero_bank_account_id is not null
+      group by entity_id, xero_bank_account_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create entity_bank_accounts_entity_xero_account_uidx because duplicate Xero bank accounts exist.',
+        hint = 'Resolve duplicate entity_bank_accounts rows for the same entity_id and xero_bank_account_id before applying this schema.';
+    end if;
+
+    create unique index entity_bank_accounts_entity_xero_account_uidx
+      on public.entity_bank_accounts(entity_id, xero_bank_account_id);
+  end if;
+end;
+$$;
 create index if not exists entity_bank_accounts_entity_id_idx on public.entity_bank_accounts(entity_id);
 
 create table if not exists public.bank_statement_imports (
@@ -119,7 +235,9 @@ begin
       group by raw_file_id, bank_account_id, source
       having count(*) > 1
     ) then
-      raise notice 'Skipping bank_statement_imports_manual_raw_file_account_uidx because duplicate import rows exist.';
+      raise exception using
+        message = 'Cannot create bank_statement_imports_manual_raw_file_account_uidx because duplicate manual statement imports exist.',
+        hint = 'Resolve duplicate bank_statement_imports rows for the same raw_file_id, bank_account_id, and source before applying this schema.';
     else
       create unique index bank_statement_imports_manual_raw_file_account_uidx
         on public.bank_statement_imports(raw_file_id, bank_account_id, source)
@@ -153,12 +271,45 @@ create table if not exists public.bank_account_transactions (
   raw_payload jsonb not null default '{}'::jsonb,
   status text not null default 'posted' check (status in ('pending','posted','reconciled','voided','failed')),
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (bank_account_id, source, external_hash)
+  updated_at timestamptz not null default now()
 );
-create unique index if not exists bank_account_transactions_external_id_uidx
-  on public.bank_account_transactions(bank_account_id, source, external_id)
-  where external_id is not null;
+do $$
+begin
+  if to_regclass('public.bank_account_transactions_account_source_hash_uidx') is null then
+    if exists (
+      select 1
+      from public.bank_account_transactions
+      group by bank_account_id, source, external_hash
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create bank_account_transactions_account_source_hash_uidx because duplicate bank transaction hashes exist.',
+        hint = 'Resolve duplicate bank_account_transactions rows for the same bank_account_id, source, and external_hash before applying this schema.';
+    end if;
+
+    create unique index bank_account_transactions_account_source_hash_uidx
+      on public.bank_account_transactions(bank_account_id, source, external_hash);
+  end if;
+
+  if to_regclass('public.bank_account_transactions_external_id_uidx') is null then
+    if exists (
+      select 1
+      from public.bank_account_transactions
+      where external_id is not null
+      group by bank_account_id, source, external_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create bank_account_transactions_external_id_uidx because duplicate bank transaction external IDs exist.',
+        hint = 'Resolve duplicate bank_account_transactions rows for the same bank_account_id, source, and external_id before applying this schema.';
+    end if;
+
+    create unique index bank_account_transactions_external_id_uidx
+      on public.bank_account_transactions(bank_account_id, source, external_id)
+      where external_id is not null;
+  end if;
+end;
+$$;
 create index if not exists bank_account_transactions_account_date_idx
   on public.bank_account_transactions(bank_account_id, transaction_date desc);
 create index if not exists bank_account_transactions_entity_date_idx
@@ -184,12 +335,45 @@ create table if not exists public.bank_account_balances (
   external_hash text not null,
   raw_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  unique (bank_account_id, source, external_hash)
+  updated_at timestamptz not null default now()
 );
-create unique index if not exists bank_account_balances_external_id_uidx
-  on public.bank_account_balances(bank_account_id, source, external_id)
-  where external_id is not null;
+do $$
+begin
+  if to_regclass('public.bank_account_balances_account_source_hash_uidx') is null then
+    if exists (
+      select 1
+      from public.bank_account_balances
+      group by bank_account_id, source, external_hash
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create bank_account_balances_account_source_hash_uidx because duplicate bank balance hashes exist.',
+        hint = 'Resolve duplicate bank_account_balances rows for the same bank_account_id, source, and external_hash before applying this schema.';
+    end if;
+
+    create unique index bank_account_balances_account_source_hash_uidx
+      on public.bank_account_balances(bank_account_id, source, external_hash);
+  end if;
+
+  if to_regclass('public.bank_account_balances_external_id_uidx') is null then
+    if exists (
+      select 1
+      from public.bank_account_balances
+      where external_id is not null
+      group by bank_account_id, source, external_id
+      having count(*) > 1
+    ) then
+      raise exception using
+        message = 'Cannot create bank_account_balances_external_id_uidx because duplicate bank balance external IDs exist.',
+        hint = 'Resolve duplicate bank_account_balances rows for the same bank_account_id, source, and external_id before applying this schema.';
+    end if;
+
+    create unique index bank_account_balances_external_id_uidx
+      on public.bank_account_balances(bank_account_id, source, external_id)
+      where external_id is not null;
+  end if;
+end;
+$$;
 create index if not exists bank_account_balances_account_date_idx
   on public.bank_account_balances(bank_account_id, balance_date desc, balance_type);
 create index if not exists bank_account_balances_entity_date_idx

@@ -218,7 +218,9 @@ begin
       group by provider, bucket, object_key
       having count(*) > 1
     ) then
-      raise notice 'Skipping invoice_files_storage_object_uidx because duplicate storage object rows exist.';
+      raise exception using
+        message = 'Cannot create invoice_files_storage_object_uidx because duplicate invoice file storage object rows exist.',
+        hint = 'Resolve duplicate invoice_files rows for the same provider, bucket, and object_key before applying this schema.';
     else
       create unique index invoice_files_storage_object_uidx
         on public.invoice_files(provider, bucket, object_key);
