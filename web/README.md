@@ -74,6 +74,26 @@ Idempotency is based on bank-provided external transaction IDs when present, oth
 
 PDF, image, and Excel statement files are not parsed automatically yet. They remain in `pending_parse` with a concise warning instead of pretending ingestion succeeded.
 
+After deploying a parser change, an entity admin can reprocess existing queued statement imports through `POST /api/bank-statement-imports/reprocess`. Send an authenticated Supabase bearer token for an entity admin. To reprocess one import:
+
+```bash
+curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
+  -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"statementImportId":"<bank_statement_import_id>"}'
+```
+
+To backfill a bounded batch of queued imports for an entity:
+
+```bash
+curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
+  -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"entityId":"<entity_id>","status":"pending_parse","limit":25}'
+```
+
+The batch defaults to `pending_parse`, caps `limit` at 100, can be narrowed with `bankAccountId`, and returns a per-import summary. CSV rows are upserted through the same stable hashes used by new uploads, so reruns do not duplicate transactions or balances. Unsupported PDF, image, and Excel files remain `pending_parse` with a warning.
+
 ## Run locally
 
 ```bash
