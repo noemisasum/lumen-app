@@ -61,6 +61,30 @@ type InvoiceFileInsertPayload = {
   entity_id?: string;
 };
 
+const statementFileAccept =
+  "application/pdf,image/*,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+const selectClassName =
+  "h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white py-0 pl-3 pr-10 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
+
+function SelectControl({
+  children,
+  className = "",
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
+  return (
+    <span className={`relative block ${className}`}>
+      <select {...props} className={selectClassName}>
+        {children}
+      </select>
+      <span
+        className="pointer-events-none absolute right-3 top-1/2 h-2 w-2 -translate-y-[60%] rotate-45 border-b border-r border-zinc-500"
+        aria-hidden="true"
+      />
+    </span>
+  );
+}
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -73,6 +97,7 @@ export default function InvoicesPage() {
   const [authReady, setAuthReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
 
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [entities, setEntities] = useState<EntityRow[]>([]);
@@ -233,7 +258,62 @@ export default function InvoicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
 
-  async function onUpload(file: File) {
+  async function uploadOneFile(file: File, userId: string, client: NonNullable<typeof supabase>) {
+    // 1) Create invoice row
+    const insertPayload: InvoiceInsertPayload = {
+      created_by: userId,
+      status: "UPLOADED",
+      currency: "USD",
+    };
+    // In multi-org schema, entity/org are required.
+    if (orgId && entityId) {
+      insertPayload.org_id = orgId;
+      insertPayload.entity_id = entityId;
+    }
+
+    const { data: created, error: cErr } = await client
+      .from("invoices")
+      .insert(insertPayload)
+      .select("id")
+      .single();
+
+    if (cErr) throw cErr;
+    const invoiceId = created.id as string;
+
+    // 2) Upload file to storage
+    const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+    const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
+    const objectKey = `${userId}/${invoiceId}/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
+
+    const { error: uErr } = await client.storage.from("invoices").upload(objectKey, file, {
+      contentType: file.type || undefined,
+      upsert: false,
+    });
+    if (uErr) throw uErr;
+
+    // 3) Create invoice_files row (future-proof ref)
+    const filePayload: InvoiceFileInsertPayload = {
+      invoice_id: invoiceId,
+      created_by: userId,
+      provider: "supabase",
+      bucket: "invoices",
+      object_key: objectKey,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+    };
+    if (orgId && entityId) {
+      filePayload.org_id = orgId;
+      filePayload.entity_id = entityId;
+    }
+    const { error: fErr } = await client.from("invoice_files").insert(filePayload);
+    if (fErr) throw fErr;
+  }
+
+  async function onUpload(files: File[]) {
+    if (!files.length) return;
+
+    let uploadedCount = 0;
+
     try {
       if (!supabase) throw new Error("Authentication is not configured for this deployment.");
       const sess = await ensureSession();
@@ -241,58 +321,21 @@ export default function InvoicesPage() {
 
       setUploading(true);
       setError(null);
+      setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading 1 of ${files.length} files...`);
 
-      // 1) Create invoice row
-      const insertPayload: InvoiceInsertPayload = {
-        created_by: sess.user.id,
-        status: "UPLOADED",
-        currency: "USD",
-      };
-      // In multi-org schema, entity/org are required.
-      if (orgId && entityId) {
-        insertPayload.org_id = orgId;
-        insertPayload.entity_id = entityId;
+      for (let index = 0; index < files.length; index += 1) {
+        setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading ${index + 1} of ${files.length} files...`);
+        await uploadOneFile(files[index], sess.user.id, supabase);
+        uploadedCount += 1;
       }
 
-      const { data: created, error: cErr } = await supabase
-        .from("invoices")
-        .insert(insertPayload)
-        .select("id")
-        .single();
-
-      if (cErr) throw cErr;
-      const invoiceId = created.id as string;
-
-      // 2) Upload file to storage
-      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
-      const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
-      const objectKey = `${sess.user.id}/${invoiceId}/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
-
-      const { error: uErr } = await supabase.storage.from("invoices").upload(objectKey, file, {
-        contentType: file.type || undefined,
-        upsert: false,
-      });
-      if (uErr) throw uErr;
-
-      // 3) Create invoice_files row (future-proof ref)
-      const filePayload: InvoiceFileInsertPayload = {
-        invoice_id: invoiceId,
-        created_by: sess.user.id,
-        provider: "supabase",
-        bucket: "invoices",
-        object_key: objectKey,
-        mime_type: file.type || null,
-        size_bytes: file.size,
-      };
-      if (orgId && entityId) {
-        filePayload.org_id = orgId;
-        filePayload.entity_id = entityId;
-      }
-      const { error: fErr } = await supabase.from("invoice_files").insert(filePayload);
-      if (fErr) throw fErr;
-
+      setUploadStatus(files.length === 1 ? "Uploaded 1 file." : `Uploaded ${files.length} files.`);
       await load();
     } catch (e: unknown) {
+      if (uploadedCount > 0) {
+        setUploadStatus(`Uploaded ${uploadedCount} of ${files.length} files before the batch stopped.`);
+        await load();
+      }
       setError(getErrorMessage(e, "Upload failed"));
     } finally {
       setUploading(false);
@@ -386,22 +429,24 @@ export default function InvoicesPage() {
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement Intake</div>
                 <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload Invoices and Statements.</h1>
                 <div className="mt-2 min-h-6 text-sm leading-6 text-zinc-600">
-                  {multiOrgMode && !orgs.length ? "Create an organisation and entity before uploading." : "PDF and image files are accepted."}
+                  {multiOrgMode && !orgs.length
+                    ? "Create an organisation and entity before uploading."
+                    : "Select one or more PDF, image, Excel, or CSV files for the chosen entity."}
                 </div>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[22rem] sm:flex-row sm:items-center sm:justify-end">
                 {multiOrgMode && orgs.length ? (
-                  <div className="space-y-1">
+                  <div className="w-full sm:min-w-44 sm:flex-1">
                     <label htmlFor="invoice-entity" className="sr-only">
                       Entity
                     </label>
-                    <select
+                    <SelectControl
                       id="invoice-entity"
                       value={entityId}
                       onChange={(e) => setEntityId(e.target.value)}
-                      className="h-10 w-full min-w-44 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
                       title="Entity"
+                      className="w-full"
                     >
                       {entities
                         .filter((x) => x.org_id === orgId)
@@ -410,7 +455,7 @@ export default function InvoicesPage() {
                             {e.name}
                           </option>
                         ))}
-                    </select>
+                    </SelectControl>
                   </div>
                 ) : null}
 
@@ -418,13 +463,14 @@ export default function InvoicesPage() {
                   ref={fileInputRef}
                   type="file"
                   className="sr-only"
-                  accept="application/pdf,image/*"
+                  accept={statementFileAccept}
+                  multiple
                   disabled={uploadUnavailable}
-                  aria-label="Choose invoice or statement file"
+                  aria-label="Choose invoice or statement files"
                   tabIndex={-1}
                   onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onUpload(f);
+                    const files = Array.from(e.target.files || []);
+                    if (files.length) void onUpload(files);
                     e.currentTarget.value = "";
                   }}
                 />
@@ -435,10 +481,12 @@ export default function InvoicesPage() {
                   className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400 disabled:text-white"
                   aria-describedby={multiOrgMode && (!orgs.length || !entityId) ? "upload-disabled-reason" : undefined}
                 >
-                  {uploading ? <Spinner label="Uploading" /> : "Upload"}
+                  {uploading ? <Spinner label="Uploading" /> : "Upload Files"}
                 </button>
               </div>
             </div>
+
+            {uploadStatus ? <div className="mt-4 text-sm text-zinc-600">{uploadStatus}</div> : null}
 
             {multiOrgMode && orgs.length && !entityId ? (
               <div id="upload-disabled-reason" className="mt-4 text-sm text-zinc-600">
