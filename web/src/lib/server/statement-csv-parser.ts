@@ -306,7 +306,9 @@ function parseBalanceSnapshotRow(
   input: ParsedStatementInput,
   dateContext: DateParseContext,
 ): ParsedBalanceSnapshotRow | null {
-  const balanceType = detectBalanceSnapshotType(row.fields);
+  const labelLayoutType = detectBalanceLabelValueLayoutType(row, columns);
+  const isTransactionRow = parseTransactionRow(row, columns, input, dateContext) !== null;
+  const balanceType = labelLayoutType ?? (isTransactionRow ? null : detectBalanceSnapshotType(row.fields));
   if (!balanceType) return null;
 
   const amount =
@@ -391,6 +393,32 @@ function detectBalanceSnapshotType(fields: string[]): BankBalanceInput["balanceT
   if (/\bavailable\s+balance\b/.test(joined)) return "available";
   if (/\bcurrent\s+balance\b/.test(joined)) return "current";
   if (/\bstatement\s+balance\b/.test(joined)) return "statement";
+  return null;
+}
+
+function detectBalanceLabelValueLayoutType(row: CsvRow, columns: ColumnMap): BankBalanceInput["balanceType"] | null {
+  const labelCells = [cell(row, columns.description), cell(row, columns.payee), cell(row, columns.reference), ...row.fields];
+
+  for (const value of labelCells) {
+    const balanceType = detectBalanceLabelType(value);
+    if (balanceType) return balanceType;
+  }
+
+  return null;
+}
+
+function detectBalanceLabelType(value: string): BankBalanceInput["balanceType"] | null {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/\s*[:|-]\s*$/, "");
+
+  if (normalized === "opening balance") return "opening";
+  if (normalized === "closing balance") return "closing";
+  if (normalized === "available balance") return "available";
+  if (normalized === "current balance") return "current";
+  if (normalized === "statement balance") return "statement";
   return null;
 }
 
