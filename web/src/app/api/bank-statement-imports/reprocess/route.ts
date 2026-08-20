@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { requireEntityAdmin } from "@/lib/server/orgs";
 import { parseManualStatementImport, type StatementParseOutcome } from "@/lib/server/statement-import-parser";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
@@ -49,6 +50,19 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Statement import reprocessing is not configured.", missing }, { status: 500 });
+}
+
+function hasMaintenanceAccess(request: Request) {
+  const secret = process.env.STATEMENT_REPROCESS_SECRET;
+  if (!secret) return { configured: false, ok: false };
+
+  const key = request.headers.get("x-lumen-maintenance-key") ?? "";
+  const secretBuffer = Buffer.from(secret);
+  const keyBuffer = Buffer.from(key);
+  return {
+    configured: true,
+    ok: secretBuffer.length === keyBuffer.length && timingSafeEqual(secretBuffer, keyBuffer),
+  };
 }
 
 type ParsedLimit = { limit: number; error?: never } | { limit?: never; error: NextResponse };
@@ -188,6 +202,11 @@ async function reprocessImport(supabase: ReturnType<typeof getSupabaseServiceCli
 export async function POST(request: Request) {
   const missing = getMissingSupabaseServerEnv();
   if (missing.length) return missingEnvResponse(missing);
+  const maintenanceAccess = hasMaintenanceAccess(request);
+  if (!maintenanceAccess.configured) return missingEnvResponse(["STATEMENT_REPROCESS_SECRET"]);
+  if (!maintenanceAccess.ok) {
+    return NextResponse.json({ error: "Statement import reprocessing is restricted to maintenance operations." }, { status: 403 });
+  }
 
   try {
     const { user } = await requireSupabaseUser(request);

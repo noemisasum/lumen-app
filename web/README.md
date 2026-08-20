@@ -74,11 +74,12 @@ Idempotency is based on bank-provided external transaction IDs when present, oth
 
 PDF, image, and Excel statement files are not parsed automatically yet. They remain in `pending_parse` with a concise warning instead of pretending ingestion succeeded.
 
-After deploying a parser change, an entity admin can reprocess existing queued statement imports through `POST /api/bank-statement-imports/reprocess`. Send an authenticated Supabase bearer token for an entity admin. To reprocess one import:
+After deploying a parser change, an internal maintenance operator can reprocess existing queued statement imports through `POST /api/bank-statement-imports/reprocess`. This is not a user-facing workflow and should not be wired into the app UI. Set `STATEMENT_REPROCESS_SECRET` server-side, then send both an authenticated Supabase bearer token for an entity admin and the matching `x-lumen-maintenance-key` header. To reprocess one import:
 
 ```bash
 curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
   -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "x-lumen-maintenance-key: $STATEMENT_REPROCESS_SECRET" \
   -H "content-type: application/json" \
   -d '{"statementImportId":"<bank_statement_import_id>"}'
 ```
@@ -88,6 +89,7 @@ To backfill a bounded batch of queued or pending-parser imports for an entity:
 ```bash
 curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
   -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "x-lumen-maintenance-key: $STATEMENT_REPROCESS_SECRET" \
   -H "content-type: application/json" \
   -d '{"entityId":"<entity_id>","limit":25}'
 ```
