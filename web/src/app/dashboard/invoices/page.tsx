@@ -163,6 +163,11 @@ async function extractCsvAccountHint(file: File) {
   return "";
 }
 
+function statementUploadTitle(accountName?: string) {
+  const normalizedName = accountName?.trim().replace(/\s+/g, " ");
+  return normalizedName ? `${normalizedName} Statement Upload` : "Bank Statement Upload";
+}
+
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -226,7 +231,7 @@ export default function InvoicesPage() {
 
       const accounts = body.accounts ?? [];
       setBankAccounts(accounts);
-      setBankAccountId((current) => (accounts.some((account) => account.id === current) ? current : accounts[0]?.id ?? ""));
+      setBankAccountId((current) => (accounts.some((account) => account.id === current) ? current : ""));
 
       if (body.sync?.warning) {
         setAccountSyncNote(body.sync.warning);
@@ -242,7 +247,11 @@ export default function InvoicesPage() {
     }
   }
 
-  async function createManualBankAccount(accountName: string, accessToken: string) {
+  async function createManualBankAccount(
+    accountName: string,
+    accessToken: string,
+    options: { allowDuplicate?: boolean; select?: boolean } = {},
+  ) {
     const normalizedName = accountName.trim().replace(/\s+/g, " ");
     if (!entityId || !normalizedName) throw new Error("Choose an entity and enter a bank account name.");
 
@@ -252,7 +261,7 @@ export default function InvoicesPage() {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ entityId, accountName: normalizedName }),
+      body: JSON.stringify({ entityId, accountName: normalizedName, allowDuplicate: options.allowDuplicate === true }),
     });
     const body = (await response.json()) as { account?: BankAccountRow; error?: string };
     if (!response.ok || !body.account) throw new Error(body.error || "Failed to create bank account.");
@@ -261,7 +270,7 @@ export default function InvoicesPage() {
       const withoutDuplicate = current.filter((account) => account.id !== body.account?.id);
       return [...withoutDuplicate, body.account as BankAccountRow].sort((left, right) => left.accountName.localeCompare(right.accountName));
     });
-    setBankAccountId(body.account.id);
+    if (options.select !== false) setBankAccountId(body.account.id);
     setManualAccountName("");
     return body.account;
   }
@@ -297,13 +306,16 @@ export default function InvoicesPage() {
     return entityName ? `${entityName} Statement Account` : "Statement Upload Account";
   }
 
-  async function ensureUploadBankAccount(files: File[], accessToken: string) {
-    if (!multiOrgMode || !entityId) return "";
-    if (bankAccountId) return bankAccountId;
+  async function ensureUploadBankAccount(files: File[], accessToken: string, selectedAccountId: string) {
+    if (!multiOrgMode || !entityId) return null;
+    if (selectedAccountId) {
+      const accountName = bankAccounts.find((account) => account.id === selectedAccountId)?.accountName;
+      return { id: selectedAccountId, accountName };
+    }
 
     const suggestedName = await suggestedAccountNameFromFiles(files);
-    const account = await createManualBankAccount(suggestedName, accessToken);
-    return account.id;
+    const account = await createManualBankAccount(suggestedName, accessToken, { allowDuplicate: true, select: false });
+    return { id: account.id, accountName: account.accountName };
   }
 
   async function load() {
@@ -430,7 +442,7 @@ export default function InvoicesPage() {
         setFilesByInvoice(grouped);
       }
     } catch (e: unknown) {
-      setError(getErrorMessage(e, "Failed to load invoices"));
+      setError(getErrorMessage(e, "Failed to load statement uploads"));
     } finally {
       setLoading(false);
     }
@@ -451,7 +463,14 @@ export default function InvoicesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityId]);
 
-  async function uploadOneFile(file: File, userId: string, accessToken: string, client: NonNullable<typeof supabase>, selectedBankAccountId: string) {
+  async function uploadOneFile(
+    file: File,
+    userId: string,
+    accessToken: string,
+    client: NonNullable<typeof supabase>,
+    selectedBankAccountId: string,
+    selectedBankAccountName?: string,
+  ) {
     if (entityId && selectedBankAccountId && isStatementLikeFile(file)) {
       const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
       const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
@@ -477,6 +496,7 @@ export default function InvoicesPage() {
             objectKey,
             mimeType: file.type || null,
             sizeBytes: file.size,
+            description: statementUploadTitle(selectedBankAccountName),
           }),
         });
         const body = (await response.json()) as { error?: string };
@@ -569,16 +589,23 @@ export default function InvoicesPage() {
       setUploading(true);
       setError(null);
       setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading 1 of ${files.length} files...`);
-
-      const selectedBankAccountId = await ensureUploadBankAccount(files, sess.access_token);
+      const selectedAccountId = bankAccountId;
 
       for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
         setUploadStatus(files.length === 1 ? "Uploading 1 file..." : `Uploading ${index + 1} of ${files.length} files...`);
-        await uploadOneFile(files[index], sess.user.id, sess.access_token, supabase, selectedBankAccountId);
+        const selectedBankAccount = await ensureUploadBankAccount([file], sess.access_token, selectedAccountId);
+        await uploadOneFile(file, sess.user.id, sess.access_token, supabase, selectedBankAccount?.id ?? "", selectedBankAccount?.accountName);
         uploadedCount += 1;
       }
 
-      setUploadStatus(files.length === 1 ? "Uploaded 1 file." : `Uploaded ${files.length} files.`);
+      setUploadStatus(
+        files.length === 1
+          ? "Uploaded 1 file."
+          : selectedAccountId
+            ? `Uploaded ${files.length} files.`
+            : `Uploaded ${files.length} files across ${files.length} bank accounts.`,
+      );
       await load();
     } catch (e: unknown) {
       if (uploadedCount > 0) {
@@ -676,7 +703,7 @@ export default function InvoicesPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Statement Intake</div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload Invoices and Statements.</h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Upload Bank Statements.</h1>
                 <div className="mt-2 min-h-6 text-sm leading-6 text-zinc-600">
                   {multiOrgMode && !orgs.length
                     ? "Create an organisation and entity before uploading."
@@ -715,7 +742,7 @@ export default function InvoicesPage() {
                   accept={statementFileAccept}
                   multiple
                   disabled={uploadUnavailable}
-                  aria-label="Choose invoice or statement files"
+                  aria-label="Choose bank statement files"
                   tabIndex={-1}
                   onChange={(e) => {
                     const files = Array.from(e.target.files || []);
@@ -741,7 +768,7 @@ export default function InvoicesPage() {
                   <div className="min-w-0">
                     <h2 className="text-sm font-semibold text-zinc-950">Bank Account</h2>
                     <p className="mt-1 text-sm leading-6 text-zinc-600">
-                      Use a mapped Xero bank account when available, or create an upload account for this entity.
+                      Pick one account to attach every selected file, or leave blank to create one upload account per file.
                     </p>
                   </div>
                   <div className="flex min-h-6 shrink-0 items-center text-xs font-medium text-zinc-500">
@@ -758,11 +785,11 @@ export default function InvoicesPage() {
                       id="statement-bank-account"
                       value={bankAccountId}
                       onChange={(event) => setBankAccountId(event.target.value)}
-                      disabled={bankAccountsLoading || !bankAccounts.length}
+                      disabled={uploading || bankAccountsLoading || !bankAccounts.length}
                       title="Bank account"
                       className="w-full"
                     >
-                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Add a bank account to link uploads"}</option>
+                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Create one account per uploaded file"}</option>
                       {bankAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.accountName}
@@ -779,10 +806,11 @@ export default function InvoicesPage() {
                             key={account.id}
                             type="button"
                             onClick={() => setBankAccountId(account.id)}
+                            disabled={uploading}
                             className={`min-h-9 max-w-full rounded-lg border px-3 py-1.5 text-left text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 ${
                               account.id === bankAccountId
                                 ? "border-zinc-950 bg-zinc-950 text-white"
-                                : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400"
+                                : "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                             }`}
                             aria-pressed={account.id === bankAccountId}
                           >
@@ -821,7 +849,7 @@ export default function InvoicesPage() {
                       </button>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-zinc-500">
-                      If no account is selected, upload will create one from a clear CSV or file-name hint.
+                      Clear the selected account when each uploaded file represents a different bank account.
                     </p>
                   </div>
                 </div>
@@ -872,7 +900,7 @@ export default function InvoicesPage() {
                 <SkeletonBlock className="h-14 w-full" />
               </div>
             ) : invoices.length === 0 ? (
-              <div className="p-5 text-sm leading-6 text-zinc-600">No uploads yet. Add the first statement or invoice when you are ready.</div>
+              <div className="p-5 text-sm leading-6 text-zinc-600">No uploads yet. Add the first bank statement when you are ready.</div>
             ) : (
               <div className="divide-y divide-zinc-100">
                 {invoices.map((inv) => {
@@ -881,7 +909,7 @@ export default function InvoicesPage() {
                     <div key={inv.id} className="px-5 py-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
-                          <div className="text-sm font-medium text-zinc-900">{inv.description || "Invoice"}</div>
+                          <div className="text-sm font-medium text-zinc-900">{inv.description || "Bank Statement Upload"}</div>
                           <div className="mt-1 text-xs text-zinc-500">
                             {new Date(inv.created_at).toLocaleString()} · {inv.status}
                           </div>

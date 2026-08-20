@@ -12,6 +12,7 @@ type FinalizeUploadBody = {
   objectKey?: string;
   mimeType?: string | null;
   sizeBytes?: number;
+  description?: string;
 };
 
 type StorageFileRow = {
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
     const objectKey = body.objectKey?.trim();
     const mimeType = body.mimeType?.trim() || null;
     const sizeBytes = Number.isFinite(body.sizeBytes) ? Math.max(0, Math.trunc(body.sizeBytes as number)) : 0;
+    const description = body.description?.trim().replace(/\s+/g, " ").slice(0, 160) || "Bank Statement Upload";
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
     if (!bankAccountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
@@ -107,6 +109,7 @@ export async function POST(request: Request) {
         created_by: user.id,
         status: "UPLOADED",
         currency: "USD",
+        description,
       })
       .select("id")
       .single();
