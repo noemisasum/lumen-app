@@ -10,7 +10,7 @@ type ReprocessBody = {
   entityId?: string;
   bankAccountId?: string;
   status?: string;
-  limit?: number;
+  limit?: unknown;
 };
 
 type RawFileRow = {
@@ -51,9 +51,16 @@ function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Statement import reprocessing is not configured.", missing }, { status: 500 });
 }
 
-function parseLimit(value: number | undefined) {
-  if (!Number.isFinite(value)) return defaultBatchLimit;
-  return Math.min(maxBatchLimit, Math.max(1, Math.trunc(value as number)));
+type ParsedLimit = { limit: number; error?: never } | { limit?: never; error: NextResponse };
+
+function parseLimit(value: unknown): ParsedLimit {
+  if (value === undefined) return { limit: defaultBatchLimit };
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > maxBatchLimit) {
+    return {
+      error: NextResponse.json({ error: `limit must be an integer between 1 and ${maxBatchLimit}.` }, { status: 400 }),
+    };
+  }
+  return { limit: value };
 }
 
 function normalizeStatus(value: string | undefined) {
@@ -189,8 +196,10 @@ export async function POST(request: Request) {
     const entityId = body.entityId?.trim();
     const bankAccountId = body.bankAccountId?.trim();
     const status = normalizeStatus(body.status);
+    const parsedLimit = parseLimit(body.limit);
 
     if (!status) return NextResponse.json({ error: "Unsupported status filter for statement import reprocessing." }, { status: 400 });
+    if (parsedLimit.error) return parsedLimit.error;
     const invalidStatementImportId = validateUuid(statementImportId, "statementImportId");
     if (invalidStatementImportId) return invalidStatementImportId;
     const invalidEntityId = validateUuid(entityId, "entityId");
@@ -218,7 +227,7 @@ export async function POST(request: Request) {
         entityId: entityId as string,
         bankAccountId,
         statuses: status,
-        limit: parseLimit(body.limit),
+        limit: parsedLimit.limit,
       });
     }
 
