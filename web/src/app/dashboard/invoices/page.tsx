@@ -186,6 +186,36 @@ function formatFileSize(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isStatementUploadRow(invoice: InvoiceRow) {
+  const description = invoice.description?.toLowerCase() ?? "";
+  return description.includes("statement upload") || (!invoice.vendor_name && invoice.status.toUpperCase() === "UPLOADED" && invoice.total === null);
+}
+
+function uploadStatusCopy(invoice: InvoiceRow) {
+  if (isStatementUploadRow(invoice) && invoice.status.toUpperCase() === "UPLOADED") {
+    return {
+      label: "File received",
+      detail: "Stored; transaction parsing is processing.",
+    };
+  }
+
+  return {
+    label: invoice.status
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase()),
+    detail: null,
+  };
+}
+
+function uploadAmountCopy(invoice: InvoiceRow) {
+  if (invoice.total === null) {
+    return isStatementUploadRow(invoice) ? "Transactions processing" : "Amount pending";
+  }
+
+  return `${invoice.currency || "USD"} ${invoice.total}`;
+}
+
 function sortBankAccounts(accounts: BankAccountRow[]) {
   return [...accounts].sort((left, right) => left.accountName.localeCompare(right.accountName));
 }
@@ -1320,13 +1350,15 @@ export default function InvoicesPage() {
               <div className="divide-y divide-zinc-100">
                 {invoices.map((inv) => {
                   const files = filesByInvoice[inv.id] || [];
+                  const statusCopy = uploadStatusCopy(inv);
                   return (
                     <div key={inv.id} className="px-5 py-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-zinc-900">{inv.description || "Bank Statement Upload"}</div>
                           <div className="mt-1 text-xs text-zinc-500">
-                            {new Date(inv.created_at).toLocaleString()} · {inv.status}
+                            {new Date(inv.created_at).toLocaleString()} · {statusCopy.label}
+                            {statusCopy.detail ? ` · ${statusCopy.detail}` : ""}
                           </div>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1340,7 +1372,7 @@ export default function InvoicesPage() {
                             </button>
                           ) : null}
                           <div className="rounded-md bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                            {inv.currency || "USD"} {inv.total ?? "Pending"}
+                            {uploadAmountCopy(inv)}
                           </div>
                         </div>
                       </div>
