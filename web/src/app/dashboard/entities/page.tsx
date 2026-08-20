@@ -62,8 +62,17 @@ type NoticeState = {
 const selectClassName =
   "h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white py-0 pl-3 pr-10 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
 
-const iconButtonClassName =
-  "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2 text-sm font-semibold text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+const inputClassName =
+  "mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
+
+const secondaryButtonClassName =
+  "inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+
+const saveButtonClassName =
+  "inline-flex h-9 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400";
+
+const unmapButtonClassName =
+  "inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-900 shadow-sm transition hover:border-amber-300 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400";
 
 const dangerButtonClassName =
   "inline-flex h-9 items-center justify-center rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
@@ -112,6 +121,9 @@ export default function EntityManagementPage() {
   const [newEntityName, setNewEntityName] = useState("");
   const [newEntityCode, setNewEntityCode] = useState("");
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
+  const [editEntityName, setEditEntityName] = useState("");
+  const [editEntityCode, setEditEntityCode] = useState("");
 
   const manageableOrgs = state.orgs.filter((org) => org.role === "owner" || org.role === "admin");
   const selectedOrg = state.orgs.find((org) => org.id === selectedOrgId) ?? state.orgs[0] ?? null;
@@ -249,6 +261,52 @@ export default function EntityManagementPage() {
       setError(getErrorMessage(e, "Failed to create entity."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  function startEditEntity(entity: EntityRow) {
+    setEditingEntityId(entity.id);
+    setEditEntityName(entity.name);
+    setEditEntityCode(entity.code ?? "");
+    setError(null);
+    setNotice(null);
+  }
+
+  function cancelEditEntity() {
+    setEditingEntityId(null);
+    setEditEntityName("");
+    setEditEntityCode("");
+  }
+
+  async function updateEntity(event: React.FormEvent<HTMLFormElement>, entity: EntityRow) {
+    event.preventDefault();
+    if (!session || !entity.canAdmin) return;
+
+    setPendingAction(`entity-edit:${entity.id}`);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/entities", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entityId: entity.id,
+          name: editEntityName,
+          code: editEntityCode,
+        }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to update entity.");
+      setNotice({ tone: "success", title: "Entity Updated", message: "The entity details have been saved." });
+      cancelEditEntity();
+      await refresh();
+    } catch (e: unknown) {
+      setError(getErrorMessage(e, "Failed to update entity."));
+    } finally {
+      setPendingAction(null);
     }
   }
 
@@ -581,63 +639,109 @@ export default function EntityManagementPage() {
                     const mappedTenantName = tenantLabel(state.xero.tenants, entity.xeroMapping);
                     const isMapping = mappingEntityId === entity.id;
                     const isDeletingEntity = pendingAction === `entity:${entity.id}`;
+                    const isEditingEntity = editingEntityId === entity.id;
+                    const isSavingEntity = pendingAction === `entity-edit:${entity.id}`;
+                    const isBusy = isMapping || isDeletingEntity || isSavingEntity;
                     const canDeleteEntity = entity.canAdmin && selectedOrg?.role === "owner";
 
                     return (
-                      <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[1fr_280px] lg:items-center">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="truncate text-sm font-semibold text-zinc-950">{entity.name}</h3>
-                            {entity.code ? <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">{entity.code}</span> : null}
+                      <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] lg:items-start">
+                        {isEditingEntity ? (
+                          <form onSubmit={(event) => void updateEntity(event, entity)} className="min-w-0 space-y-3 lg:col-span-2">
+                            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(120px,180px)]">
+                              <label className="block text-sm font-medium text-zinc-800">
+                                Entity Name
+                                <input
+                                  value={editEntityName}
+                                  onChange={(event) => setEditEntityName(event.target.value)}
+                                  className={inputClassName}
+                                  placeholder="Lumen HK Limited"
+                                  maxLength={120}
+                                  required
+                                  disabled={isSavingEntity}
+                                />
+                              </label>
+                              <label className="block text-sm font-medium text-zinc-800">
+                                Entity Code
+                                <input
+                                  value={editEntityCode}
+                                  onChange={(event) => setEditEntityCode(event.target.value)}
+                                  className={inputClassName}
+                                  placeholder="HK"
+                                  maxLength={40}
+                                  disabled={isSavingEntity}
+                                />
+                              </label>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <button type="button" onClick={cancelEditEntity} disabled={isSavingEntity} className={secondaryButtonClassName}>
+                                Cancel
+                              </button>
+                              <button type="submit" disabled={isSavingEntity} className={saveButtonClassName}>
+                                {isSavingEntity ? <Spinner label="Saving" /> : "Save Entity"}
+                              </button>
+                            </div>
+                          </form>
+                        ) : (
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="truncate text-sm font-semibold text-zinc-950">{entity.name}</h3>
+                              {entity.code ? <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">{entity.code}</span> : null}
+                            </div>
+                            <div className="mt-2 text-sm leading-6 text-zinc-600">
+                              Xero: <span className={entity.xeroMapping ? "font-medium text-emerald-800" : "font-medium text-amber-800"}>{mappedTenantName}</span>
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-500">{entity.canAdmin ? "Admin access" : `Role: ${entity.role || "org member"}`}</div>
                           </div>
-                          <div className="mt-2 text-sm leading-6 text-zinc-600">
-                            Xero: <span className={entity.xeroMapping ? "font-medium text-emerald-800" : "font-medium text-amber-800"}>{mappedTenantName}</span>
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">{entity.canAdmin ? "Admin access" : `Role: ${entity.role || "org member"}`}</div>
-                        </div>
+                        )}
 
-                        <div className="flex min-w-0 flex-col gap-2">
-                          <SelectControl
-                            value={entity.xeroMapping?.connection_tenant_id ?? ""}
-                            onChange={(event) => {
-                              if (event.target.value) void mapEntity(entity.id, event.target.value);
-                            }}
-                            disabled={!entity.canAdmin || !state.xero.tenants.length || isMapping}
-                            className="mt-0"
-                            aria-label={`Map ${entity.name} to Xero tenant`}
-                          >
-                            <option value="">{state.xero.tenants.length ? "Choose Xero tenant" : "No Xero tenants"}</option>
-                            {state.xero.tenants.map((tenant) => (
-                              <option key={tenant.id} value={tenant.id}>
-                                {tenant.name}
-                              </option>
-                            ))}
-                          </SelectControl>
-                          <div className="flex items-center justify-end gap-2">
-                            {entity.xeroMapping ? (
-                              <button
-                                type="button"
-                                onClick={() => void unmapEntity(entity.id)}
-                                disabled={!entity.canAdmin || isMapping || isDeletingEntity}
-                                className={iconButtonClassName}
-                                aria-label={`Unmap ${entity.name} from Xero`}
-                                title="Unmap Xero tenant"
-                              >
-                                {isMapping ? <Spinner label="Updating" /> : "X"}
-                              </button>
-                            ) : null}
-                            {canDeleteEntity ? (
-                              <button
-                                type="button"
-                                onClick={() => void deleteEntity(entity)}
-                                disabled={isMapping || isDeletingEntity}
-                                className={dangerButtonClassName}
-                              >
-                                {isDeletingEntity ? <Spinner label="Deleting" /> : "Delete Entity"}
-                              </button>
-                            ) : null}
+                        {!isEditingEntity ? (
+                          <div className="flex min-w-0 flex-col gap-2">
+                            <SelectControl
+                              value={entity.xeroMapping?.connection_tenant_id ?? ""}
+                              onChange={(event) => {
+                                if (event.target.value) void mapEntity(entity.id, event.target.value);
+                              }}
+                              disabled={!entity.canAdmin || !state.xero.tenants.length || isBusy}
+                              className="mt-0"
+                              aria-label={`Map ${entity.name} to Xero tenant`}
+                            >
+                              <option value="">{state.xero.tenants.length ? "Choose Xero tenant" : "No Xero tenants"}</option>
+                              {state.xero.tenants.map((tenant) => (
+                                <option key={tenant.id} value={tenant.id}>
+                                  {tenant.name}
+                                </option>
+                              ))}
+                            </SelectControl>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              {entity.canAdmin ? (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditEntity(entity)}
+                                  disabled={isBusy}
+                                  className={secondaryButtonClassName}
+                                >
+                                  Edit Entity
+                                </button>
+                              ) : null}
+                              {entity.xeroMapping ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void unmapEntity(entity.id)}
+                                  disabled={!entity.canAdmin || isBusy}
+                                  className={unmapButtonClassName}
+                                >
+                                  {isMapping ? <Spinner label="Unmapping" /> : "Unmap Xero"}
+                                </button>
+                              ) : null}
+                              {canDeleteEntity ? (
+                                <button type="button" onClick={() => void deleteEntity(entity)} disabled={isBusy} className={dangerButtonClassName}>
+                                  {isDeletingEntity ? <Spinner label="Deleting" /> : "Delete Entity"}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
+                        ) : null}
                       </div>
                     );
                   })}
