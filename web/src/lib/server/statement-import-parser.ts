@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { upsertBankBalances, upsertBankTransactions } from "@/lib/server/bank-ledger";
+import {
+  finishStatementProcessingLog,
+  startStatementProcessingLog,
+  type StatementProcessingTrigger,
+} from "@/lib/server/statement-processing-log";
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
 
 export type StatementParseOutcome = {
@@ -30,40 +35,69 @@ export async function parseManualStatementImport(
     statementImportId: string;
     entityId: string;
     bankAccountId: string;
-    rawFileId: string;
+    rawFileId?: string | null;
     bucket?: string | null;
     objectKey?: string | null;
     mimeType?: string | null;
     sizeBytes?: number | null;
+    trigger?: StatementProcessingTrigger;
   },
 ): Promise<StatementParseOutcome> {
-  const file = await loadRawFile(supabase, input);
-  if (!file) {
-    return updateImportStatus(supabase, input.statementImportId, "pending_parse", "Raw file is unavailable for automatic parsing.");
-  }
+  const processingLog = await startStatementProcessingLog(supabase, {
+    statementImportId: input.statementImportId,
+    entityId: input.entityId,
+    bankAccountId: input.bankAccountId,
+    rawFileId: input.rawFileId || null,
+    trigger: input.trigger ?? "manual_upload",
+  });
 
-  if (!isCsvFile(file.object_key, file.mime_type)) {
-    return updateImportStatus(
-      supabase,
-      input.statementImportId,
-      "pending_parse",
-      "Automatic parsing currently supports CSV statements only. PDF, image, and Excel statements remain queued for manual parser support.",
-    );
+  async function finishLog(outcome: StatementParseOutcome) {
+    try {
+      await finishStatementProcessingLog(supabase, {
+        logId: processingLog.id,
+        status: outcome.status,
+        transactionCount: outcome.transactionsParsed,
+        balanceCount: outcome.balancesParsed,
+        warning: outcome.status === "failed" ? null : outcome.warning,
+        error: outcome.status === "failed" ? outcome.warning : null,
+      });
+    } catch (error) {
+      console.error("Failed to finish statement processing log", error);
+    }
+    return outcome;
   }
-
-  const sizeBytes = Number(file.size_bytes ?? input.sizeBytes ?? 0);
-  if (sizeBytes > maxCsvBytes) {
-    return updateImportStatus(
-      supabase,
-      input.statementImportId,
-      "pending_parse",
-      "CSV statement is larger than the current automatic parser limit and remains queued.",
-    );
-  }
-
-  await setImportProcessing(supabase, input.statementImportId);
 
   try {
+    const file = await loadRawFile(supabase, input);
+    if (!file) {
+      return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", "Raw file is unavailable for automatic parsing."));
+    }
+
+    if (!isCsvFile(file.object_key, file.mime_type)) {
+      return finishLog(
+        await updateImportStatus(
+          supabase,
+          input.statementImportId,
+          "pending_parse",
+          "Automatic parsing currently supports CSV statements only. PDF, image, and Excel statements remain queued for manual parser support.",
+        ),
+      );
+    }
+
+    const sizeBytes = Number(file.size_bytes ?? input.sizeBytes ?? 0);
+    if (sizeBytes > maxCsvBytes) {
+      return finishLog(
+        await updateImportStatus(
+          supabase,
+          input.statementImportId,
+          "pending_parse",
+          "CSV statement is larger than the current automatic parser limit and remains queued.",
+        ),
+      );
+    }
+
+    await setImportProcessing(supabase, input.statementImportId);
+
     const csvText = await downloadText(supabase, file.bucket, file.object_key);
     const accountCurrency = await loadAccountCurrency(supabase, input.bankAccountId, input.entityId);
     const parsed = parseCsvStatement(csvText, {
@@ -81,17 +115,17 @@ export async function parseManualStatementImport(
       transactionsParsed: transactionResult.count,
       balancesParsed: balanceResult.count,
     });
-    return outcome;
+    return finishLog(outcome);
   } catch (error) {
     const message = getErrorMessage(error, "Failed to parse CSV statement.");
-    return updateImportStatus(supabase, input.statementImportId, "failed", message);
+    return finishLog(await failImportStatus(supabase, input.statementImportId, message));
   }
 }
 
 async function loadRawFile(
   supabase: SupabaseClient,
   input: {
-    rawFileId: string;
+    rawFileId?: string | null;
     entityId: string;
     bucket?: string | null;
     objectKey?: string | null;
@@ -101,7 +135,7 @@ async function loadRawFile(
 ) {
   if (input.bucket && input.objectKey) {
     return {
-      id: input.rawFileId,
+      id: input.rawFileId ?? "uploaded-file",
       provider: "supabase",
       bucket: input.bucket,
       object_key: input.objectKey,
@@ -109,6 +143,8 @@ async function loadRawFile(
       size_bytes: input.sizeBytes ?? null,
     } satisfies RawFileRow;
   }
+
+  if (!input.rawFileId) return null;
 
   const { data, error } = await supabase
     .from("invoice_files")
@@ -164,9 +200,18 @@ async function updateImportStatus(
   counts?: { transactionsParsed: number; balancesParsed: number },
 ): Promise<StatementParseOutcome> {
   const conciseMessage = message?.trim().slice(0, 500) || null;
+  const retryFields =
+    status === "imported"
+      ? {
+          reprocess_attempt_count: 0,
+          last_reprocess_attempt_at: null,
+          next_reprocess_after: null,
+          last_reprocess_error: null,
+        }
+      : {};
   const { error } = await supabase
     .from("bank_statement_imports")
-    .update({ status, error_message: conciseMessage })
+    .update({ status, error_message: conciseMessage, ...retryFields })
     .eq("id", statementImportId);
   if (error) throw error;
   return {
@@ -175,6 +220,20 @@ async function updateImportStatus(
     balancesParsed: counts?.balancesParsed ?? 0,
     warning: conciseMessage ?? undefined,
   };
+}
+
+async function failImportStatus(supabase: SupabaseClient, statementImportId: string, message: string): Promise<StatementParseOutcome> {
+  try {
+    return await updateImportStatus(supabase, statementImportId, "failed", message);
+  } catch (error) {
+    const statusMessage = getErrorMessage(error, "Failed to mark statement import as failed.");
+    return {
+      status: "failed",
+      transactionsParsed: 0,
+      balancesParsed: 0,
+      warning: `${message} ${statusMessage}`.trim().slice(0, 500),
+    };
+  }
 }
 
 function compactWarning(warnings: string[]) {

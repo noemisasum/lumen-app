@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/bank-statement-imports/reprocess/hourly",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

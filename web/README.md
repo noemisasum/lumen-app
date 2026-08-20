@@ -68,11 +68,35 @@ The `entity_xero_mappings` table is created by `supabase/xero_oauth.sql` because
 
 ## Manual bank statement parsing
 
-Manual bank statement uploads now parse CSV files server-side when `/api/statement-upload-finalize` links the uploaded Supabase Storage object, and when the legacy `/api/bank-statement-imports` route can access the raw Supabase file. The parser supports quoted CSV fields, embedded commas/newlines in quoted fields, common transaction date headers, description/payee/reference headers, signed amount columns, debit/credit columns, optional currency columns, and optional running balance columns. Parsed transactions are upserted into `bank_account_transactions`; running balance values are stored in `bank_account_balances`.
+Manual bank statement uploads now parse CSV files server-side when `/api/statement-upload-finalize` links the uploaded Supabase Storage object, and when the legacy `/api/bank-statement-imports` route can access the raw Supabase file. The parser supports quoted CSV fields, embedded commas/newlines in quoted fields, common transaction date headers, description/payee/reference headers, signed amount columns, debit/credit columns, optional currency columns, and optional running balance columns. Parsed transactions are upserted into `bank_account_transactions`; running balance values are stored in `bank_account_balances`. Each parse/reparse attempt also writes `bank_statement_import_processing_logs` with the import, entity, bank account, trigger, start/finish timestamps, final status, transaction/balance counts, and any warning or error.
 
 Idempotency is based on bank-provided external transaction IDs when present, otherwise on the statement import id plus CSV source row number, so repeated imports update the same rows while duplicate same-day/same-amount statement rows remain distinct. Currency comes from the CSV when present, then the selected bank account, then `USD`.
 
 PDF, image, and Excel statement files are not parsed automatically yet. They remain in `pending_parse` with a concise warning instead of pretending ingestion succeeded.
+
+After deploying a parser change, an internal maintenance operator can reprocess existing queued statement imports through `POST /api/bank-statement-imports/reprocess`. This is not a user-facing workflow and should not be wired into the app UI. Set `STATEMENT_REPROCESS_SECRET` server-side, then send both an authenticated Supabase bearer token for an entity admin and the matching `x-lumen-maintenance-key` header. To reprocess one import:
+
+```bash
+curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
+  -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "x-lumen-maintenance-key: $STATEMENT_REPROCESS_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"statementImportId":"<bank_statement_import_id>"}'
+```
+
+To backfill a bounded batch of queued or pending-parser imports for an entity:
+
+```bash
+curl -X POST "$APP_URL/api/bank-statement-imports/reprocess" \
+  -H "authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "x-lumen-maintenance-key: $STATEMENT_REPROCESS_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"entityId":"<entity_id>","limit":25}'
+```
+
+The batch defaults to both `pending_parse` and `queued`, caps `limit` at 100, can be narrowed with `bankAccountId`, or can target one supported status by passing `status` (`queued`, `pending_parse`, `failed`, `processing`, or `imported`). It returns a per-import summary and writes processing-log rows for every attempted import, including validation skips. CSV rows are upserted through the same stable hashes used by new uploads, so reruns do not duplicate transactions or balances. Unsupported PDF, image, and Excel files remain `pending_parse` with a warning.
+
+The app also defines an internal Vercel cron in `vercel.json` for `GET /api/bank-statement-imports/reprocess/hourly` on `0 * * * *`. This route does not require a human bearer token and must not be linked from UI. It requires either Vercel `CRON_SECRET` in the `Authorization: Bearer ...` header or `STATEMENT_REPROCESS_SECRET` via bearer or `x-lumen-maintenance-key`; for one-secret deployments, set `CRON_SECRET` to the same value as `STATEMENT_REPROCESS_SECRET`. The cron batch defaults to 25 imports, caps at 50, and only selects manual imports in `queued`, `pending_parse`, or `failed` whose `next_reprocess_after` is due and whose `reprocess_attempt_count` is below `STATEMENT_REPROCESS_MAX_ATTEMPTS` (default 3, max 10). Optional `STATEMENT_REPROCESS_CRON_LIMIT` can lower or raise the cron batch size within the cap.
 
 ## Run locally
 
