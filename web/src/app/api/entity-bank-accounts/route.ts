@@ -89,7 +89,7 @@ async function loadAccounts(supabase: ReturnType<typeof getSupabaseServiceClient
   return (data ?? []) as BankAccountRow[];
 }
 
-async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string, userId: string) {
+async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string) {
   const { data: mapping, error: mappingError } = await supabase
     .from("entity_xero_mappings")
     .select("id,connection_id,connection_tenant_id,xero_tenant_id")
@@ -106,11 +106,10 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
     .from("xero_connections")
     .select("id,token_ciphertext")
     .eq("id", mappingRow.connection_id)
-    .eq("user_id", userId)
     .is("disconnected_at", null)
     .maybeSingle();
   if (connectionError) throw connectionError;
-  if (!connection) return { synced: false, count: 0, warning: "The mapped Xero connection is not available for this user." };
+  if (!connection) return { synced: false, count: 0, warning: "The mapped Xero connection is no longer available." };
 
   const connectionRow = connection as XeroConnectionRow;
   const xero = createXeroClient();
@@ -118,7 +117,20 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
 
   const tokenSet = await xero.refreshToken();
   const encryptedTokenSet = encryptJson(serializeTokenSet(tokenSet));
-  await supabase.from("xero_connections").update({ token_ciphertext: encryptedTokenSet, updated_at: new Date().toISOString() }).eq("id", connectionRow.id);
+  const { error: tokenUpdateError } = await supabase
+    .from("xero_connections")
+    .update({ token_ciphertext: encryptedTokenSet, updated_at: new Date().toISOString() })
+    .eq("id", connectionRow.id)
+    .is("disconnected_at", null)
+    .select("id")
+    .single();
+  if (tokenUpdateError) {
+    return {
+      synced: false,
+      count: 0,
+      warning: "Xero refreshed credentials could not be saved. Reconnect Xero before syncing bank accounts.",
+    };
+  }
   xero.setTokenSet(tokenSet);
 
   const tenants = (await xero.updateTenants(false)) as XeroTenant[];
@@ -162,7 +174,7 @@ export async function GET(request: Request) {
     const supabase = getSupabaseServiceClient();
     await requireEntityAccess(supabase, entityId, user.id);
 
-    const sync = shouldSync ? await syncXeroBankAccounts(supabase, entityId, user.id) : { synced: false, count: 0 };
+    const sync = shouldSync ? await syncXeroBankAccounts(supabase, entityId) : { synced: false, count: 0 };
     const accounts = await loadAccounts(supabase, entityId);
 
     return NextResponse.json({ accounts: accounts.map(serializeAccount), sync });

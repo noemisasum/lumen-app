@@ -78,7 +78,7 @@ const statementFileAccept =
   "application/pdf,image/*,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const selectClassName =
-  "h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white py-0 pl-2.5 pr-7 text-[13px] text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:pl-3 sm:pr-10 sm:text-sm";
+  "h-10 w-full min-w-0 appearance-none truncate rounded-lg border border-zinc-300 bg-white py-0 pl-2.5 pr-9 text-[13px] text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:pl-3 sm:pr-10 sm:text-sm";
 
 function SelectControl({
   children,
@@ -86,12 +86,12 @@ function SelectControl({
   ...props
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { children: React.ReactNode }) {
   return (
-    <span className={`relative block ${className}`}>
+    <span className={`relative block min-w-0 ${className}`}>
       <select {...props} className={selectClassName}>
         {children}
       </select>
       <span
-        className="pointer-events-none absolute right-3 top-1/2 h-2 w-2 -translate-y-[60%] rotate-45 border-b border-r border-zinc-500"
+        className="pointer-events-none absolute right-3 top-1/2 h-2.5 w-2.5 -translate-y-[60%] rotate-45 border-b border-r border-zinc-500"
         aria-hidden="true"
       />
     </span>
@@ -452,6 +452,43 @@ export default function InvoicesPage() {
   }, [entityId]);
 
   async function uploadOneFile(file: File, userId: string, accessToken: string, client: NonNullable<typeof supabase>, selectedBankAccountId: string) {
+    if (entityId && selectedBankAccountId && isStatementLikeFile(file)) {
+      const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+      const safeExt = ext.replace(/[^a-z0-9]/g, "") || "pdf";
+      const objectKey = `${userId}/statement-intake/${Date.now()}-${crypto.randomUUID()}.${safeExt}`;
+
+      const { error: uploadError } = await client.storage.from("invoices").upload(objectKey, file, {
+        contentType: file.type || undefined,
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+
+      try {
+        const response = await fetch("/api/statement-upload-finalize", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            entityId,
+            bankAccountId: selectedBankAccountId,
+            bucket: "invoices",
+            objectKey,
+            mimeType: file.type || null,
+            sizeBytes: file.size,
+          }),
+        });
+        const body = (await response.json()) as { error?: string };
+        if (!response.ok) throw new Error(body.error || "Failed to link upload to bank account.");
+      } catch (e) {
+        await client.storage.from("invoices").remove([objectKey]);
+        throw e;
+      }
+
+      return;
+    }
+
     // 1) Create invoice row
     const insertPayload: InvoiceInsertPayload = {
       created_by: userId,
@@ -725,7 +762,7 @@ export default function InvoicesPage() {
                       title="Bank account"
                       className="w-full"
                     >
-                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Create or select a bank account"}</option>
+                      <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Add a bank account to link uploads"}</option>
                       {bankAccounts.map((account) => (
                         <option key={account.id} value={account.id}>
                           {account.accountName}
