@@ -33,9 +33,19 @@ type ColumnMap = {
   balance?: number;
 };
 
+type DateFormat = "dmy" | "mdy";
+type DateParseContext = {
+  slashDateFormat: DateFormat | null;
+  fallbackBalanceDate: string | null;
+};
+
 type ParsedTransactionRow = {
   transaction: BankTransactionInput;
   balance: BankBalanceInput | null;
+};
+
+type ParsedBalanceSnapshotRow = {
+  balance: BankBalanceInput;
 };
 
 const dateHeaders = ["date", "transaction date", "trans date", "posting date", "posted date", "value date", "effective date"];
@@ -48,26 +58,39 @@ const signedAmountHeaders = ["amount", "transaction amount", "signed amount", "n
 const debitHeaders = ["debit", "withdrawal", "withdrawals", "payment", "payments", "money out", "outflow", "debit amount"];
 const creditHeaders = ["credit", "deposit", "deposits", "receipt", "receipts", "money in", "inflow", "credit amount"];
 const currencyHeaders = ["currency", "ccy", "currency code"];
-const balanceHeaders = ["balance", "running balance", "available balance", "ledger balance", "closing balance"];
+const balanceHeaders = ["balance", "running balance", "available balance", "ledger balance", "opening balance", "closing balance", "current balance", "statement balance"];
+const headerScanLimit = 25;
 
 export function parseCsvStatement(csvText: string, input: ParsedStatementInput): ParsedStatementResult {
   const rows = parseCsv(csvText);
-  const headerIndex = rows.findIndex((row) => row.fields.some((field) => field.trim()));
-  if (headerIndex === -1) {
+  if (!rows.some((row) => row.fields.some((field) => field.trim()))) {
     throw new Error("CSV statement is empty.");
   }
 
-  const headers = rows[headerIndex].fields.map(normalizeHeader);
-  const columns = detectColumns(headers);
+  const headerMatch = findHeaderRow(rows);
+  if (!headerMatch) {
+    throw new Error("CSV statement is missing a recognizable transaction header row.");
+  }
+
+  const { columns, headerIndex } = headerMatch;
   const dataRows = rows.slice(headerIndex + 1);
+  const dateContext = inferDateContext(dataRows, columns);
   const transactions: BankTransactionInput[] = [];
   const balances: BankBalanceInput[] = [];
   let skippedRows = 0;
 
   for (const row of dataRows) {
-    if (isBlankOrSummaryRow(row.fields)) continue;
+    if (isBlankRow(row.fields)) continue;
 
-    const parsed = parseTransactionRow(row, columns, input);
+    const balanceSnapshot = parseBalanceSnapshotRow(row, columns, input, dateContext);
+    if (balanceSnapshot) {
+      balances.push(balanceSnapshot.balance);
+      continue;
+    }
+
+    if (isIrrelevantSummaryRow(row.fields)) continue;
+
+    const parsed = parseTransactionRow(row, columns, input, dateContext);
     if (!parsed) {
       skippedRows += 1;
       continue;
@@ -83,7 +106,7 @@ export function parseCsvStatement(csvText: string, input: ParsedStatementInput):
   }
 
   if (!transactions.length && !balances.length) {
-    throw new Error("CSV statement did not contain valid transaction rows.");
+    throw new Error("CSV statement did not contain valid transaction or balance rows.");
   }
 
   return { transactions, balances, warnings };
@@ -149,7 +172,21 @@ function normalizeHeader(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function detectColumns(headers: string[]): ColumnMap {
+function findHeaderRow(rows: CsvRow[]) {
+  const scanLimit = Math.min(rows.length, headerScanLimit);
+  for (let index = 0; index < scanLimit; index += 1) {
+    const row = rows[index];
+    if (!row.fields.some((field) => field.trim())) continue;
+
+    const headers = row.fields.map(normalizeHeader);
+    const columns = detectColumns(headers);
+    if (columns) return { columns, headerIndex: index };
+  }
+
+  return null;
+}
+
+function detectColumns(headers: string[]): ColumnMap | null {
   const date = findHeader(headers, dateHeaders);
   const amount = findHeader(headers, signedAmountHeaders);
   const debit = findHeader(headers, debitHeaders);
@@ -158,13 +195,9 @@ function detectColumns(headers: string[]): ColumnMap {
   const payee = findHeader(headers, payeeHeaders);
   const reference = findHeader(headers, referenceHeaders);
 
-  if (date === undefined) throw new Error("CSV statement is missing a transaction date column.");
-  if (amount === undefined && debit === undefined && credit === undefined) {
-    throw new Error("CSV statement is missing an amount column or debit/credit columns.");
-  }
-  if (description === undefined && payee === undefined && reference === undefined) {
-    throw new Error("CSV statement is missing a description, payee, or reference column.");
-  }
+  if (date === undefined) return null;
+  if (amount === undefined && debit === undefined && credit === undefined) return null;
+  if (description === undefined && payee === undefined && reference === undefined) return null;
 
   return {
     date,
@@ -195,20 +228,25 @@ function findHeader(headers: string[], candidates: string[], exclude?: number) {
   return undefined;
 }
 
-function isBlankOrSummaryRow(fields: string[]) {
+function isBlankRow(fields: string[]) {
+  const compact = fields.map((field) => field.trim()).filter(Boolean);
+  return !compact.length;
+}
+
+function isIrrelevantSummaryRow(fields: string[]) {
   const compact = fields.map((field) => field.trim()).filter(Boolean);
   if (!compact.length) return true;
   const joined = compact.join(" ").toLowerCase();
-  return /^(opening|closing|available|current)?\s*balance\b/.test(joined) || /^(total|summary)\b/.test(joined);
+  return /^(total|summary)\b/.test(joined);
 }
 
-function parseTransactionRow(row: CsvRow, columns: ColumnMap, input: ParsedStatementInput): ParsedTransactionRow | null {
-  const transactionDate = parseDate(cell(row, columns.date));
+function parseTransactionRow(row: CsvRow, columns: ColumnMap, input: ParsedStatementInput, dateContext: DateParseContext): ParsedTransactionRow | null {
+  const transactionDate = parseDate(cell(row, columns.date), dateContext);
   const signedAmount = parseSignedAmount(row, columns);
   const description = firstNonEmpty(cell(row, columns.description), cell(row, columns.payee), cell(row, columns.reference));
   if (!transactionDate || signedAmount === undefined || !description) return null;
 
-  const postedDate = columns.postedDate === undefined ? null : parseDate(cell(row, columns.postedDate));
+  const postedDate = columns.postedDate === undefined ? null : parseDate(cell(row, columns.postedDate), dateContext);
   const currency = normalizeCurrency(cell(row, columns.currency)) ?? normalizeCurrency(input.defaultCurrency) ?? "USD";
   const sourceRowId = `${input.statementImportId}:row:${row.sourceRowNumber}`;
   const reference = compact(cell(row, columns.reference));
@@ -262,6 +300,49 @@ function parseTransactionRow(row: CsvRow, columns: ColumnMap, input: ParsedState
   return { transaction, balance };
 }
 
+function parseBalanceSnapshotRow(
+  row: CsvRow,
+  columns: ColumnMap,
+  input: ParsedStatementInput,
+  dateContext: DateParseContext,
+): ParsedBalanceSnapshotRow | null {
+  const balanceType = detectBalanceSnapshotType(row.fields);
+  if (!balanceType) return null;
+
+  const amount =
+    parseAmount(cell(row, columns.balance)) ??
+    parseAmount(cell(row, columns.amount)) ??
+    parseAmount(cell(row, columns.credit)) ??
+    parseAmount(cell(row, columns.debit)) ??
+    parseFirstAmount(row.fields);
+  if (amount === undefined) return null;
+
+  const balanceDate = parseDate(cell(row, columns.date), dateContext) ?? findFirstDate(row.fields, dateContext) ?? dateContext.fallbackBalanceDate;
+  if (!balanceDate) return null;
+  const currency = normalizeCurrency(cell(row, columns.currency)) ?? findCurrency(row.fields) ?? normalizeCurrency(input.defaultCurrency) ?? "USD";
+  const sourceRowId = `${input.statementImportId}:balance:${balanceType}:row:${row.sourceRowNumber}`;
+
+  return {
+    balance: {
+      entityId: input.entityId,
+      bankAccountId: input.bankAccountId,
+      source: "manual",
+      balanceDate,
+      balanceType,
+      amount,
+      currency,
+      sourceRowId,
+      sourceRecordType: "csv_balance_snapshot",
+      statementImportId: input.statementImportId,
+      rawPayload: {
+        fileName: input.fileName ?? null,
+        sourceRowNumber: row.sourceRowNumber,
+        fields: row.fields,
+      },
+    },
+  };
+}
+
 function cell(row: CsvRow, index: number | undefined) {
   if (index === undefined) return "";
   return row.fields[index]?.trim() ?? "";
@@ -283,6 +364,118 @@ function compact(value: string | null | undefined) {
 function normalizeCurrency(value: string | null | undefined) {
   const normalized = value?.trim().toUpperCase() ?? "";
   return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
+}
+
+function findCurrency(values: string[]) {
+  for (const value of values) {
+    const match = value.toUpperCase().match(/\b[A-Z]{3}\b/);
+    if (match) {
+      const currency = normalizeCurrency(match[0]);
+      if (currency) return currency;
+    }
+  }
+
+  return null;
+}
+
+function detectBalanceSnapshotType(fields: string[]): BankBalanceInput["balanceType"] | null {
+  const joined = fields
+    .map((field) => field.trim())
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!/\bbalance\b/.test(joined)) return null;
+  if (/\bopening\s+balance\b/.test(joined)) return "opening";
+  if (/\bclosing\s+balance\b/.test(joined)) return "closing";
+  if (/\bavailable\s+balance\b/.test(joined)) return "available";
+  if (/\bcurrent\s+balance\b/.test(joined)) return "current";
+  if (/\bstatement\s+balance\b/.test(joined)) return "statement";
+  return null;
+}
+
+function parseFirstAmount(values: string[]) {
+  for (const value of values) {
+    const amount = parseAmount(value);
+    if (amount !== undefined) return amount;
+
+    const amountMatch = value.match(/\(?[+-]?(?:[$£€¥]|HKD|USD|SGD|AUD|CAD|NZD)?\s*\d[\d,\s]*(?:\.\d+)?\)?/i);
+    if (!amountMatch) continue;
+
+    const matchedAmount = parseAmount(amountMatch[0]);
+    if (matchedAmount !== undefined) return matchedAmount;
+  }
+
+  return undefined;
+}
+
+function findFirstDate(values: string[], dateContext: DateParseContext) {
+  for (const value of values) {
+    const exact = parseDate(value, dateContext);
+    if (exact) return exact;
+
+    const dateMatch =
+      value.match(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b/) ??
+      value.match(/\b\d{1,2}[-\s][A-Za-z]{3,9}[-,\s]\d{2,4}\b/) ??
+      value.match(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/);
+    if (!dateMatch) continue;
+
+    const matchedDate = parseDate(dateMatch[0], dateContext);
+    if (matchedDate) return matchedDate;
+  }
+
+  return null;
+}
+
+function inferDateContext(rows: CsvRow[], columns: ColumnMap): DateParseContext {
+  let slashDateFormat: DateFormat | null = null;
+  let hasAmbiguousSlashDate = false;
+
+  for (const row of rows) {
+    const values = [cell(row, columns.date), cell(row, columns.postedDate), ...row.fields];
+    for (const value of values) {
+      for (const match of slashDateParts(value)) {
+        const evidence = slashDateEvidence(match.first, match.second);
+        if (evidence) {
+          if (slashDateFormat && slashDateFormat !== evidence) {
+            throw new Error("CSV statement has conflicting slash date formats.");
+          }
+          slashDateFormat = evidence;
+        } else {
+          hasAmbiguousSlashDate = true;
+        }
+      }
+    }
+  }
+
+  if (hasAmbiguousSlashDate && !slashDateFormat) {
+    throw new Error("CSV statement has ambiguous slash dates. Use ISO YYYY-MM-DD dates or include a date that proves D/M/Y or M/D/Y.");
+  }
+
+  const parsedDates = rows
+    .map((row) => parseDate(cell(row, columns.date), { slashDateFormat, fallbackBalanceDate: null }))
+    .filter((date): date is string => Boolean(date))
+    .sort();
+
+  return {
+    slashDateFormat,
+    fallbackBalanceDate: parsedDates.at(-1) ?? null,
+  };
+}
+
+function slashDateParts(value: string) {
+  const matches: Array<{ first: number; second: number }> = [];
+  const matcher = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
+  for (const match of value.matchAll(matcher)) {
+    matches.push({ first: Number(match[1]), second: Number(match[2]) });
+  }
+  return matches;
+}
+
+function slashDateEvidence(first: number, second: number): DateFormat | null {
+  if (first > 12 && second <= 12) return "dmy";
+  if (second > 12 && first <= 12) return "mdy";
+  return null;
 }
 
 function parseSignedAmount(row: CsvRow, columns: ColumnMap) {
@@ -317,7 +510,7 @@ function parseAmount(value: string) {
   return isParenthesized ? -Math.abs(amount) : amount;
 }
 
-function parseDate(value: string) {
+function parseDate(value: string, dateContext: DateParseContext = { slashDateFormat: null, fallbackBalanceDate: null }) {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
@@ -336,8 +529,10 @@ function parseDate(value: string) {
   const first = Number(slash[1]);
   const second = Number(slash[2]);
   const year = normalizeYear(Number(slash[3]));
-  if (first > 12) return validIsoDate(year, second, first);
-  return validIsoDate(year, first, second);
+  const evidence = slashDateEvidence(first, second);
+  const format = evidence ?? dateContext.slashDateFormat;
+  if (!format) return null;
+  return format === "dmy" ? validIsoDate(year, second, first) : validIsoDate(year, first, second);
 }
 
 function normalizeYear(year: number) {
