@@ -66,16 +66,16 @@ const inputClassName =
   "mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500";
 
 const secondaryButtonClassName =
-  "inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+  "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-800 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 sm:px-3 sm:text-sm";
 
 const saveButtonClassName =
   "inline-flex h-9 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400";
 
 const unmapButtonClassName =
-  "inline-flex h-9 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm font-medium text-amber-900 shadow-sm transition hover:border-amber-300 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400";
+  "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-900 shadow-sm transition hover:border-amber-300 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-700 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 sm:px-3 sm:text-sm";
 
 const dangerButtonClassName =
-  "inline-flex h-9 items-center justify-center rounded-lg border border-red-200 bg-white px-3 text-sm font-medium text-red-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400";
+  "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-lg border border-red-200 bg-white px-2.5 text-xs font-medium text-red-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 sm:px-3 sm:text-sm";
 
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -222,7 +222,7 @@ export default function EntityManagementPage() {
       setNewOrgName("");
       setNewOrgEntityName("");
       setNewOrgEntityCode("");
-      setNotice({ tone: "success", title: "Organisation Created", message: "Your first entity is ready to map to a Xero tenant." });
+      setNotice({ tone: "success", title: "Organisation Created", message: "Your first entity is ready for uploads. Map Xero when you want sync and reconciliation." });
       await refresh();
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Failed to create organisation."));
@@ -255,7 +255,7 @@ export default function EntityManagementPage() {
       if (!response.ok) throw new Error(body.error || "Failed to create entity.");
       setNewEntityName("");
       setNewEntityCode("");
-      setNotice({ tone: "success", title: "Entity Created", message: "Map it to Xero before bank statement ingestion starts." });
+      setNotice({ tone: "success", title: "Entity Created", message: "You can upload statements for this entity now. Xero mapping can be added for sync and reconciliation." });
       await refresh();
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Failed to create entity."));
@@ -327,7 +327,7 @@ export default function EntityManagementPage() {
       });
       const body = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(body.error || "Failed to map Xero tenant.");
-      setNotice({ tone: "success", title: "Xero Tenant Mapped", message: "This entity is ready for the bank statement ingestion slice." });
+      setNotice({ tone: "success", title: "Xero Tenant Mapped", message: "This entity is ready for Xero sync and reconciliation." });
       await refresh();
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Failed to map Xero tenant."));
@@ -350,7 +350,7 @@ export default function EntityManagementPage() {
       });
       const body = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(body.error || "Failed to remove Xero mapping.");
-      setNotice({ tone: "info", title: "Xero Mapping Removed", message: "Map a tenant again before importing bank statements for this entity." });
+      setNotice({ tone: "info", title: "Xero Mapping Removed", message: "Bank statement uploads can continue. Map a tenant again when this entity needs Xero sync." });
       await refresh();
     } catch (e: unknown) {
       setError(getErrorMessage(e, "Failed to remove Xero mapping."));
@@ -461,9 +461,9 @@ export default function EntityManagementPage() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.12em] text-[#876b16]">Entity Setup</div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Map Lumen Entities to Xero.</h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-normal text-zinc-950">Manage Lumen Entities.</h1>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600">
-                  Create the organisations and entities your team works across, then choose the matching Xero tenant before bank statement ingestion is enabled.
+                  Create the organisations and entities your team works across. Statement upload works for any selected Lumen entity; Xero mapping powers sync, reconciliation, and accounting workflows.
                 </p>
               </div>
               <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
@@ -630,7 +630,7 @@ export default function EntityManagementPage() {
                   <SkeletonBlock className="h-16 w-full" />
                 </div>
               ) : !state.orgs.length ? (
-                <div className="p-5 text-sm leading-6 text-zinc-600">No organisations yet. Create one to start mapping entities to Xero.</div>
+                <div className="p-5 text-sm leading-6 text-zinc-600">No organisations yet. Create one to start managing entities and uploads.</div>
               ) : !visibleEntities.length ? (
                 <div className="p-5 text-sm leading-6 text-zinc-600">No entities in this organisation yet.</div>
               ) : (
@@ -645,9 +645,9 @@ export default function EntityManagementPage() {
                     const canDeleteEntity = entity.canAdmin && selectedOrg?.role === "owner";
 
                     return (
-                      <div key={entity.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,320px)] lg:items-start">
+                      <div key={entity.id} className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(330px,360px)] md:items-start">
                         {isEditingEntity ? (
-                          <form onSubmit={(event) => void updateEntity(event, entity)} className="min-w-0 space-y-3 lg:col-span-2">
+                          <form onSubmit={(event) => void updateEntity(event, entity)} className="min-w-0 space-y-3 md:col-span-2">
                             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(120px,180px)]">
                               <label className="block text-sm font-medium text-zinc-800">
                                 Entity Name
@@ -696,7 +696,7 @@ export default function EntityManagementPage() {
                         )}
 
                         {!isEditingEntity ? (
-                          <div className="flex min-w-0 flex-col gap-2">
+                          <div className="flex min-w-0 flex-col gap-2 md:items-end">
                             <SelectControl
                               value={entity.xeroMapping?.connection_tenant_id ?? ""}
                               onChange={(event) => {
@@ -713,7 +713,7 @@ export default function EntityManagementPage() {
                                 </option>
                               ))}
                             </SelectControl>
-                            <div className="flex flex-wrap items-center justify-end gap-2">
+                            <div className="flex w-full flex-wrap items-center justify-start gap-2 md:flex-nowrap md:justify-end">
                               {entity.canAdmin ? (
                                 <button
                                   type="button"

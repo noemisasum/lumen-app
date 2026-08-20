@@ -366,7 +366,7 @@ export default function DashboardPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-sm font-semibold text-zinc-950">Entity Setup</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Create Lumen orgs and entities, then map each entity to the right Xero tenant before bank statement ingestion.</p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Create Lumen orgs and entities for statement uploads. Map Xero when an entity needs sync, reconciliation, or accounting integration.</p>
                   </div>
                   <Link
                     href="/dashboard/entities"
