@@ -18,7 +18,7 @@ const defaultMaxAttempts = 3;
 const maxConfiguredAttempts = 10;
 
 function missingEnvResponse(missing: string[]) {
-  return NextResponse.json({ error: "Hourly statement import reprocessing is not configured.", missing }, { status: 500 });
+  return NextResponse.json({ error: "Scheduled statement import reprocessing is not configured.", missing }, { status: 500 });
 }
 
 function safeEquals(left: string, right: string) {
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
   const internalAccess = hasInternalAccess(request);
   if (!internalAccess.configured) return missingEnvResponse(["CRON_SECRET or STATEMENT_REPROCESS_SECRET"]);
   if (!internalAccess.ok) {
-    return NextResponse.json({ error: "Hourly statement import reprocessing is restricted to internal automation." }, { status: 403 });
+    return NextResponse.json({ error: "Scheduled statement import reprocessing is restricted to internal automation." }, { status: 403 });
   }
 
   try {
@@ -101,6 +101,6 @@ export async function GET(request: Request) {
       results,
     });
   } catch {
-    return NextResponse.json({ error: "Failed to run hourly statement import reprocessing." }, { status: 500 });
+    return NextResponse.json({ error: "Failed to run scheduled statement import reprocessing." }, { status: 500 });
   }
 }
