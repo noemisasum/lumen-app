@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildLedgerDashboardPayload } from "../src/lib/server/ledger-dashboard.ts";
+import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError } from "../src/lib/server/ledger-dashboard.ts";
 
 const payload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
@@ -11,6 +11,7 @@ const payload = buildLedgerDashboardPayload({
   accounts: [
     { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "bank" },
     { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "bank" },
+    { id: "account-paypal", entityId: "entity-b", accountName: "PayPal Clearing", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "PayPal Clearing", accountType: null }) },
   ],
   balances: [
     {
@@ -44,6 +45,17 @@ const payload = buildLedgerDashboardPayload({
       asOf: "2026-08-20T10:00:00.000Z",
       balanceType: "reported",
       amount: 40,
+      currency: "USD",
+    },
+    {
+      id: "latest-paypal",
+      entityId: "entity-b",
+      bankAccountId: "account-paypal",
+      source: "manual",
+      balanceDate: "2026-08-20",
+      asOf: "2026-08-20T10:00:00.000Z",
+      balanceType: "closing",
+      amount: "300.00",
       currency: "USD",
     },
   ],
@@ -87,20 +99,39 @@ const payload = buildLedgerDashboardPayload({
       currency: "USD",
       status: "reconciled",
     },
+    {
+      id: "txn-paypal",
+      entityId: "entity-b",
+      bankAccountId: "account-paypal",
+      source: "manual",
+      transactionDate: "2026-08-18",
+      description: "Processor payout",
+      signedAmount: 300,
+      amount: 300,
+      direction: "inflow",
+      currency: "USD",
+      status: "posted",
+    },
   ],
 });
 
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.amount, 250.5);
+assert.equal(payload.accounts.find((account) => account.id === "account-paypal")?.accountType, "money_processor");
+assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "bank");
+assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
+assert.equal(isMissingLedgerAccountTypeColumnError({ code: "42501", message: "permission denied for table entity_bank_accounts" }), false);
 assert.deepEqual(payload.totalsByCurrency, [
   { currency: "HKD", amount: 250.5, accountCount: 1 },
-  { currency: "USD", amount: 40, accountCount: 1 },
+  { currency: "USD", amount: 340, accountCount: 2 },
 ]);
 assert.deepEqual(payload.totalsBySource, [
   { source: "manual", currency: "HKD", amount: 250.5, accountCount: 1 },
+  { source: "manual", currency: "USD", amount: 300, accountCount: 1 },
   { source: "xero", currency: "USD", amount: 40, accountCount: 1 },
 ]);
 assert.deepEqual(payload.transactionBreakdowns, [
   { source: "manual", currency: "HKD", inflow: 75.25, outflow: 25, net: 50.25, transactionCount: 2 },
+  { source: "manual", currency: "USD", inflow: 300, outflow: 0, net: 300, transactionCount: 1 },
   { source: "xero", currency: "USD", inflow: 10, outflow: 0, net: 10, transactionCount: 1 },
 ]);
 

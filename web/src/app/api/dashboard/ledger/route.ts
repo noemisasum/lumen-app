@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
-import { buildLedgerDashboardPayload, type LedgerAccountType, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
+import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, type LedgerAccountType, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
 
 export const runtime = "nodejs";
 
@@ -26,7 +26,7 @@ type BankAccountRow = {
   xero_bank_account_id: string | null;
   account_name: string;
   currency: string | null;
-  account_type: LedgerAccountType | null;
+  account_type?: LedgerAccountType | null;
   status: string;
 };
 
@@ -61,6 +61,8 @@ type PagedLedgerQuery<T> = {
 };
 
 const LEDGER_DASHBOARD_PAGE_SIZE = 1000;
+const ACCOUNT_SELECT_WITH_TYPE = "id,entity_id,xero_bank_account_id,account_name,currency,account_type,status";
+const ACCOUNT_SELECT_WITHOUT_TYPE = "id,entity_id,xero_bank_account_id,account_name,currency,status";
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Ledger dashboard is not configured.", missing }, { status: 500 });
@@ -78,15 +80,6 @@ function uniqueById<T extends { id: string }>(rows: T[]) {
 
 function accountSource(account: BankAccountRow): LedgerDashboardAccount["source"] {
   return account.xero_bank_account_id ? "xero" : "manual";
-}
-
-function accountType(account: BankAccountRow): LedgerAccountType {
-  if (account.account_type === "money_processor" || account.account_type === "bank") return account.account_type;
-  const name = account.account_name.toLowerCase();
-  if (/\b(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat\s+pay)\b/.test(name)) {
-    return "money_processor";
-  }
-  return "bank";
 }
 
 async function loadAllRows<T>(query: PagedLedgerQuery<T>) {
@@ -131,6 +124,19 @@ async function loadAccessibleEntities(supabase: ReturnType<typeof getSupabaseSer
   return uniqueById([...(orgEntityResult.data ?? []), ...(directEntityResult.data ?? [])] as EntityRow[]);
 }
 
+async function loadBankAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityIds: string[]) {
+  const query = (selectColumns: string) =>
+    supabase.from("entity_bank_accounts").select(selectColumns).in("entity_id", entityIds).neq("status", "archived").order("account_name");
+
+  const result = await query(ACCOUNT_SELECT_WITH_TYPE);
+  if (!result.error) return (result.data ?? []) as unknown as BankAccountRow[];
+  if (!isMissingLedgerAccountTypeColumnError(result.error)) throw result.error;
+
+  const fallbackResult = await query(ACCOUNT_SELECT_WITHOUT_TYPE);
+  if (fallbackResult.error) throw fallbackResult.error;
+  return ((fallbackResult.data ?? []) as unknown as BankAccountRow[]).map((account) => ({ ...account, account_type: null }));
+}
+
 export async function GET(request: Request) {
   const missing = getMissingSupabaseServerEnv();
   if (missing.length) return missingEnvResponse(missing);
@@ -155,15 +161,7 @@ export async function GET(request: Request) {
     await Promise.all(entities.map((entity) => requireEntityAccess(supabase, entity.id, user.id)));
 
     const entityIds = entities.map((entity) => entity.id);
-    const { data: accountRows, error: accountError } = await supabase
-      .from("entity_bank_accounts")
-      .select("id,entity_id,xero_bank_account_id,account_name,currency,account_type,status")
-      .in("entity_id", entityIds)
-      .neq("status", "archived")
-      .order("account_name");
-    if (accountError) throw accountError;
-
-    const accounts = (accountRows ?? []) as BankAccountRow[];
+    const accounts = await loadBankAccounts(supabase, entityIds);
     const accountIds = accounts.map((account) => account.id);
     const sinceDate = daysAgoIsoDate(30);
 
@@ -210,7 +208,7 @@ export async function GET(request: Request) {
             currency: account.currency,
             status: account.status,
             source: accountSource(account),
-            accountType: accountType(account),
+            accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
           }),
         ),
         balances: balanceResult.map(

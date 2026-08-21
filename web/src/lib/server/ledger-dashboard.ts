@@ -111,6 +111,9 @@ type GroupValue = {
   accountIds: Set<string>;
 };
 
+const moneyProcessorAccountNamePattern =
+  /\b(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat\s+pay)\b/;
+
 const balanceTypeRank: Record<string, number> = {
   closing: 6,
   current: 5,
@@ -129,6 +132,22 @@ function normalizeDashboardCurrency(value: string | null | undefined) {
   const normalized = value?.trim().toUpperCase() ?? "";
   if (normalized === "CNH") return normalized;
   return /^[A-Z]{3}$/.test(normalized) && Intl.supportedValuesOf("currency").includes(normalized) ? normalized : null;
+}
+
+export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | null; accountName: string }): LedgerAccountType {
+  if (input.accountType === "money_processor" || input.accountType === "bank") return input.accountType;
+  return moneyProcessorAccountNamePattern.test(input.accountName.toLowerCase()) ? "money_processor" : "bank";
+}
+
+export function isMissingLedgerAccountTypeColumnError(error: unknown) {
+  const maybeError = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown } | null;
+  const code = typeof maybeError?.code === "string" ? maybeError.code : "";
+  const text = [maybeError?.message, maybeError?.details, maybeError?.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return text.includes("account_type") && (code === "42703" || code === "PGRST204" || text.includes("schema cache") || text.includes("does not exist"));
 }
 
 function displayCurrency(primary: string | null | undefined, fallback: string | null | undefined) {
