@@ -348,13 +348,14 @@ function layoutBStatementRows(sheet: WorkbookSheetRows): StatementParserRow[][] 
 function layoutCStatementRows(sheet: WorkbookSheetRows): StatementParserRow[][] {
   if (sheet.sheetName.trim().toLowerCase() !== "account_statement") return [];
 
+  const slashDateFormat = inferAccountStatementSlashDateFormat(sheet.rows);
   const dataRows = sheet.rows
     .filter((row) => row.sourceRowNumber >= 4)
     .map((row) => ({
       sourceRowNumber: row.sourceRowNumber,
       fields: [
-        row.fields[2] ?? "",
-        row.fields[3] ?? "",
+        normalizeAccountStatementDate(row.fields[2] ?? "", slashDateFormat),
+        normalizeAccountStatementDate(row.fields[3] ?? "", slashDateFormat),
         row.fields[5] ?? "",
         firstNonEmptyText(row.fields[8], row.fields[9], row.fields[10], row.fields[11]),
         row.fields[12] ?? "",
@@ -375,6 +376,49 @@ function layoutCStatementRows(sheet: WorkbookSheetRows): StatementParserRow[][] 
       ...dataRows,
     ],
   ];
+}
+
+function inferAccountStatementSlashDateFormat(rows: StatementParserRow[]): "dmy" | "mdy" | null {
+  let format: "dmy" | "mdy" | null = null;
+
+  for (const row of rows) {
+    for (const value of row.fields) {
+      const matcher = /\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/g;
+      for (const match of value.matchAll(matcher)) {
+        const first = Number(match[1]);
+        const second = Number(match[2]);
+        const evidence = first > 12 && second <= 12 ? "dmy" : second > 12 && first <= 12 ? "mdy" : null;
+        if (!evidence) continue;
+        if (format && format !== evidence) return null;
+        format = evidence;
+      }
+    }
+  }
+
+  return format;
+}
+
+function normalizeAccountStatementDate(value: string, slashDateFormat: "dmy" | "mdy" | null) {
+  if (!slashDateFormat) return value;
+
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!match) return value;
+
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  const year = normalizeAccountStatementYear(Number(match[3]));
+  const month = slashDateFormat === "dmy" ? second : first;
+  const day = slashDateFormat === "dmy" ? first : second;
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return value;
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeAccountStatementYear(year: number) {
+  if (year < 100) return year >= 70 ? 1900 + year : 2000 + year;
+  return year;
 }
 
 function excelRawPayload(fileName: string | null | undefined, sheetNumber: number, sheetName: string, row: StatementParserRow) {

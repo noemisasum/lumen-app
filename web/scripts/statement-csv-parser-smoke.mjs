@@ -222,5 +222,30 @@ assert.equal(xlsLayoutC.transactions[0]?.sourceRowId, "statement-import-smoke:sh
 assert.equal(xlsLayoutC.transactions[0]?.reference, "REF-C-001");
 assert.equal(xlsLayoutC.balances.length, 2);
 
+const xlsShortAccountStatement = parseLegacyExcelStatement(
+  workbookBuffer(
+    [
+      [
+        "account_statement",
+        [
+          ["Account Alias", "", "", "", "000-000", "", "", "", "", "", "Selected Period", "", "", "User Defined", "", ""],
+          ["Account Number", "", "", "", "000-000", "", "", "", "", "", "From Date", "", "", "01/07/2026", "", ""],
+          ["Account Owner", "", "", "", "Synthetic Owner", "", "", "", "", "", "To Date", "", "", "31/07/2026", "", ""],
+          ["", "1", "01/07/2026", "01/07/2026", "", "Synthetic debit one", "", "", "SHORT-001", "", "", "TFR", 12.75, "", "", 987.25],
+          ["", "2", "02/07/2026", "02/07/2026", "", "Synthetic debit two", "", "", "SHORT-002", "", "", "TFR", 20, "", "", 967.25],
+          ["", "3", "03/07/2026", "03/07/2026", "", "Synthetic debit three", "", "", "SHORT-003", "", "", "TFR", 7.25, "", "", 960],
+        ],
+      ],
+    ],
+    "xls",
+  ),
+  { ...input, defaultCurrency: "HKD", fileName: "synthetic-short-account-statement.xls" },
+);
+assert.equal(xlsShortAccountStatement.transactions.length, 3);
+assert.equal(xlsShortAccountStatement.transactions[0]?.transactionDate, "2026-07-01");
+assert.equal(xlsShortAccountStatement.transactions[0]?.signedAmount, -12.75);
+assert.equal(xlsShortAccountStatement.transactions[2]?.reference, "SHORT-003");
+assert.equal(xlsShortAccountStatement.balances.length, 3);
+
 rmSync(outputDir, { recursive: true, force: true });
 console.log("statement parser smoke checks passed");
