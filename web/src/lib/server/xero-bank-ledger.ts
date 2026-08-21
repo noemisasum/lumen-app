@@ -166,9 +166,9 @@ async function loadSyncedBankAccounts(supabase: SupabaseClient, entityId: string
   return (data ?? []) as EntityBankAccountRow[];
 }
 
-function parseReportNumber(value: string | undefined) {
-  if (!value) return null;
-  const normalized = value.replace(/,/g, "").trim();
+function parseReportNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).replace(/,/g, "").trim();
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
@@ -197,8 +197,8 @@ function xeroReportBalances(
 ) {
   const balances: BankBalanceInput[] = [];
   for (const row of collectReportRows(reportBody)) {
-    const cells = (row as { cells?: Array<{ value?: string; attributes?: Array<{ id?: string; value?: string }> }> }).cells ?? [];
-    const firstValue = cells[0]?.value?.trim();
+    const cells = (row as { cells?: Array<{ value?: string | number | null; attributes?: Array<{ id?: string; value?: string }> }> }).cells ?? [];
+    const firstValue = cells[0]?.value === null || cells[0]?.value === undefined ? undefined : String(cells[0].value).trim();
     const accountId = cells.flatMap((cell) => cell.attributes ?? []).find((attribute) => accountsByXeroId.has(attribute.value ?? ""))?.value;
     const account = (accountId ? accountsByXeroId.get(accountId) : null) ?? (firstValue ? accountsByName.get(firstValue.toLowerCase()) : null);
     if (!account) continue;
