@@ -1,0 +1,288 @@
+export type LedgerSource = "manual" | "xero" | "bank_feed";
+
+export type LedgerDashboardEntity = {
+  id: string;
+  name: string;
+  code: string | null;
+  orgId: string;
+};
+
+export type LedgerDashboardAccount = {
+  id: string;
+  entityId: string;
+  accountName: string;
+  currency: string | null;
+  status: string;
+  source: LedgerSource;
+};
+
+export type LedgerDashboardBalance = {
+  id: string;
+  entityId: string;
+  bankAccountId: string;
+  source: LedgerSource;
+  balanceDate: string;
+  asOf: string;
+  balanceType: string;
+  amount: string | number;
+  currency: string;
+};
+
+export type LedgerDashboardTransaction = {
+  id: string;
+  entityId: string;
+  bankAccountId: string;
+  source: LedgerSource;
+  transactionDate: string;
+  description: string;
+  signedAmount: string | number;
+  amount: string | number;
+  direction: "inflow" | "outflow" | "unknown";
+  currency: string;
+  status: string;
+};
+
+export type LedgerMoneyGroup = {
+  currency: string;
+  amount: number;
+  accountCount: number;
+};
+
+export type LedgerSourceMoneyGroup = LedgerMoneyGroup & {
+  source: LedgerSource;
+};
+
+export type LedgerEntityMoneyGroup = LedgerMoneyGroup & {
+  entityId: string;
+  entityName: string;
+};
+
+export type LedgerTransactionBreakdown = {
+  currency: string;
+  source: LedgerSource;
+  inflow: number;
+  outflow: number;
+  net: number;
+  transactionCount: number;
+};
+
+export type LedgerDashboardLatestBalance = {
+  amount: number;
+  currency: string;
+  source: LedgerSource;
+  balanceDate: string;
+  asOf: string;
+  balanceType: string;
+};
+
+export type LedgerDashboardRecentTransaction = {
+  id: string;
+  entityId: string;
+  bankAccountId: string;
+  accountName: string;
+  entityName: string;
+  source: LedgerSource;
+  transactionDate: string;
+  description: string;
+  signedAmount: number;
+  direction: "inflow" | "outflow" | "unknown";
+  currency: string;
+  status: string;
+};
+
+export type LedgerDashboardPayload = {
+  asOf: string;
+  windowDays: number;
+  entities: LedgerDashboardEntity[];
+  accounts: Array<LedgerDashboardAccount & { latestBalance: LedgerDashboardLatestBalance | null }>;
+  totalsByCurrency: LedgerMoneyGroup[];
+  totalsBySource: LedgerSourceMoneyGroup[];
+  balancesByEntity: LedgerEntityMoneyGroup[];
+  transactionBreakdowns: LedgerTransactionBreakdown[];
+  recentTransactions: LedgerDashboardRecentTransaction[];
+};
+
+type GroupValue = {
+  amount: number;
+  accountIds: Set<string>;
+};
+
+const balanceTypeRank: Record<string, number> = {
+  closing: 6,
+  current: 5,
+  available: 4,
+  reported: 3,
+  statement: 2,
+  opening: 1,
+};
+
+function numberValue(value: string | number) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareIsoDesc(left: string | null | undefined, right: string | null | undefined) {
+  return String(right ?? "").localeCompare(String(left ?? ""));
+}
+
+function compareBalances(left: LedgerDashboardBalance, right: LedgerDashboardBalance) {
+  const dateCompare = compareIsoDesc(left.balanceDate, right.balanceDate);
+  if (dateCompare !== 0) return dateCompare;
+
+  const asOfCompare = compareIsoDesc(left.asOf, right.asOf);
+  if (asOfCompare !== 0) return asOfCompare;
+
+  return (balanceTypeRank[right.balanceType] ?? 0) - (balanceTypeRank[left.balanceType] ?? 0);
+}
+
+function addMoneyGroup(groups: Map<string, GroupValue>, key: string, amount: number, accountId: string) {
+  const existing = groups.get(key) ?? { amount: 0, accountIds: new Set<string>() };
+  existing.amount += amount;
+  existing.accountIds.add(accountId);
+  groups.set(key, existing);
+}
+
+function sortedMoneyGroups(groups: Map<string, GroupValue>) {
+  return Array.from(groups.entries())
+    .map(([currency, value]) => ({
+      currency,
+      amount: value.amount,
+      accountCount: value.accountIds.size,
+    }))
+    .sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+export function buildLedgerDashboardPayload(input: {
+  entities: LedgerDashboardEntity[];
+  accounts: LedgerDashboardAccount[];
+  balances: LedgerDashboardBalance[];
+  transactions: LedgerDashboardTransaction[];
+  asOf?: string;
+  windowDays?: number;
+}): LedgerDashboardPayload {
+  const asOf = input.asOf ?? new Date().toISOString();
+  const windowDays = input.windowDays ?? 30;
+  const entityById = new Map(input.entities.map((entity) => [entity.id, entity]));
+  const accountById = new Map(input.accounts.map((account) => [account.id, account]));
+  const sortedBalances = [...input.balances].sort(compareBalances);
+  const latestBalanceByAccountId = new Map<string, LedgerDashboardLatestBalance>();
+
+  for (const balance of sortedBalances) {
+    if (latestBalanceByAccountId.has(balance.bankAccountId)) continue;
+    latestBalanceByAccountId.set(balance.bankAccountId, {
+      amount: numberValue(balance.amount),
+      currency: balance.currency,
+      source: balance.source,
+      balanceDate: balance.balanceDate,
+      asOf: balance.asOf,
+      balanceType: balance.balanceType,
+    });
+  }
+
+  const totalsByCurrency = new Map<string, GroupValue>();
+  const totalsBySource = new Map<string, GroupValue>();
+  const balancesByEntity = new Map<string, GroupValue>();
+
+  for (const account of input.accounts) {
+    const latestBalance = latestBalanceByAccountId.get(account.id);
+    if (!latestBalance) continue;
+
+    addMoneyGroup(totalsByCurrency, latestBalance.currency, latestBalance.amount, account.id);
+    addMoneyGroup(totalsBySource, `${latestBalance.source}:${latestBalance.currency}`, latestBalance.amount, account.id);
+    addMoneyGroup(balancesByEntity, `${account.entityId}:${latestBalance.currency}`, latestBalance.amount, account.id);
+  }
+
+  const transactionBreakdowns = new Map<string, LedgerTransactionBreakdown>();
+  for (const transaction of input.transactions) {
+    const signedAmount = numberValue(transaction.signedAmount);
+    const key = `${transaction.source}:${transaction.currency}`;
+    const existing =
+      transactionBreakdowns.get(key) ??
+      ({
+        currency: transaction.currency,
+        source: transaction.source,
+        inflow: 0,
+        outflow: 0,
+        net: 0,
+        transactionCount: 0,
+      } satisfies LedgerTransactionBreakdown);
+
+    if (signedAmount > 0) existing.inflow += signedAmount;
+    if (signedAmount < 0) existing.outflow += Math.abs(signedAmount);
+    existing.net += signedAmount;
+    existing.transactionCount += 1;
+    transactionBreakdowns.set(key, existing);
+  }
+
+  const accounts = input.accounts
+    .map((account) => ({
+      ...account,
+      latestBalance: latestBalanceByAccountId.get(account.id) ?? null,
+    }))
+    .sort((left, right) => {
+      const leftEntity = entityById.get(left.entityId)?.name ?? "";
+      const rightEntity = entityById.get(right.entityId)?.name ?? "";
+      return leftEntity.localeCompare(rightEntity) || left.accountName.localeCompare(right.accountName);
+    });
+
+  const balancesByEntityRows = Array.from(balancesByEntity.entries())
+    .map(([key, value]) => {
+      const [entityId, currency] = key.split(":");
+      return {
+        entityId,
+        entityName: entityById.get(entityId)?.name ?? "Unknown Entity",
+        currency,
+        amount: value.amount,
+        accountCount: value.accountIds.size,
+      };
+    })
+    .sort((left, right) => left.entityName.localeCompare(right.entityName) || left.currency.localeCompare(right.currency));
+
+  const totalsBySourceRows = Array.from(totalsBySource.entries())
+    .map(([key, value]) => {
+      const [source, currency] = key.split(":") as [LedgerSource, string];
+      return {
+        source,
+        currency,
+        amount: value.amount,
+        accountCount: value.accountIds.size,
+      };
+    })
+    .sort((left, right) => left.source.localeCompare(right.source) || left.currency.localeCompare(right.currency));
+
+  const recentTransactions = [...input.transactions]
+    .sort((left, right) => compareIsoDesc(left.transactionDate, right.transactionDate))
+    .slice(0, 10)
+    .map((transaction) => {
+      const account = accountById.get(transaction.bankAccountId);
+      const entity = entityById.get(transaction.entityId);
+      return {
+        id: transaction.id,
+        entityId: transaction.entityId,
+        bankAccountId: transaction.bankAccountId,
+        accountName: account?.accountName ?? "Unknown Account",
+        entityName: entity?.name ?? "Unknown Entity",
+        source: transaction.source,
+        transactionDate: transaction.transactionDate,
+        description: transaction.description,
+        signedAmount: numberValue(transaction.signedAmount),
+        direction: transaction.direction,
+        currency: transaction.currency,
+        status: transaction.status,
+      };
+    });
+
+  return {
+    asOf,
+    windowDays,
+    entities: input.entities,
+    accounts,
+    totalsByCurrency: sortedMoneyGroups(totalsByCurrency),
+    totalsBySource: totalsBySourceRows,
+    balancesByEntity: balancesByEntityRows,
+    transactionBreakdowns: Array.from(transactionBreakdowns.values()).sort(
+      (left, right) => left.source.localeCompare(right.source) || left.currency.localeCompare(right.currency),
+    ),
+    recentTransactions,
+  };
+}
