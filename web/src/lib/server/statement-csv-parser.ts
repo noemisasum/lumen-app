@@ -68,13 +68,32 @@ const dateHeaders = ["date", "transaction date", "trans date", "posting date", "
 const postedDateHeaders = ["posted date", "posting date", "value date"];
 const descriptionHeaders = ["description", "details", "narrative", "memo", "transaction details", "particulars", "transaction description"];
 const payeeHeaders = ["payee", "merchant", "counterparty", "beneficiary", "payer", "name"];
-const referenceHeaders = ["reference", "ref", "transaction reference", "bank reference", "cheque number", "check number"];
+const referenceHeaders = [
+  "reference",
+  "ref",
+  "reference number",
+  "transaction reference",
+  "bank reference",
+  "bank reference number",
+  "cheque number",
+  "check number",
+];
 const externalIdHeaders = ["fitid", "transaction id", "transaction identifier", "id", "unique id", "bank transaction id"];
 const signedAmountHeaders = ["amount", "transaction amount", "signed amount", "net amount"];
 const debitHeaders = ["debit", "withdrawal", "withdrawals", "payment", "payments", "money out", "outflow", "debit amount"];
 const creditHeaders = ["credit", "deposit", "deposits", "receipt", "receipts", "money in", "inflow", "credit amount"];
 const currencyHeaders = ["currency", "ccy", "currency code"];
-const balanceHeaders = ["balance", "running balance", "available balance", "ledger balance", "opening balance", "closing balance", "current balance", "statement balance"];
+const balanceHeaders = [
+  "balance",
+  "running balance",
+  "indicative balance",
+  "available balance",
+  "ledger balance",
+  "opening balance",
+  "closing balance",
+  "current balance",
+  "statement balance",
+];
 const headerScanLimit = 25;
 
 export function parseCsvStatement(csvText: string, input: ParsedStatementInput): ParsedStatementResult {
@@ -236,10 +255,15 @@ function detectColumns(headers: string[]): ColumnMap | null {
   const description = findHeader(headers, descriptionHeaders);
   const payee = findHeader(headers, payeeHeaders);
   const reference = findHeader(headers, referenceHeaders);
+  const balance = findHeader(headers, balanceHeaders);
+
+  const hasTransactionAmount = amount !== undefined || debit !== undefined || credit !== undefined;
+  const hasTransactionDescriptor = description !== undefined || payee !== undefined || reference !== undefined;
+  const hasBalanceSnapshot = balance !== undefined;
 
   if (date === undefined) return null;
-  if (amount === undefined && debit === undefined && credit === undefined) return null;
-  if (description === undefined && payee === undefined && reference === undefined) return null;
+  if (!hasTransactionAmount && !hasBalanceSnapshot) return null;
+  if (hasTransactionAmount && !hasTransactionDescriptor && !hasBalanceSnapshot) return null;
 
   return {
     date,
@@ -252,7 +276,7 @@ function detectColumns(headers: string[]): ColumnMap | null {
     debit,
     credit,
     currency: findHeader(headers, currencyHeaders),
-    balance: findHeader(headers, balanceHeaders),
+    balance,
   };
 }
 
@@ -361,7 +385,7 @@ function parseBalanceSnapshotRow(
     sourceRecordPrefix: options.sourceRecordPrefix,
     sourceRowId: options.sourceRowId,
   }) !== null;
-  const balanceType = labelLayoutType ?? (isTransactionRow ? null : detectBalanceSnapshotType(row.fields));
+  const balanceType = labelLayoutType ?? (isTransactionRow ? null : detectBalanceSnapshotType(row.fields) ?? "reported");
   if (!balanceType) return null;
 
   const amount =
@@ -596,6 +620,11 @@ function parseDate(value: string, dateContext: DateParseContext = { slashDateFor
   const trimmed = value.trim();
   if (!trimmed) return null;
 
+  const numeric = Number(trimmed);
+  if (/^\d{4,5}(?:\.\d+)?$/.test(trimmed) && Number.isFinite(numeric)) {
+    return excelSerialDate(numeric);
+  }
+
   const iso = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (iso) return validIsoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
@@ -615,6 +644,14 @@ function parseDate(value: string, dateContext: DateParseContext = { slashDateFor
   const format = evidence ?? dateContext.slashDateFormat;
   if (!format) return null;
   return format === "dmy" ? validIsoDate(year, second, first) : validIsoDate(year, first, second);
+}
+
+function excelSerialDate(serial: number) {
+  if (serial < 20000 || serial > 80000) return null;
+  const excelEpoch = Date.UTC(1899, 11, 30);
+  const wholeDays = Math.floor(serial);
+  const date = new Date(excelEpoch + wholeDays * 24 * 60 * 60 * 1000);
+  return date.toISOString().slice(0, 10);
 }
 
 function normalizeYear(year: number) {

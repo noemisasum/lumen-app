@@ -10,6 +10,7 @@
     "smoke:statement-parser": "node scripts/statement-csv-parser-smoke.mjs"
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "@supabase/supabase-js": "^2.103.3",
     "next": "16.3.0",
     "react": "19.2.4",

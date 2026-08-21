@@ -6,7 +6,7 @@ import {
   type StatementProcessingTrigger,
 } from "@/lib/server/statement-processing-log";
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
-import { parseExcelStatement } from "@/lib/server/statement-excel-parser";
+import { parseExcelStatement, parseLegacyExcelStatement } from "@/lib/server/statement-excel-parser";
 
 export type StatementParseOutcome = {
   status: "imported" | "pending_parse" | "failed";
@@ -81,7 +81,7 @@ export async function parseManualStatementImport(
           supabase,
           input.statementImportId,
           "pending_parse",
-          "Automatic parsing currently supports CSV and XLSX statements. PDF, image, and legacy XLS statements remain queued for manual parser support.",
+          "Automatic parsing currently supports CSV, XLSX, and supported legacy XLS statements. PDF and image statements remain queued for manual parser support.",
         ),
       );
     }
@@ -112,7 +112,9 @@ export async function parseManualStatementImport(
     const parsed =
       parserType === "csv"
         ? parseCsvStatement(new TextDecoder("utf-8").decode(fileBuffer).replace(/^\uFEFF/, ""), parserInput)
-        : await parseExcelStatement(fileBuffer, parserInput);
+        : parserType === "xlsx"
+          ? await parseExcelStatement(fileBuffer, parserInput)
+          : parseLegacyExcelStatement(fileBuffer, parserInput);
 
     const transactionResult = await upsertBankTransactions(supabase, parsed.transactions);
     const balanceResult = await upsertBankBalances(supabase, parsed.balances);
@@ -164,7 +166,7 @@ async function loadRawFile(
   return file;
 }
 
-function statementParserType(objectKey: string, mimeType: string | null): "csv" | "xlsx" | null {
+function statementParserType(objectKey: string, mimeType: string | null): "csv" | "xlsx" | "xls" | null {
   const lowerKey = objectKey.toLowerCase();
   const lowerType = mimeType?.toLowerCase() ?? "";
   if (lowerKey.endsWith(".csv") || lowerType.includes("csv") || lowerType === "text/plain") return "csv";
@@ -175,6 +177,7 @@ function statementParserType(objectKey: string, mimeType: string | null): "csv" 
   ) {
     return "xlsx";
   }
+  if (lowerKey.endsWith(".xls") || lowerType === "application/vnd.ms-excel" || lowerType === "application/xls") return "xls";
   return null;
 }
 

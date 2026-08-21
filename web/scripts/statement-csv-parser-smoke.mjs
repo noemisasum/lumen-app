@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
+import * as xlsx from "@e965/xlsx";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptDir, "..");
@@ -40,7 +41,7 @@ writeFileSync(
 );
 
 const { parseCsvStatement } = await import(`${pathToFileURL(outputPath).href}?${Date.now()}`);
-const { parseExcelStatement } = await import(`${pathToFileURL(excelOutputPath).href}?${Date.now()}`);
+const { parseExcelStatement, parseLegacyExcelStatement } = await import(`${pathToFileURL(excelOutputPath).href}?${Date.now()}`);
 
 const input = {
   statementImportId: "statement-import-smoke",
@@ -88,6 +89,138 @@ assert.equal(excel.transactions[1]?.signedAmount, 25);
 assert.match(String(excel.transactions[0]?.sourceRowId), /^statement-import-smoke:sheet:\d+:row:4$/);
 assert.equal(excel.transactions[0]?.sourceRecordType, "excel_row");
 assert.equal(excel.balances.filter((balance) => balance.sourceRecordType === "excel_running_balance").length, 2);
+
+function workbookBuffer(sheets, bookType) {
+  const workbook = xlsx.utils.book_new();
+  for (const [sheetName, rows] of sheets) {
+    xlsx.utils.book_append_sheet(workbook, xlsx.utils.aoa_to_sheet(rows), sheetName);
+  }
+  return xlsx.write(workbook, { type: "buffer", bookType });
+}
+
+assert.throws(
+  () => parseLegacyExcelStatement(Buffer.from("not a legacy workbook"), { ...input, fileName: "invalid.xls" }),
+  /not a supported CFB\/BIFF workbook/,
+);
+
+const oversizedLegacyXls = Buffer.concat([
+  workbookBuffer([["Sheet1", [["Date", "Description", "Amount"], ["2026-07-17", "Synthetic payment", 10]]]], "xls"),
+  Buffer.alloc(1024 * 1024),
+]);
+assert.throws(
+  () => parseLegacyExcelStatement(oversizedLegacyXls, { ...input, fileName: "oversized.xls" }),
+  /larger than the current automatic parser limit of 1 MiB/,
+);
+
+const bankXlsx = await parseExcelStatement(
+  workbookBuffer(
+    [
+      [
+        "Activity_report_SIMPLE",
+        [
+          ["Account Currency", "HKD"],
+          [],
+          [
+            "Date",
+            "Description",
+            "",
+            "",
+            "Transaction type",
+            "Reference number",
+            "Debit",
+            "Credit",
+            "Indicative balance",
+            "Value date",
+            "Bank reference number",
+            "Branch code",
+          ],
+          [46220.125, "Synthetic card purchase", "", "", "Debit", "REF-001", 25.5, "", 974.5, 46220.125, "BANK-001", "001"],
+          [46221, "", "", "", "", "", "", "", 974.5, "", "", ""],
+        ],
+      ],
+    ],
+    "xlsx",
+  ),
+  { ...input, defaultCurrency: "HKD", fileName: "synthetic-bank-layout.xlsx" },
+);
+assert.equal(bankXlsx.transactions.length, 1);
+assert.equal(bankXlsx.transactions[0]?.transactionDate, "2026-07-17");
+assert.equal(bankXlsx.transactions[0]?.postedDate, "2026-07-17");
+assert.equal(bankXlsx.transactions[0]?.signedAmount, -25.5);
+assert.equal(bankXlsx.transactions[0]?.reference, "REF-001");
+assert.equal(bankXlsx.balances.length, 2);
+assert.equal(bankXlsx.balances[1]?.sourceRowId, "statement-import-smoke:sheet:1:balance:reported:row:5");
+
+const xlsLayoutA = parseLegacyExcelStatement(
+  workbookBuffer(
+    [
+      [
+        "Sheet1",
+        [
+          ["Account Number", "Period", "Currency", "Date", "Description", "Debit", "Credit", "Value Date", "Balance"],
+          ["000-000", "Jul 2026", "HKD", "17/07/2026", "Synthetic payment", 10, "", "17/07/2026", 990],
+          ["000-000", "Jul 2026", "HKD", "18/07/2026", "", "", "", "", 990],
+        ],
+      ],
+    ],
+    "xls",
+  ),
+  { ...input, defaultCurrency: "HKD", fileName: "synthetic-layout-a.xls" },
+);
+assert.equal(xlsLayoutA.transactions.length, 1);
+assert.equal(xlsLayoutA.transactions[0]?.sourceRecordType, "xls_row");
+assert.equal(xlsLayoutA.balances.length, 2);
+
+const xlsLayoutB = parseLegacyExcelStatement(
+  workbookBuffer(
+    [
+      [
+        "Default Sheet",
+        [
+          ["Opening Balance", "", 1000],
+          ["Ledger Balance", "", 1040],
+          ["Available Balance", "", 1035],
+          [],
+          ["Date", "Value Date", "Transaction Description 1", "Transaction Description 2", "Debit", "Credit", "Running Balance"],
+          ["17/07/2026", "17/07/2026", "Synthetic transfer", "extra detail", "", 40, 1040],
+          ["18/07/2026", "", "", "", "", "", 1040],
+        ],
+      ],
+    ],
+    "xls",
+  ),
+  { ...input, defaultCurrency: "HKD", fileName: "synthetic-layout-b.xls" },
+);
+assert.equal(xlsLayoutB.transactions.length, 1);
+assert.equal(xlsLayoutB.transactions[0]?.description, "Synthetic transfer");
+assert.equal(xlsLayoutB.transactions[0]?.signedAmount, 40);
+assert.deepEqual(
+  xlsLayoutB.balances.map((balance) => balance.balanceType),
+  ["opening", "reported", "available", "reported", "reported"],
+);
+
+const xlsLayoutC = parseLegacyExcelStatement(
+  workbookBuffer(
+    [
+      [
+        "account_statement",
+        [
+          ["Account", "000-000"],
+          ["Owner", "Synthetic Owner"],
+          ["From", "2026-07-01", "To", "2026-07-31"],
+          ["", "1", "17/07/2026", "17/07/2026", "", "Synthetic merchant", "", "", "REF-C-001", "", "", "", 12.75, "", "", 987.25],
+          ["", "2", "18/07/2026", "", "", "", "", "", "", "", "", "", "", "", "", 987.25],
+        ],
+      ],
+    ],
+    "xls",
+  ),
+  { ...input, defaultCurrency: "HKD", fileName: "synthetic-layout-c.xls" },
+);
+assert.equal(xlsLayoutC.transactions.length, 1);
+assert.equal(xlsLayoutC.transactions[0]?.sourceRowId, "statement-import-smoke:sheet:1:row:4");
+assert.equal(xlsLayoutC.transactions[0]?.reference, "REF-C-001");
+assert.equal(xlsLayoutC.balances.length, 2);
 
 rmSync(outputDir, { recursive: true, force: true });
 console.log("statement parser smoke checks passed");
