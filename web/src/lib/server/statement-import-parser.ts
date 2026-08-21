@@ -6,6 +6,7 @@ import {
   type StatementProcessingTrigger,
 } from "@/lib/server/statement-processing-log";
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
+import { parseExcelStatement } from "@/lib/server/statement-excel-parser";
 
 export type StatementParseOutcome = {
   status: "imported" | "pending_parse" | "failed";
@@ -27,7 +28,7 @@ type BankAccountRow = {
   currency: string | null;
 };
 
-const maxCsvBytes = 8 * 1024 * 1024;
+const maxStatementBytes = 8 * 1024 * 1024;
 
 export async function parseManualStatementImport(
   supabase: SupabaseClient,
@@ -73,40 +74,45 @@ export async function parseManualStatementImport(
       return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", "Raw file is unavailable for automatic parsing."));
     }
 
-    if (!isCsvFile(file.object_key, file.mime_type)) {
+    const parserType = statementParserType(file.object_key, file.mime_type);
+    if (!parserType) {
       return finishLog(
         await updateImportStatus(
           supabase,
           input.statementImportId,
           "pending_parse",
-          "Automatic parsing currently supports CSV statements only. PDF, image, and Excel statements remain queued for manual parser support.",
+          "Automatic parsing currently supports CSV and XLSX statements. PDF, image, and legacy XLS statements remain queued for manual parser support.",
         ),
       );
     }
 
     const sizeBytes = Number(file.size_bytes ?? input.sizeBytes ?? 0);
-    if (sizeBytes > maxCsvBytes) {
+    if (sizeBytes > maxStatementBytes) {
       return finishLog(
         await updateImportStatus(
           supabase,
           input.statementImportId,
           "pending_parse",
-          "CSV statement is larger than the current automatic parser limit and remains queued.",
+          "Statement file is larger than the current automatic parser limit and remains queued.",
         ),
       );
     }
 
     await setImportProcessing(supabase, input.statementImportId);
 
-    const csvText = await downloadText(supabase, file.bucket, file.object_key);
+    const fileBuffer = await downloadFileBuffer(supabase, file.bucket, file.object_key);
     const accountCurrency = await loadAccountCurrency(supabase, input.bankAccountId, input.entityId);
-    const parsed = parseCsvStatement(csvText, {
+    const parserInput = {
       statementImportId: input.statementImportId,
       entityId: input.entityId,
       bankAccountId: input.bankAccountId,
       defaultCurrency: accountCurrency,
       fileName: file.object_key.split("/").at(-1) ?? file.object_key,
-    });
+    };
+    const parsed =
+      parserType === "csv"
+        ? parseCsvStatement(new TextDecoder("utf-8").decode(fileBuffer).replace(/^\uFEFF/, ""), parserInput)
+        : await parseExcelStatement(fileBuffer, parserInput);
 
     const transactionResult = await upsertBankTransactions(supabase, parsed.transactions);
     const balanceResult = await upsertBankBalances(supabase, parsed.balances);
@@ -117,7 +123,7 @@ export async function parseManualStatementImport(
     });
     return finishLog(outcome);
   } catch (error) {
-    const message = getErrorMessage(error, "Failed to parse CSV statement.");
+    const message = getErrorMessage(error, "Failed to parse statement.");
     return finishLog(await failImportStatus(supabase, input.statementImportId, message));
   }
 }
@@ -158,19 +164,27 @@ async function loadRawFile(
   return file;
 }
 
-function isCsvFile(objectKey: string, mimeType: string | null) {
+function statementParserType(objectKey: string, mimeType: string | null): "csv" | "xlsx" | null {
   const lowerKey = objectKey.toLowerCase();
   const lowerType = mimeType?.toLowerCase() ?? "";
-  return lowerKey.endsWith(".csv") || lowerType.includes("csv") || lowerType === "text/plain";
+  if (lowerKey.endsWith(".csv") || lowerType.includes("csv") || lowerType === "text/plain") return "csv";
+  if (
+    lowerKey.endsWith(".xlsx") ||
+    lowerType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    lowerType === "application/xlsx"
+  ) {
+    return "xlsx";
+  }
+  return null;
 }
 
-async function downloadText(supabase: SupabaseClient, bucket: string, objectKey: string) {
+async function downloadFileBuffer(supabase: SupabaseClient, bucket: string, objectKey: string) {
   const { data, error } = await supabase.storage.from(bucket).download(objectKey);
   if (error) throw error;
-  if (!data) throw new Error("Stored CSV statement could not be downloaded.");
+  if (!data) throw new Error("Stored statement file could not be downloaded.");
   const buffer = await data.arrayBuffer();
-  if (buffer.byteLength > maxCsvBytes) throw new Error("CSV statement is larger than the current automatic parser limit.");
-  return new TextDecoder("utf-8").decode(buffer).replace(/^\uFEFF/, "");
+  if (buffer.byteLength > maxStatementBytes) throw new Error("Statement file is larger than the current automatic parser limit.");
+  return buffer;
 }
 
 async function loadAccountCurrency(supabase: SupabaseClient, bankAccountId: string, entityId: string) {
