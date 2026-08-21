@@ -104,4 +104,70 @@ assert.deepEqual(payload.transactionBreakdowns, [
   { source: "xero", currency: "USD", inflow: 10, outflow: 0, net: 10, transactionCount: 1 },
 ]);
 
+const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
+  id: `large-account-${index}`,
+  entityId: "entity-a",
+  accountName: `Large Account ${index}`,
+  currency: index % 2 === 0 ? "HKD" : "USD",
+  status: "active",
+  source: "manual",
+}));
+
+const largeBalances = largeAccounts.flatMap((account, index) => [
+  {
+    id: `large-balance-${index}`,
+    entityId: account.entityId,
+    bankAccountId: account.id,
+    source: account.source,
+    balanceDate: "2026-08-20",
+    asOf: "2026-08-20T10:00:00.000Z",
+    balanceType: "closing",
+    amount: account.currency === "HKD" ? "1.00" : "2.00",
+    currency: account.currency,
+  },
+  {
+    id: `large-old-balance-${index}`,
+    entityId: account.entityId,
+    bankAccountId: account.id,
+    source: account.source,
+    balanceDate: "2026-08-01",
+    asOf: "2026-08-01T10:00:00.000Z",
+    balanceType: "closing",
+    amount: "9999.00",
+    currency: account.currency,
+  },
+]);
+
+const largeTransactions = Array.from({ length: 1001 }, (_, index) => ({
+  id: `large-txn-${index}`,
+  entityId: "entity-a",
+  bankAccountId: largeAccounts[index % largeAccounts.length].id,
+  source: "manual",
+  transactionDate: "2026-08-21",
+  description: `Large transaction ${index}`,
+  signedAmount: index % 2 === 0 ? "1.00" : "-1.00",
+  amount: "1.00",
+  direction: index % 2 === 0 ? "inflow" : "outflow",
+  currency: index % 3 === 0 ? "USD" : "HKD",
+  status: "posted",
+}));
+
+const largePayload = buildLedgerDashboardPayload({
+  asOf: "2026-08-22T00:00:00.000Z",
+  windowDays: 30,
+  entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
+  accounts: largeAccounts,
+  balances: largeBalances,
+  transactions: largeTransactions,
+});
+
+assert.deepEqual(largePayload.totalsByCurrency, [
+  { currency: "HKD", amount: 2501, accountCount: 2501 },
+  { currency: "USD", amount: 5000, accountCount: 2500 },
+]);
+assert.deepEqual(largePayload.transactionBreakdowns, [
+  { source: "manual", currency: "HKD", inflow: 334, outflow: 333, net: 1, transactionCount: 667 },
+  { source: "manual", currency: "USD", inflow: 167, outflow: 167, net: 0, transactionCount: 334 },
+]);
+
 console.log("ledger-dashboard smoke ok");

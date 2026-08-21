@@ -55,6 +55,12 @@ type BankTransactionRow = {
   status: string;
 };
 
+type PagedLedgerQuery<T> = {
+  range(from: number, to: number): PromiseLike<{ data: T[] | null; error: unknown }>;
+};
+
+const LEDGER_DASHBOARD_PAGE_SIZE = 1000;
+
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Ledger dashboard is not configured.", missing }, { status: 500 });
 }
@@ -71,6 +77,21 @@ function uniqueById<T extends { id: string }>(rows: T[]) {
 
 function accountSource(account: BankAccountRow): LedgerDashboardAccount["source"] {
   return account.xero_bank_account_id ? "xero" : "manual";
+}
+
+async function loadAllRows<T>(query: PagedLedgerQuery<T>) {
+  const rows: T[] = [];
+  let offset = 0;
+
+  for (;;) {
+    const { data, error } = await query.range(offset, offset + LEDGER_DASHBOARD_PAGE_SIZE - 1);
+    if (error) throw error;
+
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < LEDGER_DASHBOARD_PAGE_SIZE) return rows;
+    offset += LEDGER_DASHBOARD_PAGE_SIZE;
+  }
 }
 
 async function loadAccessibleEntities(supabase: ReturnType<typeof getSupabaseServiceClient>, userId: string) {
@@ -138,29 +159,28 @@ export async function GET(request: Request) {
 
     const [balanceResult, transactionResult] = await Promise.all([
       accountIds.length
-        ? supabase
-            .from("bank_account_balances")
-            .select("id,entity_id,bank_account_id,source,balance_date,as_of,balance_type,amount,currency")
-            .in("bank_account_id", accountIds)
-            .order("balance_date", { ascending: false })
-            .order("as_of", { ascending: false })
-            .limit(5000)
-        : Promise.resolve({ data: [], error: null }),
+        ? loadAllRows<BankBalanceRow>(
+            supabase
+              .from("bank_account_balances")
+              .select("id,entity_id,bank_account_id,source,balance_date,as_of,balance_type,amount,currency")
+              .in("bank_account_id", accountIds)
+              .order("balance_date", { ascending: false })
+              .order("as_of", { ascending: false }),
+          )
+        : Promise.resolve([]),
       accountIds.length
-        ? supabase
-            .from("bank_account_transactions")
-            .select("id,entity_id,bank_account_id,source,transaction_date,description,signed_amount,amount,direction,currency,status")
-            .in("bank_account_id", accountIds)
-            .gte("transaction_date", sinceDate)
-            .neq("status", "voided")
-            .neq("status", "failed")
-            .order("transaction_date", { ascending: false })
-            .limit(1000)
-        : Promise.resolve({ data: [], error: null }),
+        ? loadAllRows<BankTransactionRow>(
+            supabase
+              .from("bank_account_transactions")
+              .select("id,entity_id,bank_account_id,source,transaction_date,description,signed_amount,amount,direction,currency,status")
+              .in("bank_account_id", accountIds)
+              .gte("transaction_date", sinceDate)
+              .neq("status", "voided")
+              .neq("status", "failed")
+              .order("transaction_date", { ascending: false }),
+          )
+        : Promise.resolve([]),
     ]);
-
-    if (balanceResult.error) throw balanceResult.error;
-    if (transactionResult.error) throw transactionResult.error;
 
     return NextResponse.json(
       buildLedgerDashboardPayload({
@@ -182,7 +202,7 @@ export async function GET(request: Request) {
             source: accountSource(account),
           }),
         ),
-        balances: ((balanceResult.data ?? []) as BankBalanceRow[]).map(
+        balances: balanceResult.map(
           (balance): LedgerDashboardBalance => ({
             id: balance.id,
             entityId: balance.entity_id,
@@ -195,7 +215,7 @@ export async function GET(request: Request) {
             currency: balance.currency,
           }),
         ),
-        transactions: ((transactionResult.data ?? []) as BankTransactionRow[]).map(
+        transactions: transactionResult.map(
           (transaction): LedgerDashboardTransaction => ({
             id: transaction.id,
             entityId: transaction.entity_id,
