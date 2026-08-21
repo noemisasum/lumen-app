@@ -154,7 +154,6 @@ async function syncXeroBankAccounts(supabase: SupabaseClient, entityId: string, 
       xero_bank_account_id: account.accountID,
       account_name: account.name,
       currency: account.currencyCode ?? null,
-      account_type: "bank",
       status: account.status === "ARCHIVED" ? "archived" : "active",
       updated_at: new Date().toISOString(),
     }));

@@ -96,6 +96,16 @@ type LedgerDashboardData = {
   recentTransactions: LedgerRecentTransaction[];
 };
 
+type AccountUpdateResponse = {
+  account?: {
+    id: string;
+    entityId: string;
+    accountName: string;
+    accountType: Exclude<AccountType, "all">;
+  };
+  error?: string;
+};
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -133,8 +143,14 @@ function sourceLabel(source: LedgerSource) {
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  if (accountType === "money_processor") return "Money Processors";
+  if (accountType === "money_processor") return "Money Processor";
   if (accountType === "bank") return "Bank";
+  return "All Accounts";
+}
+
+function accountTypePluralLabel(accountType: AccountType) {
+  if (accountType === "money_processor") return "Money Processors";
+  if (accountType === "bank") return "Banks";
   return "All Accounts";
 }
 
@@ -199,6 +215,11 @@ function groupBalances(accounts: LedgerAccount[]) {
   return Array.from(groups.values()).sort((left, right) => left.currency.localeCompare(right.currency));
 }
 
+function accountHasVisibleBalance(account: LedgerAccount, hideZeroBalances: boolean) {
+  if (!hideZeroBalances) return true;
+  return !account.latestBalance || account.latestBalance.amount !== 0;
+}
+
 function groupBalancesByEntity(accounts: LedgerAccount[], entityNameById: Map<string, string>) {
   const groups = new Map<string, EntityMoneyGroup>();
   for (const account of accounts) {
@@ -254,16 +275,23 @@ export default function DashboardPage() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
   const [selectedAccountType, setSelectedAccountType] = useState<AccountType>("bank");
+  const [hideZeroBalances, setHideZeroBalances] = useState(false);
+  const [updatingAccountIds, setUpdatingAccountIds] = useState<Set<string>>(() => new Set());
+  const [classificationNotice, setClassificationNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
 
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
-  const accounts = ledgerData?.accounts ?? [];
-  const visibleAccounts = selectedAccountType === "all" ? accounts : accounts.filter((account) => account.accountType === selectedAccountType);
+  const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
+  const allVisibleAccounts = useMemo(() => accounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [accounts, hideZeroBalances]);
+  const accountTypeFilteredAccounts = useMemo(() => (selectedAccountType === "all" ? accounts : accounts.filter((account) => account.accountType === selectedAccountType)), [accounts, selectedAccountType]);
+  const visibleAccounts = useMemo(() => accountTypeFilteredAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [accountTypeFilteredAccounts, hideZeroBalances]);
   const accountsWithBalances = visibleAccounts.filter((account) => account.latestBalance);
   const filteredTotalsByCurrency = useMemo(() => groupBalances(visibleAccounts), [visibleAccounts]);
-  const bankAccounts = accounts.filter((account) => account.accountType === "bank");
-  const mpAccounts = accounts.filter((account) => account.accountType === "money_processor");
-  const bankTotals = useMemo(() => groupBalances(bankAccounts), [bankAccounts]);
-  const mpTotals = useMemo(() => groupBalances(mpAccounts), [mpAccounts]);
+  const bankAccounts = useMemo(() => accounts.filter((account) => account.accountType === "bank"), [accounts]);
+  const mpAccounts = useMemo(() => accounts.filter((account) => account.accountType === "money_processor"), [accounts]);
+  const visibleBankAccounts = useMemo(() => bankAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [bankAccounts, hideZeroBalances]);
+  const visibleMpAccounts = useMemo(() => mpAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [mpAccounts, hideZeroBalances]);
+  const bankTotals = useMemo(() => groupBalances(visibleBankAccounts), [visibleBankAccounts]);
+  const mpTotals = useMemo(() => groupBalances(visibleMpAccounts), [visibleMpAccounts]);
   const visibleTransactions = (ledgerData?.recentTransactions ?? []).filter((transaction) => {
     if (selectedAccountType === "all") return true;
     return transaction.accountType === selectedAccountType;
@@ -272,13 +300,13 @@ export default function DashboardPage() {
   const visibleBalancesByEntity = useMemo(() => groupBalancesByEntity(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
   const currencyCount = new Set(filteredTotalsByCurrency.map((row) => row.currency)).size;
   const accountTypeOptions = [
-    { type: "bank" as const, label: "Bank", accounts: bankAccounts.length, rows: bankTotals },
-    { type: "money_processor" as const, label: "Money Processors", accounts: mpAccounts.length, rows: mpTotals },
-    { type: "all" as const, label: "All Accounts", accounts: accounts.length, rows: groupBalances(accounts) },
+    { type: "bank" as const, label: "Banks", accounts: visibleBankAccounts.length, rows: bankTotals },
+    { type: "money_processor" as const, label: "Money Processors", accounts: visibleMpAccounts.length, rows: mpTotals },
+    { type: "all" as const, label: "All Accounts", accounts: allVisibleAccounts.length, rows: groupBalances(allVisibleAccounts) },
   ];
   const accountTypeChartRows = [
-    { label: "Bank", amount: bankTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: bankAccounts.length },
-    { label: "Money Processors", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: mpAccounts.length },
+    { label: "Banks", amount: bankTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: visibleBankAccounts.length },
+    { label: "Money Processors", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: visibleMpAccounts.length },
   ];
   const accountTypeChartTotal = accountTypeChartRows.reduce((total, row) => total + row.amount, 0);
 
@@ -422,6 +450,57 @@ export default function DashboardPage() {
     }
   }
 
+  async function updateAccountClassification(account: LedgerAccount, accountType: Exclude<AccountType, "all">) {
+    if (!session || account.accountType === accountType || updatingAccountIds.has(account.id)) return;
+
+    setUpdatingAccountIds((current) => new Set(current).add(account.id));
+    setClassificationNotice(null);
+    try {
+      const response = await fetch("/api/entity-bank-accounts", {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entityId: account.entityId,
+          accountId: account.id,
+          accountType,
+        }),
+      });
+      const body = (await response.json()) as AccountUpdateResponse;
+      if (!response.ok || !body.account) throw new Error(body.error || "Failed to update account classification.");
+
+      setLedgerData((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          accounts: current.accounts.map((item) => (item.id === body.account?.id ? { ...item, accountType: body.account.accountType } : item)),
+          recentTransactions: current.recentTransactions.map((transaction) =>
+            transaction.bankAccountId === body.account?.id ? { ...transaction, accountType: body.account.accountType } : transaction,
+          ),
+        };
+      });
+      setClassificationNotice({
+        tone: "success",
+        title: "Classification Updated",
+        message: `${account.accountName} is now classified as ${accountTypeLabel(accountType)}.`,
+      });
+    } catch (e: unknown) {
+      setClassificationNotice({
+        tone: "warning",
+        title: "Classification Not Saved",
+        message: getErrorMessage(e, "Failed to update account classification."),
+      });
+    } finally {
+      setUpdatingAccountIds((current) => {
+        const next = new Set(current);
+        next.delete(account.id);
+        return next;
+      });
+    }
+  }
+
   if (loading || !session) {
     return (
       <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
@@ -498,6 +577,15 @@ export default function DashboardPage() {
                 <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Statement Intake
                 </Link>
+                <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm">
+                  <input
+                    type="checkbox"
+                    checked={hideZeroBalances}
+                    onChange={(event) => setHideZeroBalances(event.target.checked)}
+                    className="h-4 w-4 accent-zinc-950"
+                  />
+                  Hide zero balances
+                </label>
               </div>
             </div>
 
@@ -593,8 +681,8 @@ export default function DashboardPage() {
                   </div>
                   <div className="divide-y divide-zinc-100">
                     {[
-                      { type: "bank" as const, rows: bankTotals, accounts: bankAccounts.length },
-                      { type: "money_processor" as const, rows: mpTotals, accounts: mpAccounts.length },
+                      { type: "bank" as const, rows: bankTotals, accounts: visibleBankAccounts.length },
+                      { type: "money_processor" as const, rows: mpTotals, accounts: visibleMpAccounts.length },
                     ].map((row) => (
                       <button
                         key={row.type}
@@ -603,7 +691,7 @@ export default function DashboardPage() {
                         className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 ${selectedAccountType === row.type ? "bg-zinc-50" : ""}`}
                       >
                         <div>
-                          <div className="font-medium text-zinc-950">{accountTypeLabel(row.type)}</div>
+                          <div className="font-medium text-zinc-950">{accountTypePluralLabel(row.type)}</div>
                           <div className="mt-1 text-xs text-zinc-500">{row.accounts} account{row.accounts === 1 ? "" : "s"}</div>
                         </div>
                         <div className="min-w-32 text-right">
@@ -638,9 +726,21 @@ export default function DashboardPage() {
 
               <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-zinc-950">{accountTypeLabel(selectedAccountType)} Drilldown</h2>
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">{accountTypePluralLabel(selectedAccountType)} Drilldown</h2>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {hideZeroBalances ? "Zero-balance accounts hidden; totals shown are unchanged by hidden zeroes." : "Showing all ledger accounts for this view."}
+                    </div>
+                  </div>
                   <div className="text-xs text-zinc-500">{accountsWithBalances.length} accounts with balances</div>
                 </div>
+                {classificationNotice ? (
+                  <div className="border-b border-zinc-100 px-5 py-3">
+                    <Notice tone={classificationNotice.tone} title={classificationNotice.title}>
+                      {classificationNotice.message}
+                    </Notice>
+                  </div>
+                ) : null}
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-zinc-100 text-sm">
                     <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
@@ -670,7 +770,21 @@ export default function DashboardPage() {
                               <div className="font-medium text-zinc-900">{account.accountName}</div>
                               <div className="mt-1 text-xs text-zinc-500">{currencyLabel(account.currency ?? account.latestBalance?.currency ?? "Unspecified")}</div>
                             </td>
-                            <td className="px-5 py-4 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
+                            <td className="px-5 py-4">
+                              <label className="sr-only" htmlFor={`account-type-${account.id}`}>
+                                Classification for {account.accountName}
+                              </label>
+                              <select
+                                id={`account-type-${account.id}`}
+                                value={account.accountType}
+                                onChange={(event) => void updateAccountClassification(account, event.target.value as Exclude<AccountType, "all">)}
+                                disabled={updatingAccountIds.has(account.id)}
+                                className="h-9 min-w-36 rounded-md border border-zinc-300 bg-white px-2 text-sm font-medium text-zinc-800 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-wait disabled:bg-zinc-100 disabled:text-zinc-500"
+                              >
+                                <option value="bank">Bank</option>
+                                <option value="money_processor">Money Processor</option>
+                              </select>
+                            </td>
                             <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
                             <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">
                               {account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
@@ -743,7 +857,7 @@ export default function DashboardPage() {
                             <span>{row.count} account{row.count === 1 ? "" : "s"}</span>
                           </div>
                           <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-100">
-                            <div className={`h-full rounded-full ${row.label === "Bank" ? "bg-sky-700" : "bg-emerald-700"}`} style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
+                            <div className={`h-full rounded-full ${row.label === "Banks" ? "bg-sky-700" : "bg-emerald-700"}`} style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
                           </div>
                         </div>
                       ))}
