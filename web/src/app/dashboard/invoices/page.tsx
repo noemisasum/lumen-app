@@ -187,10 +187,6 @@ function formatFileSize(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function sortBankAccounts(accounts: BankAccountRow[]) {
-  return [...accounts].sort((left, right) => left.accountName.localeCompare(right.accountName));
-}
-
 function accountTypeLabel(accountType: BankAccountRow["accountType"]) {
   return accountType === "money_processor" ? "MP" : "Bank";
 }
@@ -214,15 +210,6 @@ export default function InvoicesPage() {
   const [bankAccountId, setBankAccountId] = useState<string>("");
   const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
   const [bankAccountError, setBankAccountError] = useState<string | null>(null);
-  const [manualAccountName, setManualAccountName] = useState("");
-  const [manualAccountType, setManualAccountType] = useState<BankAccountRow["accountType"]>("bank");
-  const [creatingAccount, setCreatingAccount] = useState(false);
-  const [creatingRowAccountId, setCreatingRowAccountId] = useState<string | null>(null);
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  const [editingAccountName, setEditingAccountName] = useState("");
-  const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("bank");
-  const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
-  const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [accountSyncNote, setAccountSyncNote] = useState<string | null>(null);
   const [stagedUploads, setStagedUploads] = useState<StagedUploadRow[]>([]);
   const [finalizingUploads, setFinalizingUploads] = useState(false);
@@ -252,11 +239,9 @@ export default function InvoicesPage() {
     setBankAccountsLoading(true);
     setBankAccountError(null);
     setAccountSyncNote(null);
-    setEditingAccountId(null);
-    setEditingAccountName("");
 
     try {
-      const params = new URLSearchParams({ entityId: nextEntityId, syncXero: "1" });
+      const params = new URLSearchParams({ entityId: nextEntityId });
       const response = await fetch(`/api/entity-bank-accounts?${params.toString()}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
@@ -273,8 +258,6 @@ export default function InvoicesPage() {
 
       if (body.sync?.warning) {
         setAccountSyncNote(body.sync.warning);
-      } else if (body.sync?.synced && body.sync.count) {
-        setAccountSyncNote(`Synced ${body.sync.count} Xero bank account${body.sync.count === 1 ? "" : "s"}.`);
       }
     } catch (e: unknown) {
       setBankAccounts([]);
@@ -282,51 +265,6 @@ export default function InvoicesPage() {
       setBankAccountError(getErrorMessage(e, "Failed to load bank accounts."));
     } finally {
       setBankAccountsLoading(false);
-    }
-  }
-
-  async function createManualBankAccount(
-    accountName: string,
-    accessToken: string,
-    options: { allowDuplicate?: boolean; select?: boolean } = {},
-  ) {
-    const normalizedName = accountName.trim().replace(/\s+/g, " ");
-    if (!entityId || !normalizedName) throw new Error("Choose an entity and enter a bank account name.");
-
-    const response = await fetch("/api/entity-bank-accounts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ entityId, accountName: normalizedName, accountType: manualAccountType, allowDuplicate: options.allowDuplicate === true }),
-    });
-    const body = (await response.json()) as { account?: BankAccountRow; error?: string };
-    if (!response.ok || !body.account) throw new Error(body.error || "Failed to create bank account.");
-
-    setBankAccounts((current) => {
-      const withoutDuplicate = current.filter((account) => account.id !== body.account?.id);
-      return sortBankAccounts([...withoutDuplicate, body.account as BankAccountRow]);
-    });
-    if (options.select !== false) setBankAccountId(body.account.id);
-    setManualAccountName("");
-    setManualAccountType("bank");
-    return body.account;
-  }
-
-  async function onCreateManualAccount() {
-    try {
-      if (!supabase) throw new Error("Authentication is not configured for this deployment.");
-      const sess = await ensureSession();
-      if (!sess) return;
-
-      setCreatingAccount(true);
-      setBankAccountError(null);
-      await createManualBankAccount(manualAccountName, sess.access_token);
-    } catch (e: unknown) {
-      setBankAccountError(getErrorMessage(e, "Failed to create bank account."));
-    } finally {
-      setCreatingAccount(false);
     }
   }
 
@@ -345,16 +283,14 @@ export default function InvoicesPage() {
     return entityName ? `${entityName} Statement Account` : "Statement Upload Account";
   }
 
-  async function ensureUploadBankAccount(files: File[], accessToken: string) {
+  async function ensureUploadBankAccount() {
     if (!multiOrgMode || !entityId) return null;
     if (bankAccountId) {
       const accountName = bankAccounts.find((account) => account.id === bankAccountId)?.accountName;
       return { id: bankAccountId, accountName };
     }
 
-    const suggestedName = await suggestedAccountNameFromFiles(files);
-    const account = await createManualBankAccount(suggestedName, accessToken, { allowDuplicate: true, select: false });
-    return { id: account.id, accountName: account.accountName };
+    return null;
   }
 
   function selectedAccountName(nextBankAccountId: string) {
@@ -386,119 +322,6 @@ export default function InvoicesPage() {
     );
   }
 
-  function startEditingAccount(account: BankAccountRow) {
-    setEditingAccountId(account.id);
-    setEditingAccountName(account.accountName);
-    setEditingAccountType(account.accountType);
-    setBankAccountError(null);
-  }
-
-  function cancelEditingAccount() {
-    setEditingAccountId(null);
-    setEditingAccountName("");
-    setEditingAccountType("bank");
-  }
-
-  async function renameBankAccount(account: BankAccountRow) {
-    const normalizedName = editingAccountName.trim().replace(/\s+/g, " ");
-    if (!normalizedName) return;
-    if (normalizedName === account.accountName && editingAccountType === account.accountType) {
-      cancelEditingAccount();
-      return;
-    }
-
-    try {
-      const sess = await ensureSession();
-      if (!sess) return;
-
-      setSavingAccountId(account.id);
-      setBankAccountError(null);
-
-      const response = await fetch("/api/entity-bank-accounts", {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${sess.access_token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ entityId, accountId: account.id, accountName: normalizedName, accountType: editingAccountType }),
-      });
-      const body = (await response.json()) as { account?: BankAccountRow; error?: string };
-      if (!response.ok || !body.account) throw new Error(body.error || "Failed to update bank account.");
-
-      setBankAccounts((current) =>
-        sortBankAccounts(current.map((item) => (item.id === body.account?.id ? (body.account as BankAccountRow) : item))),
-      );
-      cancelEditingAccount();
-    } catch (e: unknown) {
-      setBankAccountError(getErrorMessage(e, "Failed to update bank account."));
-    } finally {
-      setSavingAccountId(null);
-    }
-  }
-
-  async function deleteBankAccount(account: BankAccountRow) {
-    if (account.source === "xero") return;
-    if (!window.confirm(`Delete upload account "${account.accountName}"? Existing uploads keep their history.`)) return;
-
-    try {
-      const sess = await ensureSession();
-      if (!sess) return;
-
-      setDeletingAccountId(account.id);
-      setBankAccountError(null);
-
-      const params = new URLSearchParams({ entityId, accountId: account.id });
-      const response = await fetch(`/api/entity-bank-accounts?${params.toString()}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${sess.access_token}` },
-      });
-      const body = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(body.error || "Failed to delete bank account.");
-
-      setBankAccounts((current) => current.filter((item) => item.id !== account.id));
-      setBankAccountId((current) => (current === account.id ? "" : current));
-      setStagedUploads((current) =>
-        current.map((row) =>
-          row.bankAccountId === account.id
-            ? {
-                ...row,
-                bankAccountId: "",
-                error: "Choose a bank account for this file.",
-              }
-            : row,
-        ),
-      );
-      if (editingAccountId === account.id) cancelEditingAccount();
-    } catch (e: unknown) {
-      setBankAccountError(getErrorMessage(e, "Failed to delete bank account."));
-    } finally {
-      setDeletingAccountId(null);
-    }
-  }
-
-  async function createAccountForStagedRow(row: StagedUploadRow) {
-    try {
-      if (!supabase) throw new Error("Authentication is not configured for this deployment.");
-      const sess = await ensureSession();
-      if (!sess) return;
-
-      setCreatingRowAccountId(row.id);
-      setStagedUploads((current) => current.map((item) => (item.id === row.id ? { ...item, error: null } : item)));
-      const account = await createManualBankAccount(row.accountHint || titleCaseFromFileName(row.fileName) || "Statement Upload Account", sess.access_token, {
-        allowDuplicate: true,
-        select: false,
-      });
-      setStagedUploadAccount(row.id, account.id);
-    } catch (e: unknown) {
-      setStagedUploads((current) =>
-        current.map((item) =>
-          item.id === row.id ? { ...item, error: getErrorMessage(e, "Failed to create upload account for this file.") } : item,
-        ),
-      );
-  } finally {
-      setCreatingRowAccountId(null);
-    }
-  }
 
   async function load() {
     try {
@@ -631,6 +454,7 @@ export default function InvoicesPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -638,6 +462,7 @@ export default function InvoicesPage() {
   useEffect(() => {
     // Reload when entity changes (multi-org mode)
     if (!entityId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setStagedUploads([]);
     load();
@@ -879,7 +704,7 @@ export default function InvoicesPage() {
         if (multiOrgMode && entityId && isStatementLikeFile(file)) {
           await stageStatementFile(file, sess.user.id, supabase);
         } else {
-          const selectedBankAccount = await ensureUploadBankAccount([file], sess.access_token);
+          const selectedBankAccount = await ensureUploadBankAccount();
           await uploadOneFile(file, sess.user.id, sess.access_token, supabase, selectedBankAccount?.id ?? "", selectedBankAccount?.accountName);
         }
         uploadedCount += 1;
@@ -1097,141 +922,34 @@ export default function InvoicesPage() {
                     ) : null}
                   </div>
 
-                  <div className="min-w-0">
-                    <label htmlFor="manual-bank-account" className="sr-only">
-                      New bank account name
-                    </label>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        id="manual-bank-account"
-                        type="text"
-                        value={manualAccountName}
-                        onChange={(event) => setManualAccountName(event.target.value)}
-                        disabled={creatingAccount || uploading}
-                        placeholder="Add upload account"
-                        className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                      />
-                      <SelectControl
-                        id="manual-account-type"
-                        value={manualAccountType}
-                        onChange={(event) => setManualAccountType(event.target.value as BankAccountRow["accountType"])}
-                        disabled={creatingAccount || uploading}
-                        title="Account type"
-                        className="w-full sm:w-36"
-                      >
-                        <option value="bank">Bank</option>
-                        <option value="money_processor">MP</option>
-                      </SelectControl>
-                      <button
-                        type="button"
-                        onClick={onCreateManualAccount}
-                        disabled={!manualAccountName.trim() || creatingAccount || uploading}
-                        className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                      >
-                        {creatingAccount ? <Spinner label="Adding" /> : "Add"}
-                      </button>
-                    </div>
+                  <div className="min-w-0 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm leading-5 text-zinc-600">
+                    Create, rename, archive, sync, and classify accounts from{" "}
+                    <Link href="/dashboard/entities" className="font-medium text-zinc-950 underline decoration-zinc-300 underline-offset-4">
+                      Entity Setup
+                    </Link>
+                    .
                   </div>
                 </div>
 
                 {bankAccounts.length ? (
                   <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200 bg-white">
                     <div className="divide-y divide-zinc-100">
-                      {bankAccounts.map((account) => {
-                        const isManual = account.source === "manual";
-                        const isEditing = editingAccountId === account.id;
-                        const isSaving = savingAccountId === account.id;
-                        const isDeleting = deletingAccountId === account.id;
-                        const actionDisabled = uploading || finalizingUploads || isSaving || isDeleting;
-
-                        return (
-                          <div key={account.id} className="grid min-w-0 gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                            <div className="min-w-0">
-                              {isEditing ? (
-                                <label className="block min-w-0">
-                                  <span className="sr-only">Bank account name</span>
-                                  <input
-                                    type="text"
-                                    value={editingAccountName}
-                                    onChange={(event) => setEditingAccountName(event.target.value)}
-                                    disabled={isSaving}
-                                    className="h-9 w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                                  />
-                                  <SelectControl
-                                    value={editingAccountType}
-                                    onChange={(event) => setEditingAccountType(event.target.value as BankAccountRow["accountType"])}
-                                    disabled={isSaving}
-                                    title="Account type"
-                                    className="mt-2 w-full sm:w-40"
-                                  >
-                                    <option value="bank">Bank</option>
-                                    <option value="money_processor">MP</option>
-                                  </SelectControl>
-                                </label>
-                              ) : (
-                                <div className="flex min-w-0 items-center gap-2">
-                                  <div className="min-w-0 truncate text-sm font-medium text-zinc-950">{account.accountName}</div>
-                                  <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
-                                    {account.source === "xero" ? "Xero" : "Upload"}
-                                  </span>
-                                  <span className="shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-100">
-                                    {accountTypeLabel(account.accountType)}
-                                  </span>
-                                  {account.currency ? (
-                                    <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-500 ring-1 ring-inset ring-zinc-200">
-                                      {account.currency}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex min-w-0 flex-wrap gap-2 sm:justify-end">
-                              {isEditing ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => renameBankAccount(account)}
-                                    disabled={actionDisabled || !editingAccountName.trim()}
-                                    className="inline-flex h-8 min-w-16 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                                  >
-                                    {isSaving ? <Spinner label="Saving" /> : "Save"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={cancelEditingAccount}
-                                    disabled={isSaving}
-                                    className="inline-flex h-8 min-w-16 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-700 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => startEditingAccount(account)}
-                                    disabled={!isManual || actionDisabled}
-                                    title={isManual ? "Edit bank account" : "Xero account"}
-                                    className="inline-flex h-8 min-w-16 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => deleteBankAccount(account)}
-                                    disabled={!isManual || actionDisabled}
-                                    title={isManual ? "Delete bank account" : "Xero account"}
-                                    className="inline-flex h-8 min-w-16 items-center justify-center rounded-lg border border-zinc-300 bg-white px-2.5 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400"
-                                  >
-                                    {isDeleting ? <Spinner label="Deleting" /> : "Delete"}
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {bankAccounts.map((account) => (
+                        <div key={account.id} className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-3">
+                          <div className="min-w-0 truncate text-sm font-medium text-zinc-950">{account.accountName}</div>
+                          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                            {account.source === "xero" ? "Xero" : "Upload"}
+                          </span>
+                          <span className="shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-100">
+                            {accountTypeLabel(account.accountType)}
+                          </span>
+                          {account.currency ? (
+                            <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-500 ring-1 ring-inset ring-zinc-200">
+                              {account.currency}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : null}
@@ -1298,14 +1016,6 @@ export default function InvoicesPage() {
                               </option>
                             ))}
                           </SelectControl>
-                          <button
-                            type="button"
-                            onClick={() => createAccountForStagedRow(row)}
-                            disabled={finalizingUploads || creatingRowAccountId === row.id}
-                            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:min-w-28"
-                          >
-                            {creatingRowAccountId === row.id ? <Spinner label="Creating" /> : "Create Account"}
-                          </button>
                         </div>
                       </div>
                     </div>

@@ -7,10 +7,12 @@ export const runtime = "nodejs";
 
 type OrgMemberRow = {
   org_id: string;
+  role: string;
 };
 
 type EntityMemberRow = {
   entity_id: string;
+  role: string;
 };
 
 type EntityRow = {
@@ -18,6 +20,7 @@ type EntityRow = {
   org_id: string;
   name: string;
   code: string | null;
+  canAdmin: boolean;
 };
 
 type BankAccountRow = {
@@ -99,8 +102,8 @@ async function loadAllRows<T>(query: PagedLedgerQuery<T>) {
 
 async function loadAccessibleEntities(supabase: ReturnType<typeof getSupabaseServiceClient>, userId: string) {
   const [orgMemberResult, entityMemberResult] = await Promise.all([
-    supabase.from("org_members").select("org_id").eq("user_id", userId),
-    supabase.from("entity_members").select("entity_id").eq("user_id", userId),
+    supabase.from("org_members").select("org_id,role").eq("user_id", userId),
+    supabase.from("entity_members").select("entity_id,role").eq("user_id", userId),
   ]);
 
   if (orgMemberResult.error) throw orgMemberResult.error;
@@ -108,6 +111,8 @@ async function loadAccessibleEntities(supabase: ReturnType<typeof getSupabaseSer
 
   const orgIds = ((orgMemberResult.data ?? []) as OrgMemberRow[]).map((membership) => membership.org_id);
   const entityMemberIds = ((entityMemberResult.data ?? []) as EntityMemberRow[]).map((membership) => membership.entity_id);
+  const orgRoleById = new Map(((orgMemberResult.data ?? []) as OrgMemberRow[]).map((membership) => [membership.org_id, membership.role]));
+  const entityRoleById = new Map(((entityMemberResult.data ?? []) as EntityMemberRow[]).map((membership) => [membership.entity_id, membership.role]));
 
   const [orgEntityResult, directEntityResult] = await Promise.all([
     orgIds.length
@@ -121,7 +126,14 @@ async function loadAccessibleEntities(supabase: ReturnType<typeof getSupabaseSer
   if (orgEntityResult.error) throw orgEntityResult.error;
   if (directEntityResult.error) throw directEntityResult.error;
 
-  return uniqueById([...(orgEntityResult.data ?? []), ...(directEntityResult.data ?? [])] as EntityRow[]);
+  return uniqueById([...(orgEntityResult.data ?? []), ...(directEntityResult.data ?? [])] as Omit<EntityRow, "canAdmin">[]).map((entity) => {
+    const orgRole = orgRoleById.get(entity.org_id);
+    const entityRole = entityRoleById.get(entity.id);
+    return {
+      ...entity,
+      canAdmin: orgRole === "owner" || orgRole === "admin" || entityRole === "admin",
+    };
+  });
 }
 
 async function loadBankAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityIds: string[]) {
@@ -209,6 +221,7 @@ export async function GET(request: Request) {
             status: account.status,
             source: accountSource(account),
             accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
+            canAdmin: entities.find((entity) => entity.id === account.entity_id)?.canAdmin ?? false,
           }),
         ),
         balances: balanceResult.map(

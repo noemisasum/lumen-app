@@ -15,6 +15,7 @@ export type LedgerDashboardAccount = {
   status: string;
   source: LedgerSource;
   accountType: LedgerAccountType;
+  canAdmin: boolean;
 };
 
 export type LedgerAccountType = "bank" | "money_processor";

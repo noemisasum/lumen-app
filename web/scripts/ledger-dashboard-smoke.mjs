@@ -9,9 +9,9 @@ const payload = buildLedgerDashboardPayload({
     { id: "entity-b", orgId: "org-1", name: "Lumen US", code: "US" },
   ],
   accounts: [
-    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "bank" },
-    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "bank" },
-    { id: "account-paypal", entityId: "entity-b", accountName: "PayPal Clearing", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "PayPal Clearing", accountType: null }) },
+    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "bank", canAdmin: true },
+    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "bank", canAdmin: true },
+    { id: "account-paypal", entityId: "entity-b", accountName: "PayPal Clearing", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "PayPal Clearing", accountType: null }), canAdmin: true },
   ],
   balances: [
     {
@@ -143,6 +143,7 @@ const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   status: "active",
   source: "manual",
   accountType: "bank",
+  canAdmin: true,
 }));
 
 const largeBalances = largeAccounts.flatMap((account, index) => [
@@ -206,7 +207,7 @@ const invalidCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,
   entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
-  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank" }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
   balances: [
     {
       id: "bad-month-currency",
@@ -230,7 +231,7 @@ const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,
   entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
-  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "AUG", status: "active", source: "manual", accountType: "bank" }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "AUG", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
   balances: [
     {
       id: "bad-account-currency",
