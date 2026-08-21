@@ -98,6 +98,20 @@ function workbookBuffer(sheets, bookType) {
   return xlsx.write(workbook, { type: "buffer", bookType });
 }
 
+assert.throws(
+  () => parseLegacyExcelStatement(Buffer.from("not a legacy workbook"), { ...input, fileName: "invalid.xls" }),
+  /not a supported CFB\/BIFF workbook/,
+);
+
+const oversizedLegacyXls = Buffer.concat([
+  workbookBuffer([["Sheet1", [["Date", "Description", "Amount"], ["2026-07-17", "Synthetic payment", 10]]]], "xls"),
+  Buffer.alloc(1024 * 1024),
+]);
+assert.throws(
+  () => parseLegacyExcelStatement(oversizedLegacyXls, { ...input, fileName: "oversized.xls" }),
+  /larger than the current automatic parser limit of 1 MiB/,
+);
+
 const bankXlsx = await parseExcelStatement(
   workbookBuffer(
     [

@@ -16,9 +16,11 @@ const maxExcelZipEntries = 250;
 const maxExcelCentralDirectoryBytes = 1024 * 1024;
 const maxExcelWorksheetXmlBytes = 10 * 1024 * 1024;
 const maxExcelTotalXmlBytes = 30 * 1024 * 1024;
+const maxLegacyXlsBytes = 1024 * 1024;
 const zipCentralDirectoryHeaderSignature = 0x02014b50;
 const zipEndOfCentralDirectorySignature = 0x06054b50;
 const zip64Sentinel = 0xffffffff;
+const cfbHeaderMagic = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1] as const;
 
 type XlsxZipEntry = {
   name: string;
@@ -66,6 +68,7 @@ export async function parseExcelStatement(excelData: ArrayBuffer, input: ParsedS
 
 export function parseLegacyExcelStatement(excelData: ArrayBuffer, input: ParsedStatementInput): ParsedStatementResult {
   const buffer = Buffer.from(excelData);
+  validateLegacyXlsContainer(buffer);
   return parseWorkbookSheets(readLegacyWorkbookRows(buffer), input, "XLS", "xls");
 }
 
@@ -172,6 +175,20 @@ function findEndOfCentralDirectory(buffer: Buffer) {
 
 function isExcelXmlEntry(name: string) {
   return /^xl\/.+\.xml(?:\.rels)?$/i.test(name) || name === "[Content_Types].xml";
+}
+
+function validateLegacyXlsContainer(buffer: Buffer) {
+  if (buffer.length > maxLegacyXlsBytes) {
+    throw new Error("Legacy XLS statement is larger than the current automatic parser limit of 1 MiB.");
+  }
+  if (!hasCfbHeader(buffer)) {
+    throw new Error("Legacy XLS statement is not a supported CFB/BIFF workbook.");
+  }
+}
+
+function hasCfbHeader(buffer: Buffer) {
+  if (buffer.length < cfbHeaderMagic.length) return false;
+  return cfbHeaderMagic.every((byte, index) => buffer[index] === byte);
 }
 
 function worksheetRowsToStatementRows(rows: Row[], sheetName: string): StatementParserRow[] {
