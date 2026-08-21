@@ -101,6 +101,14 @@ export function createXeroClient(state?: string) {
   });
 }
 
+export async function refreshXeroTokenSet(xero: XeroClient, tokenSet: TokenSet) {
+  await xero.initialize();
+  xero.setTokenSet(tokenSet);
+  const refreshedTokenSet = await xero.refreshToken();
+  xero.setTokenSet(refreshedTokenSet);
+  return refreshedTokenSet;
+}
+
 export function tokenExpiresAt(tokenSet: TokenSet) {
   if (typeof tokenSet.expires_at === "number") {
     return new Date(tokenSet.expires_at * 1000).toISOString();

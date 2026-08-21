@@ -1,6 +1,6 @@
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { upsertBankBalances, upsertBankTransactions, type BankBalanceInput, type BankTransactionInput } from "@/lib/server/bank-ledger";
-import { createXeroClient, getXeroEnvIssueNames, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BankTransaction, TokenSet } from "xero-node";
 
@@ -90,6 +90,16 @@ function xeroTransactionDescription(transaction: BankTransaction) {
   return transaction.reference || transaction.contact?.name || lineDescription || "Xero bank transaction";
 }
 
+function xeroTransactionDate(value: string | Date | null | undefined) {
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+
+  const date = value?.trim().slice(0, 10);
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
 async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
   const { data: mapping, error: mappingError } = await supabase
     .from("entity_xero_mappings")
@@ -114,9 +124,8 @@ async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
 
   const connectionRow = connection as XeroConnectionRow;
   const xero = createXeroClient();
-  xero.setTokenSet(decryptJson<TokenSet>(connectionRow.token_ciphertext));
 
-  const tokenSet = await xero.refreshToken();
+  const tokenSet = await refreshXeroTokenSet(xero, decryptJson<TokenSet>(connectionRow.token_ciphertext));
   const encryptedTokenSet = encryptJson(serializeTokenSet(tokenSet));
   const { error: tokenUpdateError } = await supabase
     .from("xero_connections")
@@ -128,7 +137,6 @@ async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
   if (tokenUpdateError) {
     return { warning: "Xero refreshed credentials could not be saved. Reconnect Xero before syncing bank ledger data." };
   }
-  xero.setTokenSet(tokenSet);
 
   const tenants = (await xero.updateTenants(false)) as XeroTenant[];
   const hasTenant = tenants.some((tenant) => tenant.tenantId === mappingRow.xero_tenant_id);
@@ -168,9 +176,9 @@ async function loadSyncedBankAccounts(supabase: SupabaseClient, entityId: string
   return (data ?? []) as EntityBankAccountRow[];
 }
 
-function parseReportNumber(value: string | undefined) {
-  if (!value) return null;
-  const normalized = value.replace(/,/g, "").trim();
+function parseReportNumber(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).replace(/,/g, "").trim();
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
@@ -199,8 +207,8 @@ function xeroReportBalances(
 ) {
   const balances: BankBalanceInput[] = [];
   for (const row of collectReportRows(reportBody)) {
-    const cells = (row as { cells?: Array<{ value?: string; attributes?: Array<{ id?: string; value?: string }> }> }).cells ?? [];
-    const firstValue = cells[0]?.value?.trim();
+    const cells = (row as { cells?: Array<{ value?: string | number | null; attributes?: Array<{ id?: string; value?: string }> }> }).cells ?? [];
+    const firstValue = cells[0]?.value === null || cells[0]?.value === undefined ? undefined : String(cells[0].value).trim();
     const accountId = cells.flatMap((cell) => cell.attributes ?? []).find((attribute) => accountsByXeroId.has(attribute.value ?? ""))?.value;
     const account = (accountId ? accountsByXeroId.get(accountId) : null) ?? (firstValue ? accountsByName.get(firstValue.toLowerCase()) : null);
     if (!account) continue;
@@ -276,7 +284,8 @@ export async function syncXeroBankLedger(
     for (const transaction of pageTransactions) {
       const xeroAccountId = transaction.bankAccount?.accountID;
       const account = xeroAccountId ? accountsByXeroId.get(xeroAccountId) : null;
-      if (!account || !transaction.date || !account.currency) continue;
+      const transactionDate = xeroTransactionDate(transaction.date as string | Date | null | undefined);
+      if (!account || !transactionDate || !account.currency) continue;
       const signedAmount = signedXeroAmount(transaction);
       transactions.push({
         entityId,
@@ -284,7 +293,7 @@ export async function syncXeroBankLedger(
         source: "xero",
         sourceRecordType: "xero_bank_transaction",
         entityXeroMappingId: context.mapping.id,
-        transactionDate: transaction.date,
+        transactionDate,
         description: xeroTransactionDescription(transaction),
         payee: transaction.contact?.name ?? null,
         reference: transaction.reference ?? null,
