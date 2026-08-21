@@ -6,15 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "smoke:statement-parser": "node scripts/statement-csv-parser-smoke.mjs"
+    "lint": "eslint"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.3",
     "next": "16.3.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "read-excel-file": "^9.3.10",
     "xero-node": "^19.1.0"
   },
   "devDependencies": {

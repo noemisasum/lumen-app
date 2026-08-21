@@ -14,19 +14,9 @@ export type ParsedStatementResult = {
   warnings: string[];
 };
 
-export type StatementParserRow = {
+type CsvRow = {
   fields: string[];
   sourceRowNumber: number;
-};
-
-type StatementRowsParserOptions = {
-  fileTypeName?: string;
-  sourceRecordPrefix?: string;
-  sourceRowId?: (row: StatementParserRow) => string;
-  balanceSourceRowId?: (row: StatementParserRow, balanceType: BankBalanceInput["balanceType"]) => string;
-  rawPayload?: (row: StatementParserRow) => Record<string, unknown>;
-  runningBalancePayload?: (row: StatementParserRow) => Record<string, unknown>;
-  balancePayload?: (row: StatementParserRow) => Record<string, unknown>;
 };
 
 type ColumnMap = {
@@ -58,12 +48,6 @@ type ParsedBalanceSnapshotRow = {
   balance: BankBalanceInput;
 };
 
-type RowParseOptions = Required<Pick<StatementRowsParserOptions, "fileTypeName" | "sourceRecordPrefix">> &
-  Pick<StatementRowsParserOptions, "sourceRowId" | "rawPayload" | "runningBalancePayload">;
-
-type BalanceParseOptions = Required<Pick<StatementRowsParserOptions, "fileTypeName" | "sourceRecordPrefix">> &
-  Pick<StatementRowsParserOptions, "sourceRowId" | "balanceSourceRowId" | "rawPayload">;
-
 const dateHeaders = ["date", "transaction date", "trans date", "posting date", "posted date", "value date", "effective date"];
 const postedDateHeaders = ["posted date", "posting date", "value date"];
 const descriptionHeaders = ["description", "details", "narrative", "memo", "transaction details", "particulars", "transaction description"];
@@ -79,27 +63,13 @@ const headerScanLimit = 25;
 
 export function parseCsvStatement(csvText: string, input: ParsedStatementInput): ParsedStatementResult {
   const rows = parseCsv(csvText);
-  return parseStatementRows(rows, input, {
-    fileTypeName: "CSV",
-    sourceRecordPrefix: "csv",
-    balanceSourceRowId: (row, balanceType) => `${input.statementImportId}:balance:${balanceType}:row:${row.sourceRowNumber}`,
-  });
-}
-
-export function parseStatementRows(
-  rows: StatementParserRow[],
-  input: ParsedStatementInput,
-  options: StatementRowsParserOptions = {},
-): ParsedStatementResult {
-  const fileTypeName = options.fileTypeName ?? "Statement";
-  const sourceRecordPrefix = options.sourceRecordPrefix ?? fileTypeName.toLowerCase();
   if (!rows.some((row) => row.fields.some((field) => field.trim()))) {
-    throw new Error(`${fileTypeName} statement is empty.`);
+    throw new Error("CSV statement is empty.");
   }
 
   const headerMatch = findHeaderRow(rows);
   if (!headerMatch) {
-    throw new Error(`${fileTypeName} statement is missing a recognizable transaction header row.`);
+    throw new Error("CSV statement is missing a recognizable transaction header row.");
   }
 
   const { columns, headerIndex } = headerMatch;
@@ -112,13 +82,7 @@ export function parseStatementRows(
   for (const row of dataRows) {
     if (isBlankRow(row.fields)) continue;
 
-    const balanceSnapshot = parseBalanceSnapshotRow(row, columns, input, dateContext, {
-      fileTypeName,
-      sourceRecordPrefix,
-      sourceRowId: options.sourceRowId,
-      balanceSourceRowId: options.balanceSourceRowId,
-      rawPayload: options.balancePayload,
-    });
+    const balanceSnapshot = parseBalanceSnapshotRow(row, columns, input, dateContext);
     if (balanceSnapshot) {
       balances.push(balanceSnapshot.balance);
       continue;
@@ -126,13 +90,7 @@ export function parseStatementRows(
 
     if (isIrrelevantSummaryRow(row.fields)) continue;
 
-    const parsed = parseTransactionRow(row, columns, input, dateContext, {
-      fileTypeName,
-      sourceRecordPrefix,
-      sourceRowId: options.sourceRowId,
-      rawPayload: options.rawPayload,
-      runningBalancePayload: options.runningBalancePayload,
-    });
+    const parsed = parseTransactionRow(row, columns, input, dateContext);
     if (!parsed) {
       skippedRows += 1;
       continue;
@@ -148,14 +106,14 @@ export function parseStatementRows(
   }
 
   if (!transactions.length && !balances.length) {
-    throw new Error(`${fileTypeName} statement did not contain valid transaction or balance rows.`);
+    throw new Error("CSV statement did not contain valid transaction or balance rows.");
   }
 
   return { transactions, balances, warnings };
 }
 
-function parseCsv(input: string): StatementParserRow[] {
-  const rows: StatementParserRow[] = [];
+function parseCsv(input: string): CsvRow[] {
+  const rows: CsvRow[] = [];
   let fields: string[] = [];
   let field = "";
   let inQuotes = false;
@@ -214,7 +172,7 @@ function normalizeHeader(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function findHeaderRow(rows: StatementParserRow[]) {
+function findHeaderRow(rows: CsvRow[]) {
   const scanLimit = Math.min(rows.length, headerScanLimit);
   for (let index = 0; index < scanLimit; index += 1) {
     const row = rows[index];
@@ -282,13 +240,7 @@ function isIrrelevantSummaryRow(fields: string[]) {
   return /^(total|summary)\b/.test(joined);
 }
 
-function parseTransactionRow(
-  row: StatementParserRow,
-  columns: ColumnMap,
-  input: ParsedStatementInput,
-  dateContext: DateParseContext,
-  options: RowParseOptions,
-): ParsedTransactionRow | null {
+function parseTransactionRow(row: CsvRow, columns: ColumnMap, input: ParsedStatementInput, dateContext: DateParseContext): ParsedTransactionRow | null {
   const transactionDate = parseDate(cell(row, columns.date), dateContext);
   const signedAmount = parseSignedAmount(row, columns);
   const description = firstNonEmpty(cell(row, columns.description), cell(row, columns.payee), cell(row, columns.reference));
@@ -296,7 +248,7 @@ function parseTransactionRow(
 
   const postedDate = columns.postedDate === undefined ? null : parseDate(cell(row, columns.postedDate), dateContext);
   const currency = normalizeCurrency(cell(row, columns.currency)) ?? normalizeCurrency(input.defaultCurrency) ?? "USD";
-  const sourceRowId = options.sourceRowId?.(row) ?? `${input.statementImportId}:row:${row.sourceRowNumber}`;
+  const sourceRowId = `${input.statementImportId}:row:${row.sourceRowNumber}`;
   const reference = compact(cell(row, columns.reference));
   const payee = compact(cell(row, columns.payee));
   const explicitExternalId = compact(cell(row, columns.externalId));
@@ -316,9 +268,9 @@ function parseTransactionRow(
     currency,
     externalId: explicitExternalId,
     sourceRowId,
-    sourceRecordType: `${options.sourceRecordPrefix}_row`,
+    sourceRecordType: "csv_row",
     statementImportId: input.statementImportId,
-    rawPayload: options.rawPayload?.(row) ?? {
+    rawPayload: {
       fileName: input.fileName ?? null,
       sourceRowNumber: row.sourceRowNumber,
       fields: row.fields,
@@ -337,9 +289,9 @@ function parseTransactionRow(
           amount: balanceAmount,
           currency,
           sourceRowId,
-          sourceRecordType: `${options.sourceRecordPrefix}_running_balance`,
+          sourceRecordType: "csv_running_balance",
           statementImportId: input.statementImportId,
-          rawPayload: options.runningBalancePayload?.(row) ?? {
+          rawPayload: {
             fileName: input.fileName ?? null,
             sourceRowNumber: row.sourceRowNumber,
           },
@@ -349,18 +301,13 @@ function parseTransactionRow(
 }
 
 function parseBalanceSnapshotRow(
-  row: StatementParserRow,
+  row: CsvRow,
   columns: ColumnMap,
   input: ParsedStatementInput,
   dateContext: DateParseContext,
-  options: BalanceParseOptions,
 ): ParsedBalanceSnapshotRow | null {
   const labelLayoutType = detectBalanceLabelValueLayoutType(row, columns);
-  const isTransactionRow = parseTransactionRow(row, columns, input, dateContext, {
-    fileTypeName: options.fileTypeName,
-    sourceRecordPrefix: options.sourceRecordPrefix,
-    sourceRowId: options.sourceRowId,
-  }) !== null;
+  const isTransactionRow = parseTransactionRow(row, columns, input, dateContext) !== null;
   const balanceType = labelLayoutType ?? (isTransactionRow ? null : detectBalanceSnapshotType(row.fields));
   if (!balanceType) return null;
 
@@ -375,8 +322,7 @@ function parseBalanceSnapshotRow(
   const balanceDate = parseDate(cell(row, columns.date), dateContext) ?? findFirstDate(row.fields, dateContext) ?? dateContext.fallbackBalanceDate;
   if (!balanceDate) return null;
   const currency = normalizeCurrency(cell(row, columns.currency)) ?? findCurrency(row.fields) ?? normalizeCurrency(input.defaultCurrency) ?? "USD";
-  const rowId = options.sourceRowId?.(row) ?? `${input.statementImportId}:row:${row.sourceRowNumber}`;
-  const sourceRowId = options.balanceSourceRowId?.(row, balanceType) ?? `${rowId}:balance:${balanceType}`;
+  const sourceRowId = `${input.statementImportId}:balance:${balanceType}:row:${row.sourceRowNumber}`;
 
   return {
     balance: {
@@ -388,9 +334,9 @@ function parseBalanceSnapshotRow(
       amount,
       currency,
       sourceRowId,
-      sourceRecordType: `${options.sourceRecordPrefix}_balance_snapshot`,
+      sourceRecordType: "csv_balance_snapshot",
       statementImportId: input.statementImportId,
-      rawPayload: options.rawPayload?.(row) ?? {
+      rawPayload: {
         fileName: input.fileName ?? null,
         sourceRowNumber: row.sourceRowNumber,
         fields: row.fields,
@@ -399,7 +345,7 @@ function parseBalanceSnapshotRow(
   };
 }
 
-function cell(row: StatementParserRow, index: number | undefined) {
+function cell(row: CsvRow, index: number | undefined) {
   if (index === undefined) return "";
   return row.fields[index]?.trim() ?? "";
 }
@@ -450,7 +396,7 @@ function detectBalanceSnapshotType(fields: string[]): BankBalanceInput["balanceT
   return null;
 }
 
-function detectBalanceLabelValueLayoutType(row: StatementParserRow, columns: ColumnMap): BankBalanceInput["balanceType"] | null {
+function detectBalanceLabelValueLayoutType(row: CsvRow, columns: ColumnMap): BankBalanceInput["balanceType"] | null {
   const labelCells = [cell(row, columns.description), cell(row, columns.payee), cell(row, columns.reference), ...row.fields];
 
   for (const value of labelCells) {
@@ -509,7 +455,7 @@ function findFirstDate(values: string[], dateContext: DateParseContext) {
   return null;
 }
 
-function inferDateContext(rows: StatementParserRow[], columns: ColumnMap): DateParseContext {
+function inferDateContext(rows: CsvRow[], columns: ColumnMap): DateParseContext {
   let slashDateFormat: DateFormat | null = null;
   let hasAmbiguousSlashDate = false;
 
@@ -560,7 +506,7 @@ function slashDateEvidence(first: number, second: number): DateFormat | null {
   return null;
 }
 
-function parseSignedAmount(row: StatementParserRow, columns: ColumnMap) {
+function parseSignedAmount(row: CsvRow, columns: ColumnMap) {
   if (columns.amount !== undefined) {
     const amount = parseAmount(cell(row, columns.amount));
     if (amount !== undefined) return amount;
