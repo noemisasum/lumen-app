@@ -90,6 +90,16 @@ function xeroTransactionDescription(transaction: BankTransaction) {
   return transaction.reference || transaction.contact?.name || lineDescription || "Xero bank transaction";
 }
 
+function xeroTransactionDate(value: string | Date | null | undefined) {
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) return null;
+    return value.toISOString().slice(0, 10);
+  }
+
+  const date = value?.trim().slice(0, 10);
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+}
+
 async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
   const { data: mapping, error: mappingError } = await supabase
     .from("entity_xero_mappings")
@@ -274,7 +284,8 @@ export async function syncXeroBankLedger(
     for (const transaction of pageTransactions) {
       const xeroAccountId = transaction.bankAccount?.accountID;
       const account = xeroAccountId ? accountsByXeroId.get(xeroAccountId) : null;
-      if (!account || !transaction.date || !account.currency) continue;
+      const transactionDate = xeroTransactionDate(transaction.date as string | Date | null | undefined);
+      if (!account || !transactionDate || !account.currency) continue;
       const signedAmount = signedXeroAmount(transaction);
       transactions.push({
         entityId,
@@ -282,7 +293,7 @@ export async function syncXeroBankLedger(
         source: "xero",
         sourceRecordType: "xero_bank_transaction",
         entityXeroMappingId: context.mapping.id,
-        transactionDate: transaction.date,
+        transactionDate,
         description: xeroTransactionDescription(transaction),
         payee: transaction.contact?.name ?? null,
         reference: transaction.reference ?? null,
