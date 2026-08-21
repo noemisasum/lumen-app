@@ -14,7 +14,10 @@ export type LedgerDashboardAccount = {
   currency: string | null;
   status: string;
   source: LedgerSource;
+  accountType: LedgerAccountType;
 };
+
+export type LedgerAccountType = "bank" | "money_processor";
 
 export type LedgerDashboardBalance = {
   id: string;
@@ -82,6 +85,7 @@ export type LedgerDashboardRecentTransaction = {
   accountName: string;
   entityName: string;
   source: LedgerSource;
+  accountType: LedgerAccountType;
   transactionDate: string;
   description: string;
   signedAmount: number;
@@ -119,6 +123,16 @@ const balanceTypeRank: Record<string, number> = {
 function numberValue(value: string | number) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeDashboardCurrency(value: string | null | undefined) {
+  const normalized = value?.trim().toUpperCase() ?? "";
+  if (normalized === "CNH") return normalized;
+  return /^[A-Z]{3}$/.test(normalized) && Intl.supportedValuesOf("currency").includes(normalized) ? normalized : null;
+}
+
+function displayCurrency(primary: string | null | undefined, fallback: string | null | undefined) {
+  return normalizeDashboardCurrency(primary) ?? normalizeDashboardCurrency(fallback) ?? "Unspecified";
 }
 
 function compareIsoDesc(left: string | null | undefined, right: string | null | undefined) {
@@ -169,9 +183,10 @@ export function buildLedgerDashboardPayload(input: {
 
   for (const balance of sortedBalances) {
     if (latestBalanceByAccountId.has(balance.bankAccountId)) continue;
+    const account = accountById.get(balance.bankAccountId);
     latestBalanceByAccountId.set(balance.bankAccountId, {
       amount: numberValue(balance.amount),
-      currency: balance.currency,
+      currency: displayCurrency(balance.currency, account?.currency),
       source: balance.source,
       balanceDate: balance.balanceDate,
       asOf: balance.asOf,
@@ -195,11 +210,13 @@ export function buildLedgerDashboardPayload(input: {
   const transactionBreakdowns = new Map<string, LedgerTransactionBreakdown>();
   for (const transaction of input.transactions) {
     const signedAmount = numberValue(transaction.signedAmount);
-    const key = `${transaction.source}:${transaction.currency}`;
+    const account = accountById.get(transaction.bankAccountId);
+    const currency = displayCurrency(transaction.currency, account?.currency);
+    const key = `${transaction.source}:${currency}`;
     const existing =
       transactionBreakdowns.get(key) ??
       ({
-        currency: transaction.currency,
+        currency,
         source: transaction.source,
         inflow: 0,
         outflow: 0,
@@ -217,6 +234,7 @@ export function buildLedgerDashboardPayload(input: {
   const accounts = input.accounts
     .map((account) => ({
       ...account,
+      currency: normalizeDashboardCurrency(account.currency),
       latestBalance: latestBalanceByAccountId.get(account.id) ?? null,
     }))
     .sort((left, right) => {
@@ -252,7 +270,6 @@ export function buildLedgerDashboardPayload(input: {
 
   const recentTransactions = [...input.transactions]
     .sort((left, right) => compareIsoDesc(left.transactionDate, right.transactionDate))
-    .slice(0, 10)
     .map((transaction) => {
       const account = accountById.get(transaction.bankAccountId);
       const entity = entityById.get(transaction.entityId);
@@ -263,11 +280,12 @@ export function buildLedgerDashboardPayload(input: {
         accountName: account?.accountName ?? "Unknown Account",
         entityName: entity?.name ?? "Unknown Entity",
         source: transaction.source,
+        accountType: account?.accountType ?? "bank",
         transactionDate: transaction.transactionDate,
         description: transaction.description,
         signedAmount: numberValue(transaction.signedAmount),
         direction: transaction.direction,
-        currency: transaction.currency,
+        currency: displayCurrency(transaction.currency, account?.currency),
         status: transaction.status,
       };
     });

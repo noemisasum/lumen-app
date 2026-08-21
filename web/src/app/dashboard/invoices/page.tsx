@@ -19,6 +19,7 @@ type BankAccountRow = {
   xeroBankAccountId: string | null;
   accountName: string;
   currency: string | null;
+  accountType: "bank" | "money_processor";
   status: string;
   source: "xero" | "manual";
   createdAt: string;
@@ -190,6 +191,10 @@ function sortBankAccounts(accounts: BankAccountRow[]) {
   return [...accounts].sort((left, right) => left.accountName.localeCompare(right.accountName));
 }
 
+function accountTypeLabel(accountType: BankAccountRow["accountType"]) {
+  return accountType === "money_processor" ? "MP" : "Bank";
+}
+
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,10 +215,12 @@ export default function InvoicesPage() {
   const [bankAccountsLoading, setBankAccountsLoading] = useState(false);
   const [bankAccountError, setBankAccountError] = useState<string | null>(null);
   const [manualAccountName, setManualAccountName] = useState("");
+  const [manualAccountType, setManualAccountType] = useState<BankAccountRow["accountType"]>("bank");
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [creatingRowAccountId, setCreatingRowAccountId] = useState<string | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editingAccountName, setEditingAccountName] = useState("");
+  const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("bank");
   const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null);
   const [accountSyncNote, setAccountSyncNote] = useState<string | null>(null);
@@ -292,7 +299,7 @@ export default function InvoicesPage() {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ entityId, accountName: normalizedName, allowDuplicate: options.allowDuplicate === true }),
+      body: JSON.stringify({ entityId, accountName: normalizedName, accountType: manualAccountType, allowDuplicate: options.allowDuplicate === true }),
     });
     const body = (await response.json()) as { account?: BankAccountRow; error?: string };
     if (!response.ok || !body.account) throw new Error(body.error || "Failed to create bank account.");
@@ -303,6 +310,7 @@ export default function InvoicesPage() {
     });
     if (options.select !== false) setBankAccountId(body.account.id);
     setManualAccountName("");
+    setManualAccountType("bank");
     return body.account;
   }
 
@@ -381,18 +389,20 @@ export default function InvoicesPage() {
   function startEditingAccount(account: BankAccountRow) {
     setEditingAccountId(account.id);
     setEditingAccountName(account.accountName);
+    setEditingAccountType(account.accountType);
     setBankAccountError(null);
   }
 
   function cancelEditingAccount() {
     setEditingAccountId(null);
     setEditingAccountName("");
+    setEditingAccountType("bank");
   }
 
   async function renameBankAccount(account: BankAccountRow) {
     const normalizedName = editingAccountName.trim().replace(/\s+/g, " ");
     if (!normalizedName) return;
-    if (normalizedName === account.accountName) {
+    if (normalizedName === account.accountName && editingAccountType === account.accountType) {
       cancelEditingAccount();
       return;
     }
@@ -410,7 +420,7 @@ export default function InvoicesPage() {
           Authorization: `Bearer ${sess.access_token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ entityId, accountId: account.id, accountName: normalizedName }),
+        body: JSON.stringify({ entityId, accountId: account.id, accountName: normalizedName, accountType: editingAccountType }),
       });
       const body = (await response.json()) as { account?: BankAccountRow; error?: string };
       if (!response.ok || !body.account) throw new Error(body.error || "Failed to update bank account.");
@@ -1101,6 +1111,17 @@ export default function InvoicesPage() {
                         placeholder="Add upload account"
                         className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                       />
+                      <SelectControl
+                        id="manual-account-type"
+                        value={manualAccountType}
+                        onChange={(event) => setManualAccountType(event.target.value as BankAccountRow["accountType"])}
+                        disabled={creatingAccount || uploading}
+                        title="Account type"
+                        className="w-full sm:w-36"
+                      >
+                        <option value="bank">Bank</option>
+                        <option value="money_processor">MP</option>
+                      </SelectControl>
                       <button
                         type="button"
                         onClick={onCreateManualAccount}
@@ -1136,12 +1157,25 @@ export default function InvoicesPage() {
                                     disabled={isSaving}
                                     className="h-9 w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                                   />
+                                  <SelectControl
+                                    value={editingAccountType}
+                                    onChange={(event) => setEditingAccountType(event.target.value as BankAccountRow["accountType"])}
+                                    disabled={isSaving}
+                                    title="Account type"
+                                    className="mt-2 w-full sm:w-40"
+                                  >
+                                    <option value="bank">Bank</option>
+                                    <option value="money_processor">MP</option>
+                                  </SelectControl>
                                 </label>
                               ) : (
                                 <div className="flex min-w-0 items-center gap-2">
                                   <div className="min-w-0 truncate text-sm font-medium text-zinc-950">{account.accountName}</div>
                                   <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
                                     {account.source === "xero" ? "Xero" : "Upload"}
+                                  </span>
+                                  <span className="shrink-0 rounded-md bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-100">
+                                    {accountTypeLabel(account.accountType)}
                                   </span>
                                   {account.currency ? (
                                     <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-500 ring-1 ring-inset ring-zinc-200">

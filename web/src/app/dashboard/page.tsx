@@ -25,6 +25,7 @@ type XeroErrorBody = {
 };
 
 type LedgerSource = "manual" | "xero" | "bank_feed";
+type AccountType = "all" | "bank" | "money_processor";
 
 type MoneyGroup = {
   currency: string;
@@ -48,6 +49,7 @@ type LedgerAccount = {
   currency: string | null;
   status: string;
   source: LedgerSource;
+  accountType: Exclude<AccountType, "all">;
   latestBalance: {
     amount: number;
     currency: string;
@@ -69,9 +71,11 @@ type LedgerTransactionBreakdown = {
 
 type LedgerRecentTransaction = {
   id: string;
+  bankAccountId: string;
   entityName: string;
   accountName: string;
   source: LedgerSource;
+  accountType: Exclude<AccountType, "all">;
   transactionDate: string;
   description: string;
   signedAmount: number;
@@ -128,12 +132,23 @@ function sourceLabel(source: LedgerSource) {
   return "Manual";
 }
 
+function accountTypeLabel(accountType: AccountType) {
+  if (accountType === "money_processor") return "Money Processors";
+  if (accountType === "bank") return "Bank";
+  return "All Accounts";
+}
+
+function currencyLabel(currency: string) {
+  return currency === "Unspecified" ? "Unspecified" : currency;
+}
+
 function formatMoney(currency: string, amount: number) {
   const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
-  return `${currency} ${new Intl.NumberFormat("en", {
+  const formatted = new Intl.NumberFormat("en", {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
-  }).format(amount)}`;
+  }).format(amount);
+  return currency === "Unspecified" ? formatted : `${currency} ${formatted}`;
 }
 
 function formatDate(value: string | null | undefined) {
@@ -163,12 +178,62 @@ function CompactMoneyList({ rows, emptyLabel }: { rows: MoneyGroup[]; emptyLabel
     <div className="space-y-2">
       {rows.map((row) => (
         <div key={row.currency} className="flex items-baseline justify-between gap-3 text-sm">
-          <span className="font-medium text-zinc-700">{row.currency}</span>
+          <span className="font-medium text-zinc-700">{currencyLabel(row.currency)}</span>
           <span className="tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.amount)}</span>
         </div>
       ))}
     </div>
   );
+}
+
+function groupBalances(accounts: LedgerAccount[]) {
+  const groups = new Map<string, MoneyGroup>();
+  for (const account of accounts) {
+    if (!account.latestBalance) continue;
+    const currency = account.latestBalance.currency;
+    const existing = groups.get(currency) ?? { currency, amount: 0, accountCount: 0 };
+    existing.amount += account.latestBalance.amount;
+    existing.accountCount += 1;
+    groups.set(currency, existing);
+  }
+  return Array.from(groups.values()).sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+function groupBalancesByEntity(accounts: LedgerAccount[], entityNameById: Map<string, string>) {
+  const groups = new Map<string, EntityMoneyGroup>();
+  for (const account of accounts) {
+    if (!account.latestBalance) continue;
+    const key = `${account.entityId}:${account.latestBalance.currency}`;
+    const existing =
+      groups.get(key) ??
+      ({
+        entityId: account.entityId,
+        entityName: entityNameById.get(account.entityId) ?? "Unknown Entity",
+        currency: account.latestBalance.currency,
+        amount: 0,
+        accountCount: 0,
+      } satisfies EntityMoneyGroup);
+    existing.amount += account.latestBalance.amount;
+    existing.accountCount += 1;
+    groups.set(key, existing);
+  }
+  return Array.from(groups.values()).sort((left, right) => left.entityName.localeCompare(right.entityName) || left.currency.localeCompare(right.currency));
+}
+
+function topAccounts(accounts: LedgerAccount[], entityNameById: Map<string, string>) {
+  return accounts
+    .filter((account) => account.latestBalance)
+    .sort((left, right) => Math.abs(right.latestBalance?.amount ?? 0) - Math.abs(left.latestBalance?.amount ?? 0))
+    .slice(0, 8)
+    .map((account) => ({
+      ...account,
+      entityName: entityNameById.get(account.entityId) ?? "Unknown Entity",
+    }));
+}
+
+function balanceShare(amount: number, total: number) {
+  if (!total) return 0;
+  return Math.max(3, Math.round((Math.abs(amount) / total) * 100));
 }
 
 export default function DashboardPage() {
@@ -188,9 +253,29 @@ export default function DashboardPage() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
+  const [selectedAccountType, setSelectedAccountType] = useState<AccountType>("bank");
 
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
-  const accountsWithBalances = ledgerData?.accounts.filter((account) => account.latestBalance) ?? [];
+  const accounts = ledgerData?.accounts ?? [];
+  const visibleAccounts = selectedAccountType === "all" ? accounts : accounts.filter((account) => account.accountType === selectedAccountType);
+  const accountsWithBalances = visibleAccounts.filter((account) => account.latestBalance);
+  const filteredTotalsByCurrency = useMemo(() => groupBalances(visibleAccounts), [visibleAccounts]);
+  const bankAccounts = accounts.filter((account) => account.accountType === "bank");
+  const mpAccounts = accounts.filter((account) => account.accountType === "money_processor");
+  const bankTotals = useMemo(() => groupBalances(bankAccounts), [bankAccounts]);
+  const mpTotals = useMemo(() => groupBalances(mpAccounts), [mpAccounts]);
+  const visibleTransactions = (ledgerData?.recentTransactions ?? []).filter((transaction) => {
+    if (selectedAccountType === "all") return true;
+    return transaction.accountType === selectedAccountType;
+  }).slice(0, 10);
+  const visibleTopAccounts = useMemo(() => topAccounts(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
+  const visibleBalancesByEntity = useMemo(() => groupBalancesByEntity(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
+  const currencyCount = new Set(filteredTotalsByCurrency.map((row) => row.currency)).size;
+  const accountTypeChartRows = [
+    { label: "Bank", amount: bankTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: bankAccounts.length },
+    { label: "MPs", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: mpAccounts.length },
+  ];
+  const accountTypeChartTotal = accountTypeChartRows.reduce((total, row) => total + row.amount, 0);
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -386,35 +471,43 @@ export default function DashboardPage() {
         </header>
 
         <main className="mt-8 space-y-5">
-          <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+            <div className="bg-[#15395f] px-5 py-3 text-center text-lg font-semibold text-white sm:text-xl">Mitrade Group Bank Balance Dashboard</div>
+            <div className="grid gap-3 border-b border-zinc-100 px-5 py-4 text-sm md:grid-cols-3">
               <div>
-                <div className="text-xs font-semibold uppercase text-[#876b16]">Treasury Operations</div>
-                <h1 className="mt-2 text-2xl font-semibold text-zinc-950">Bank Ledger Dashboard</h1>
-                <div className="mt-3 min-h-6 text-sm leading-6 text-zinc-600">
-                  Signed in as <span className="font-medium text-zinc-950">{session.email || session.userId}</span>
-                  {ledgerData ? <span className="ml-2 text-zinc-500">Updated {formatDateTime(ledgerData.asOf)}</span> : null}
+                <span className="font-semibold text-zinc-950">Selected View</span>
+                <div className="mt-2 flex rounded-md border border-zinc-200 bg-zinc-50 p-1">
+                  {(["bank", "money_processor", "all"] as AccountType[]).map((accountType) => (
+                    <button
+                      key={accountType}
+                      type="button"
+                      onClick={() => setSelectedAccountType(accountType)}
+                      className={`h-9 flex-1 rounded px-2 text-xs font-semibold transition sm:text-sm ${
+                        selectedAccountType === accountType ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:text-zinc-950"
+                      }`}
+                    >
+                      {accountTypeLabel(accountType)}
+                    </button>
+                  ))}
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div>
+                <span className="font-semibold text-zinc-950">Last Refreshed</span>
+                <div className="mt-2 text-zinc-700">{ledgerData ? formatDateTime(ledgerData.asOf) : "Loading"}</div>
+              </div>
+              <div className="flex flex-wrap items-end justify-start gap-2 md:justify-end">
                 <button
                   type="button"
                   onClick={() => void loadLedgerDashboard(session.accessToken)}
                   disabled={ledgerLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
                   {ledgerLoading ? "Refreshing" : "Refresh"}
                 </button>
-                <Link
-                  href="/dashboard/entities"
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
-                >
+                <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Entities
                 </Link>
-                <Link
-                  href="/dashboard/invoices"
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
-                >
+                <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Statement Intake
                 </Link>
               </div>
@@ -427,55 +520,38 @@ export default function DashboardPage() {
             </Notice>
           ) : null}
 
-          <section className="grid gap-4 md:grid-cols-3">
+          <section className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
             {ledgerLoading && !ledgerData ? (
               <>
+                <StatSkeleton />
+                <StatSkeleton />
                 <StatSkeleton />
                 <StatSkeleton />
                 <StatSkeleton />
               </>
             ) : (
               <>
-                <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                  <div className="text-sm font-medium text-zinc-600">Latest Bank Balances</div>
-                  <div className="mt-4">
-                    <CompactMoneyList rows={ledgerData?.totalsByCurrency ?? []} emptyLabel="No posted balances yet." />
-                  </div>
-                  <div className="mt-4 text-xs text-zinc-500">Currencies are shown separately.</div>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                  <div className="text-sm font-medium text-zinc-600">Coverage</div>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <div>
-                      <div className="text-2xl font-semibold tabular-nums text-zinc-950">{ledgerData?.entities.length ?? 0}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Entities</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-semibold tabular-nums text-zinc-950">{ledgerData?.accounts.length ?? 0}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Accounts</div>
-                    </div>
-                    <div>
-                      <div className="text-2xl font-semibold tabular-nums text-zinc-950">{accountsWithBalances.length}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Balanced</div>
-                    </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-zinc-500">Total Balance</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">
+                    {filteredTotalsByCurrency.length === 1 ? formatMoney(filteredTotalsByCurrency[0].currency, filteredTotalsByCurrency[0].amount) : `${filteredTotalsByCurrency.length} currency totals`}
                   </div>
                 </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                  <div className="text-sm font-medium text-zinc-600">30-Day Movement</div>
-                  <div className="mt-4 space-y-2">
-                    {(ledgerData?.transactionBreakdowns ?? []).length ? (
-                      ledgerData?.transactionBreakdowns.slice(0, 3).map((row) => (
-                        <div key={`${row.source}:${row.currency}`} className="flex items-baseline justify-between gap-3 text-sm">
-                          <span className="font-medium text-zinc-700">
-                            {sourceLabel(row.source)} {row.currency}
-                          </span>
-                          <span className="tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.net)}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-sm text-zinc-500">No recent transactions.</div>
-                    )}
-                  </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-zinc-500">All Currencies</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{currencyCount}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-zinc-500">Accounts</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{visibleAccounts.length}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-zinc-500">With Balances</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{accountsWithBalances.length}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase text-zinc-500">Entities</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{ledgerData?.entities.length ?? 0}</div>
                 </div>
               </>
             )}
@@ -495,67 +571,42 @@ export default function DashboardPage() {
 
           <section className="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
             <div className="space-y-4">
-              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-zinc-950">Account Balances</h2>
-                  <div className="text-xs text-zinc-500">{accountsWithBalances.length} accounts with balances</div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-zinc-100 text-sm">
-                    <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
-                      <tr>
-                        <th scope="col" className="px-5 py-3">Entity</th>
-                        <th scope="col" className="px-5 py-3">Account</th>
-                        <th scope="col" className="px-5 py-3">Source</th>
-                        <th scope="col" className="px-5 py-3 text-right">Latest Balance</th>
-                        <th scope="col" className="px-5 py-3">Balance Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {ledgerLoading && !ledgerData ? (
-                        [0, 1, 2].map((item) => (
-                          <tr key={item}>
-                            <td className="px-5 py-4" colSpan={5}>
-                              <SkeletonBlock className="h-4 w-full" />
-                            </td>
-                          </tr>
-                        ))
-                      ) : (ledgerData?.accounts ?? []).length ? (
-                        ledgerData?.accounts.map((account) => (
-                          <tr key={account.id} className="align-top">
-                            <td className="px-5 py-4 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unknown Entity"}</td>
-                            <td className="px-5 py-4">
-                              <div className="font-medium text-zinc-900">{account.accountName}</div>
-                              <div className="mt-1 text-xs text-zinc-500">{account.currency ?? account.latestBalance?.currency ?? "Currency not set"}</div>
-                            </td>
-                            <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">
-                              {account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
-                            </td>
-                            <td className="px-5 py-4 text-zinc-700">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "Not available"}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={5}>
-                            No ledger accounts to show.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-zinc-100 px-5 py-4">
-                    <h2 className="text-sm font-semibold text-zinc-950">Balances by Entity</h2>
+                  <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
+                    <h2 className="text-sm font-semibold text-white">Summary by Account Type</h2>
                   </div>
                   <div className="divide-y divide-zinc-100">
-                    {(ledgerData?.balancesByEntity ?? []).length ? (
-                      ledgerData?.balancesByEntity.map((row) => (
-                        <div key={`${row.entityId}:${row.currency}`} className="flex items-start justify-between gap-4 px-5 py-4 text-sm">
+                    {[
+                      { type: "bank" as const, rows: bankTotals, accounts: bankAccounts.length },
+                      { type: "money_processor" as const, rows: mpTotals, accounts: mpAccounts.length },
+                    ].map((row) => (
+                      <button
+                        key={row.type}
+                        type="button"
+                        onClick={() => setSelectedAccountType(row.type)}
+                        className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 ${selectedAccountType === row.type ? "bg-[#eef5fb]" : ""}`}
+                      >
+                        <div>
+                          <div className="font-medium text-zinc-950">{accountTypeLabel(row.type)}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{row.accounts} account{row.accounts === 1 ? "" : "s"}</div>
+                        </div>
+                        <div className="min-w-32 text-right">
+                          <CompactMoneyList rows={row.rows} emptyLabel="No balances" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+                  <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
+                    <h2 className="text-sm font-semibold text-white">Summary by Entity</h2>
+                  </div>
+                  <div className="divide-y divide-zinc-100">
+                    {visibleBalancesByEntity.length ? (
+                      visibleBalancesByEntity.slice(0, 7).map((row) => (
+                        <div key={`${row.entityId}:${row.currency}`} className="flex items-start justify-between gap-4 px-5 py-3 text-sm">
                           <div>
                             <div className="font-medium text-zinc-950">{row.entityName}</div>
                             <div className="mt-1 text-xs text-zinc-500">{row.accountCount} account{row.accountCount === 1 ? "" : "s"}</div>
@@ -568,63 +619,90 @@ export default function DashboardPage() {
                     )}
                   </div>
                 </div>
-
-                <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-zinc-100 px-5 py-4">
-                    <h2 className="text-sm font-semibold text-zinc-950">Balances by Source</h2>
-                  </div>
-                  <div className="divide-y divide-zinc-100">
-                    {(ledgerData?.totalsBySource ?? []).length ? (
-                      ledgerData?.totalsBySource.map((row) => (
-                        <div key={`${row.source}:${row.currency}`} className="flex items-start justify-between gap-4 px-5 py-4 text-sm">
-                          <div>
-                            <div className="font-medium text-zinc-950">{sourceLabel(row.source)}</div>
-                            <div className="mt-1 text-xs text-zinc-500">
-                              {row.currency} across {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
-                            </div>
-                          </div>
-                          <div className="text-right tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.amount)}</div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-5 py-8 text-sm text-zinc-500">No source balance data yet.</div>
-                    )}
-                  </div>
-                </div>
               </div>
 
               <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="border-b border-zinc-100 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-zinc-950">Recent Transaction Breakdown</h2>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+                  <h2 className="text-sm font-semibold text-zinc-950">{accountTypeLabel(selectedAccountType)} Drilldown</h2>
+                  <div className="text-xs text-zinc-500">{accountsWithBalances.length} accounts with balances</div>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-zinc-100 text-sm">
                     <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
                       <tr>
+                        <th scope="col" className="px-5 py-3">Entity</th>
+                        <th scope="col" className="px-5 py-3">Account</th>
+                        <th scope="col" className="px-5 py-3">Type</th>
                         <th scope="col" className="px-5 py-3">Source</th>
-                        <th scope="col" className="px-5 py-3">Currency</th>
-                        <th scope="col" className="px-5 py-3 text-right">Inflow</th>
-                        <th scope="col" className="px-5 py-3 text-right">Outflow</th>
-                        <th scope="col" className="px-5 py-3 text-right">Net</th>
-                        <th scope="col" className="px-5 py-3 text-right">Count</th>
+                        <th scope="col" className="px-5 py-3 text-right">Latest Balance</th>
+                        <th scope="col" className="px-5 py-3">Balance Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
-                      {(ledgerData?.transactionBreakdowns ?? []).length ? (
-                        ledgerData?.transactionBreakdowns.map((row) => (
-                          <tr key={`${row.source}:${row.currency}`}>
-                            <td className="px-5 py-4 font-medium text-zinc-950">{sourceLabel(row.source)}</td>
-                            <td className="px-5 py-4 text-zinc-700">{row.currency}</td>
-                            <td className="px-5 py-4 text-right tabular-nums text-emerald-800">{formatMoney(row.currency, row.inflow)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums text-red-800">{formatMoney(row.currency, row.outflow)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.net)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums text-zinc-700">{row.transactionCount}</td>
+                      {ledgerLoading && !ledgerData ? (
+                        [0, 1, 2].map((item) => (
+                          <tr key={item}>
+                            <td className="px-5 py-4" colSpan={6}>
+                              <SkeletonBlock className="h-4 w-full" />
+                            </td>
+                          </tr>
+                        ))
+                      ) : visibleAccounts.length ? (
+                        visibleAccounts.map((account) => (
+                          <tr key={account.id} className="align-top">
+                            <td className="px-5 py-4 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unknown Entity"}</td>
+                            <td className="px-5 py-4">
+                              <div className="font-medium text-zinc-900">{account.accountName}</div>
+                              <div className="mt-1 text-xs text-zinc-500">{currencyLabel(account.currency ?? account.latestBalance?.currency ?? "Unspecified")}</div>
+                            </td>
+                            <td className="px-5 py-4 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
+                            <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
+                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">
+                              {account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
+                            </td>
+                            <td className="px-5 py-4 text-zinc-700">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "Not available"}</td>
                           </tr>
                         ))
                       ) : (
                         <tr>
                           <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={6}>
-                            No transactions in the last {ledgerData?.windowDays ?? 30} days.
+                            No ledger accounts to show.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+                <div className="border-b border-zinc-100 px-5 py-4">
+                  <h2 className="text-sm font-semibold text-zinc-950">Top Accounts by Balance</h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-zinc-100 text-sm">
+                    <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+                      <tr>
+                        <th scope="col" className="px-5 py-3">Account</th>
+                        <th scope="col" className="px-5 py-3">Entity</th>
+                        <th scope="col" className="px-5 py-3">Source</th>
+                        <th scope="col" className="px-5 py-3 text-right">Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+                      {visibleTopAccounts.length ? (
+                        visibleTopAccounts.map((account) => (
+                          <tr key={account.id}>
+                            <td className="px-5 py-4 font-medium text-zinc-950">{account.accountName}</td>
+                            <td className="px-5 py-4 text-zinc-700">{account.entityName}</td>
+                            <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
+                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">{account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : "No balance"}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={4}>
+                            No ranked accounts for this view.
                           </td>
                         </tr>
                       )}
@@ -635,6 +713,36 @@ export default function DashboardPage() {
             </div>
 
             <div className="space-y-4">
+              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+                <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
+                  <h2 className="text-sm font-semibold text-white">Charts</h2>
+                </div>
+                <div className="space-y-5 p-5">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-950">Balance by Account Type</div>
+                    <div className="mt-4 space-y-3">
+                      {accountTypeChartRows.map((row) => (
+                        <div key={row.label}>
+                          <div className="flex items-center justify-between gap-3 text-xs text-zinc-600">
+                            <span>{row.label}</span>
+                            <span>{row.count} account{row.count === 1 ? "" : "s"}</span>
+                          </div>
+                          <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-100">
+                            <div className="h-full rounded-full bg-[#2f72c4]" style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-950">Currency Totals</div>
+                    <div className="mt-3">
+                      <CompactMoneyList rows={filteredTotalsByCurrency} emptyLabel="No balances in this view." />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -712,8 +820,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="mt-4 divide-y divide-zinc-100 border-t border-zinc-100">
-                  {(ledgerData?.recentTransactions ?? []).length ? (
-                    ledgerData?.recentTransactions.map((transaction) => (
+                  {visibleTransactions.length ? (
+                    visibleTransactions.map((transaction) => (
                       <div key={transaction.id} className="py-3 text-sm">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
