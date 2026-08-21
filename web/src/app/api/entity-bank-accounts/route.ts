@@ -160,7 +160,6 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
     xero_bank_account_id: account.accountID,
     account_name: account.name,
     currency: account.currencyCode ?? null,
-    account_type: "bank",
     status: account.status === "ARCHIVED" ? "archived" : "active",
     updated_at: now,
   }));
@@ -252,12 +251,15 @@ export async function PATCH(request: Request) {
     const body = (await request.json().catch(() => ({}))) as UpdateAccountBody;
     const entityId = body.entityId?.trim();
     const accountId = body.accountId?.trim();
+    const hasAccountNameUpdate = typeof body.accountName === "string";
     const accountName = sanitizeAccountName(body.accountName);
-    const accountType = body.accountType === "money_processor" ? "money_processor" : "bank";
+    const hasAccountTypeUpdate = body.accountType === "bank" || body.accountType === "money_processor";
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
     if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
-    if (!accountName || accountName.length < 2) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
+    if (!hasAccountNameUpdate && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose an account update." }, { status: 400 });
+    if (hasAccountNameUpdate && (!accountName || accountName.length < 2)) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
+    if (body.accountType !== undefined && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose Bank or Money Processor." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
     await requireEntityAccess(supabase, entityId, user.id);
@@ -265,23 +267,31 @@ export async function PATCH(request: Request) {
     const accounts = await loadAccounts(supabase, entityId);
     const target = accounts.find((account) => account.id === accountId);
     if (!target) return NextResponse.json({ error: "Bank account does not belong to the selected entity." }, { status: 404 });
-    if (target.xero_bank_account_id) return NextResponse.json({ error: "Xero bank account names are managed in Xero." }, { status: 400 });
+    if (target.xero_bank_account_id && hasAccountNameUpdate && normalizeAccountName(accountName) !== normalizeAccountName(target.account_name)) {
+      return NextResponse.json({ error: "Xero bank account names are managed in Xero." }, { status: 400 });
+    }
 
-    const normalizedName = normalizeAccountName(accountName);
-    const duplicate = accounts.find(
-      (account) =>
-        account.id !== accountId &&
-        !account.xero_bank_account_id &&
-        normalizeAccountName(account.account_name) === normalizedName,
-    );
-    if (duplicate) return NextResponse.json({ error: "An upload bank account with that name already exists." }, { status: 409 });
+    if (!target.xero_bank_account_id && hasAccountNameUpdate) {
+      const normalizedName = normalizeAccountName(accountName);
+      const duplicate = accounts.find(
+        (account) =>
+          account.id !== accountId &&
+          !account.xero_bank_account_id &&
+          normalizeAccountName(account.account_name) === normalizedName,
+      );
+      if (duplicate) return NextResponse.json({ error: "An upload bank account with that name already exists." }, { status: 409 });
+    }
+
+    const updateValues: Partial<Pick<BankAccountRow, "account_name" | "account_type">> = {};
+    if (!target.xero_bank_account_id && hasAccountNameUpdate) updateValues.account_name = accountName;
+    if (hasAccountTypeUpdate) updateValues.account_type = body.accountType;
+    if (!Object.keys(updateValues).length) return NextResponse.json({ account: serializeAccount(target) });
 
     const { data: updated, error: updateError } = await supabase
       .from("entity_bank_accounts")
-      .update({ account_name: accountName, account_type: accountType })
+      .update(updateValues)
       .eq("id", accountId)
       .eq("entity_id", entityId)
-      .is("xero_bank_account_id", null)
       .neq("status", "archived")
       .select(accountSelectColumns)
       .single();
