@@ -1,6 +1,6 @@
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { upsertBankBalances, upsertBankTransactions, type BankBalanceInput, type BankTransactionInput } from "@/lib/server/bank-ledger";
-import { createXeroClient, getXeroEnvIssueNames, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BankTransaction, TokenSet } from "xero-node";
 
@@ -114,9 +114,8 @@ async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
 
   const connectionRow = connection as XeroConnectionRow;
   const xero = createXeroClient();
-  xero.setTokenSet(decryptJson<TokenSet>(connectionRow.token_ciphertext));
 
-  const tokenSet = await xero.refreshToken();
+  const tokenSet = await refreshXeroTokenSet(xero, decryptJson<TokenSet>(connectionRow.token_ciphertext));
   const encryptedTokenSet = encryptJson(serializeTokenSet(tokenSet));
   const { error: tokenUpdateError } = await supabase
     .from("xero_connections")
@@ -128,7 +127,6 @@ async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
   if (tokenUpdateError) {
     return { warning: "Xero refreshed credentials could not be saved. Reconnect Xero before syncing bank ledger data." };
   }
-  xero.setTokenSet(tokenSet);
 
   const tenants = (await xero.updateTenants(false)) as XeroTenant[];
   const hasTenant = tenants.some((tenant) => tenant.tenantId === mappingRow.xero_tenant_id);
