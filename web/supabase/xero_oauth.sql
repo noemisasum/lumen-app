@@ -177,10 +177,18 @@ create table if not exists public.entity_bank_accounts (
   xero_bank_account_id text,
   account_name text not null,
   currency text,
+  account_type text not null default 'bank' check (account_type in ('bank','money_processor')),
   status text not null default 'pending' check (status in ('pending','active','archived')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.entity_bank_accounts
+  add column if not exists account_type text not null default 'bank';
+alter table public.entity_bank_accounts
+  drop constraint if exists entity_bank_accounts_account_type_check;
+alter table public.entity_bank_accounts
+  add constraint entity_bank_accounts_account_type_check
+  check (account_type in ('bank','money_processor'));
 do $$
 begin
   if to_regclass('public.entity_bank_accounts_entity_id_xero_bank_account_id_key') is null

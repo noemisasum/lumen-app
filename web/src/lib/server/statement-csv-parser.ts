@@ -443,7 +443,9 @@ function compact(value: string | null | undefined) {
 
 function normalizeCurrency(value: string | null | undefined) {
   const normalized = value?.trim().toUpperCase() ?? "";
-  return /^[A-Z]{3}$/.test(normalized) ? normalized : null;
+  if (!/^[A-Z]{3}$/.test(normalized)) return null;
+  if (normalized === "CNH") return normalized;
+  return Intl.supportedValuesOf("currency").includes(normalized) ? normalized : null;
 }
 
 function findCurrency(values: string[]) {

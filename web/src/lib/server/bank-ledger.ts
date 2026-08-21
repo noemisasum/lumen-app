@@ -70,7 +70,8 @@ function compactText(value: string | null | undefined, maxLength: number) {
 
 function currencyCode(value: string) {
   const normalized = value.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(normalized)) {
+  const isSupportedCurrency = normalized === "CNH" || (/^[A-Z]{3}$/.test(normalized) && Intl.supportedValuesOf("currency").includes(normalized));
+  if (!isSupportedCurrency) {
     throw new Error(`Invalid ledger currency: ${value}`);
   }
   return normalized;

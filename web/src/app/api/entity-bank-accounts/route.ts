@@ -14,6 +14,7 @@ type BankAccountRow = {
   xero_bank_account_id: string | null;
   account_name: string;
   currency: string | null;
+  account_type: "bank" | "money_processor";
   status: string;
   created_at: string;
   updated_at: string;
@@ -44,6 +45,7 @@ type CreateAccountBody = {
   entityId?: string;
   accountName?: string;
   currency?: string;
+  accountType?: "bank" | "money_processor";
   allowDuplicate?: boolean;
 };
 
@@ -51,9 +53,10 @@ type UpdateAccountBody = {
   entityId?: string;
   accountId?: string;
   accountName?: string;
+  accountType?: "bank" | "money_processor";
 };
 
-const accountSelectColumns = "id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,status,created_at,updated_at";
+const accountSelectColumns = "id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,account_type,status,created_at,updated_at";
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Entity bank accounts are not configured.", missing }, { status: 500 });
@@ -71,6 +74,7 @@ function serializeAccount(account: BankAccountRow) {
     xeroBankAccountId: account.xero_bank_account_id,
     accountName: account.account_name,
     currency: account.currency,
+    accountType: account.account_type,
     status: account.status,
     source: accountSource(account),
     createdAt: account.created_at,
@@ -156,6 +160,7 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
     xero_bank_account_id: account.accountID,
     account_name: account.name,
     currency: account.currencyCode ?? null,
+    account_type: "bank",
     status: account.status === "ARCHIVED" ? "archived" : "active",
     updated_at: now,
   }));
@@ -201,6 +206,7 @@ export async function POST(request: Request) {
     const entityId = body.entityId?.trim();
     const accountName = sanitizeAccountName(body.accountName);
     const currency = body.currency?.trim().toUpperCase().slice(0, 3) || null;
+    const accountType = body.accountType === "money_processor" ? "money_processor" : "bank";
     const allowDuplicate = body.allowDuplicate === true;
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
@@ -222,6 +228,7 @@ export async function POST(request: Request) {
         xero_bank_account_id: null,
         account_name: accountName,
         currency,
+        account_type: accountType,
         status: "active",
       })
       .select(accountSelectColumns)
@@ -246,6 +253,7 @@ export async function PATCH(request: Request) {
     const entityId = body.entityId?.trim();
     const accountId = body.accountId?.trim();
     const accountName = sanitizeAccountName(body.accountName);
+    const accountType = body.accountType === "money_processor" ? "money_processor" : "bank";
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
     if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
@@ -270,7 +278,7 @@ export async function PATCH(request: Request) {
 
     const { data: updated, error: updateError } = await supabase
       .from("entity_bank_accounts")
-      .update({ account_name: accountName })
+      .update({ account_name: accountName, account_type: accountType })
       .eq("id", accountId)
       .eq("entity_id", entityId)
       .is("xero_bank_account_id", null)

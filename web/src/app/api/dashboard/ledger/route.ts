@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
-import { buildLedgerDashboardPayload, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
+import { buildLedgerDashboardPayload, type LedgerAccountType, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
 
 export const runtime = "nodejs";
 
@@ -26,6 +26,7 @@ type BankAccountRow = {
   xero_bank_account_id: string | null;
   account_name: string;
   currency: string | null;
+  account_type: LedgerAccountType | null;
   status: string;
 };
 
@@ -77,6 +78,15 @@ function uniqueById<T extends { id: string }>(rows: T[]) {
 
 function accountSource(account: BankAccountRow): LedgerDashboardAccount["source"] {
   return account.xero_bank_account_id ? "xero" : "manual";
+}
+
+function accountType(account: BankAccountRow): LedgerAccountType {
+  if (account.account_type === "money_processor" || account.account_type === "bank") return account.account_type;
+  const name = account.account_name.toLowerCase();
+  if (/\b(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat\s+pay)\b/.test(name)) {
+    return "money_processor";
+  }
+  return "bank";
 }
 
 async function loadAllRows<T>(query: PagedLedgerQuery<T>) {
@@ -147,7 +157,7 @@ export async function GET(request: Request) {
     const entityIds = entities.map((entity) => entity.id);
     const { data: accountRows, error: accountError } = await supabase
       .from("entity_bank_accounts")
-      .select("id,entity_id,xero_bank_account_id,account_name,currency,status")
+      .select("id,entity_id,xero_bank_account_id,account_name,currency,account_type,status")
       .in("entity_id", entityIds)
       .neq("status", "archived")
       .order("account_name");
@@ -200,6 +210,7 @@ export async function GET(request: Request) {
             currency: account.currency,
             status: account.status,
             source: accountSource(account),
+            accountType: accountType(account),
           }),
         ),
         balances: balanceResult.map(

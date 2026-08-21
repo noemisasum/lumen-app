@@ -9,8 +9,8 @@ const payload = buildLedgerDashboardPayload({
     { id: "entity-b", orgId: "org-1", name: "Lumen US", code: "US" },
   ],
   accounts: [
-    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual" },
-    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero" },
+    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "bank" },
+    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "bank" },
   ],
   balances: [
     {
@@ -111,6 +111,7 @@ const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   currency: index % 2 === 0 ? "HKD" : "USD",
   status: "active",
   source: "manual",
+  accountType: "bank",
 }));
 
 const largeBalances = largeAccounts.flatMap((account, index) => [
@@ -169,5 +170,53 @@ assert.deepEqual(largePayload.transactionBreakdowns, [
   { source: "manual", currency: "HKD", inflow: 334, outflow: 333, net: 1, transactionCount: 667 },
   { source: "manual", currency: "USD", inflow: 167, outflow: 167, net: 0, transactionCount: 334 },
 ]);
+
+const invalidCurrencyPayload = buildLedgerDashboardPayload({
+  asOf: "2026-08-22T00:00:00.000Z",
+  windowDays: 30,
+  entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank" }],
+  balances: [
+    {
+      id: "bad-month-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-invalid",
+      source: "manual",
+      balanceDate: "2026-08-20",
+      asOf: "2026-08-20T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 5,
+      currency: "AUG",
+    },
+  ],
+  transactions: [],
+});
+
+assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.currency, "EUR");
+assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "EUR", amount: 5, accountCount: 1 }]);
+
+const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
+  asOf: "2026-08-22T00:00:00.000Z",
+  windowDays: 30,
+  entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "AUG", status: "active", source: "manual", accountType: "bank" }],
+  balances: [
+    {
+      id: "bad-account-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-invalid",
+      source: "manual",
+      balanceDate: "2026-08-20",
+      asOf: "2026-08-20T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 5,
+      currency: "AUG",
+    },
+  ],
+  transactions: [],
+});
+
+assert.equal(invalidAccountCurrencyPayload.accounts[0].currency, null);
+assert.equal(invalidAccountCurrencyPayload.accounts[0].latestBalance?.currency, "Unspecified");
 
 console.log("ledger-dashboard smoke ok");
