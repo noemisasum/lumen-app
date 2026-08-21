@@ -169,6 +169,7 @@ export default function EntityManagementPage() {
   const [editingAccountName, setEditingAccountName] = useState("");
   const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("bank");
   const [accountAction, setAccountAction] = useState<string | null>(null);
+  const [selectedAccountIdsByEntityId, setSelectedAccountIdsByEntityId] = useState<Record<string, string[]>>({});
 
   const manageableOrgs = state.orgs.filter((org) => org.role === "owner" || org.role === "admin");
   const selectedOrg = state.orgs.find((org) => org.id === selectedOrgId) ?? state.orgs[0] ?? null;
@@ -271,7 +272,12 @@ export default function EntityManagementPage() {
       };
       if (!response.ok) throw new Error(body.error || "Failed to load bank accounts.");
 
-      setAccountsByEntityId((current) => ({ ...current, [entityId]: sortBankAccounts(body.accounts ?? []) }));
+      const loadedAccounts = sortBankAccounts(body.accounts ?? []);
+      setAccountsByEntityId((current) => ({ ...current, [entityId]: loadedAccounts }));
+      setSelectedAccountIdsByEntityId((current) => ({
+        ...current,
+        [entityId]: (current[entityId] ?? []).filter((accountId) => loadedAccounts.some((account) => account.id === accountId)),
+      }));
       if (body.sync?.warning) {
         setAccountSyncNotesByEntityId((current) => ({ ...current, [entityId]: body.sync?.warning ?? null }));
       } else if (options.syncXero && body.sync?.synced) {
@@ -411,9 +417,123 @@ export default function EntityManagementPage() {
         ...current,
         [account.entityId]: (current[account.entityId] ?? []).filter((item) => item.id !== account.id),
       }));
+      setSelectedAccountIdsByEntityId((current) => ({
+        ...current,
+        [account.entityId]: (current[account.entityId] ?? []).filter((id) => id !== account.id),
+      }));
       if (editingAccountId === account.id) cancelEditBankAccount();
     } catch (e: unknown) {
       setAccountErrorsByEntityId((current) => ({ ...current, [account.entityId]: getErrorMessage(e, "Failed to archive bank account.") }));
+    } finally {
+      setAccountAction(null);
+    }
+  }
+
+  function toggleSelectedBankAccount(entityId: string, accountId: string, checked: boolean) {
+    setSelectedAccountIdsByEntityId((current) => {
+      const selectedIds = new Set(current[entityId] ?? []);
+      if (checked) selectedIds.add(accountId);
+      else selectedIds.delete(accountId);
+      return { ...current, [entityId]: Array.from(selectedIds) };
+    });
+  }
+
+  function toggleAllBankAccounts(entityId: string, accounts: BankAccountRow[], checked: boolean) {
+    setSelectedAccountIdsByEntityId((current) => ({
+      ...current,
+      [entityId]: checked ? accounts.map((account) => account.id) : [],
+    }));
+  }
+
+  async function bulkUpdateBankAccountType(entity: EntityRow, accounts: BankAccountRow[], accountType: BankAccountRow["accountType"]) {
+    if (!session || !entity.canAdmin || !accounts.length) return;
+
+    const accountsToUpdate = accounts.filter((account) => account.accountType !== accountType);
+    if (!accountsToUpdate.length) {
+      setNotice({
+        tone: "info",
+        title: "No Classification Changes",
+        message: `Selected accounts are already classified as ${accountTypeLabel(accountType)}.`,
+      });
+      return;
+    }
+
+    setAccountAction(`account-bulk-type:${entity.id}`);
+    setAccountErrorsByEntityId((current) => ({ ...current, [entity.id]: null }));
+    setAccountSyncNotesByEntityId((current) => ({ ...current, [entity.id]: null }));
+    try {
+      const updatedAccounts = await Promise.all(
+        accountsToUpdate.map(async (account) => {
+          const response = await fetch("/api/entity-bank-accounts", {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${session.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ entityId: entity.id, accountId: account.id, accountType }),
+          });
+          const body = (await response.json()) as { account?: BankAccountRow; error?: string };
+          if (!response.ok || !body.account) throw new Error(body.error || "Failed to update account classification.");
+          return body.account;
+        }),
+      );
+      const updatedById = new Map(updatedAccounts.map((account) => [account.id, account]));
+      setAccountsByEntityId((current) => ({
+        ...current,
+        [entity.id]: sortBankAccounts((current[entity.id] ?? []).map((account) => updatedById.get(account.id) ?? account)),
+      }));
+      setSelectedAccountIdsByEntityId((current) => ({ ...current, [entity.id]: [] }));
+      setNotice({
+        tone: "success",
+        title: "Classifications Updated",
+        message: `${updatedAccounts.length} account${updatedAccounts.length === 1 ? "" : "s"} set to ${accountTypeLabel(accountType)}.`,
+      });
+    } catch (e: unknown) {
+      setAccountErrorsByEntityId((current) => ({ ...current, [entity.id]: getErrorMessage(e, "Failed to update selected accounts.") }));
+    } finally {
+      setAccountAction(null);
+    }
+  }
+
+  async function bulkArchiveBankAccounts(entity: EntityRow, accounts: BankAccountRow[]) {
+    if (!session || !entity.canAdmin || !accounts.length) return;
+
+    const manualAccounts = accounts.filter((account) => account.source === "manual");
+    if (!manualAccounts.length) {
+      setAccountErrorsByEntityId((current) => ({ ...current, [entity.id]: "Select at least one upload account to archive. Xero accounts are managed in Xero." }));
+      return;
+    }
+    if (!window.confirm(`Archive ${manualAccounts.length} upload account${manualAccounts.length === 1 ? "" : "s"}? Existing history stays available.`)) return;
+
+    setAccountAction(`account-bulk-archive:${entity.id}`);
+    setAccountErrorsByEntityId((current) => ({ ...current, [entity.id]: null }));
+    setAccountSyncNotesByEntityId((current) => ({ ...current, [entity.id]: null }));
+    try {
+      await Promise.all(
+        manualAccounts.map(async (account) => {
+          const params = new URLSearchParams({ entityId: entity.id, accountId: account.id });
+          const response = await fetch(`/api/entity-bank-accounts?${params.toString()}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${session.accessToken}` },
+          });
+          const body = (await response.json()) as { error?: string };
+          if (!response.ok) throw new Error(body.error || "Failed to archive bank account.");
+        }),
+      );
+      const archivedIds = new Set(manualAccounts.map((account) => account.id));
+      setAccountsByEntityId((current) => ({
+        ...current,
+        [entity.id]: (current[entity.id] ?? []).filter((account) => !archivedIds.has(account.id)),
+      }));
+      setSelectedAccountIdsByEntityId((current) => ({ ...current, [entity.id]: [] }));
+      if (editingAccountId && archivedIds.has(editingAccountId)) cancelEditBankAccount();
+      setNotice({
+        tone: "success",
+        title: "Upload Accounts Archived",
+        message: `${manualAccounts.length} account${manualAccounts.length === 1 ? "" : "s"} archived. Xero accounts, if selected, were left unchanged.`,
+      });
+    } catch (e: unknown) {
+      setAccountErrorsByEntityId((current) => ({ ...current, [entity.id]: getErrorMessage(e, "Failed to archive selected accounts.") }));
     } finally {
       setAccountAction(null);
     }
@@ -872,6 +992,14 @@ export default function EntityManagementPage() {
                     const accountDraft = accountDraftsByEntityId[entity.id] ?? defaultBankAccountDraft();
                     const creatingAccount = accountAction === `account-create:${entity.id}`;
                     const syncingAccounts = accountAction === `account-sync:${entity.id}`;
+                    const bulkUpdatingAccounts = accountAction === `account-bulk-type:${entity.id}`;
+                    const bulkArchivingAccounts = accountAction === `account-bulk-archive:${entity.id}`;
+                    const selectedAccountIds = selectedAccountIdsByEntityId[entity.id] ?? [];
+                    const selectedAccounts = accounts.filter((account) => selectedAccountIds.includes(account.id));
+                    const selectedManualAccountCount = selectedAccounts.filter((account) => account.source === "manual").length;
+                    const selectedXeroAccountCount = selectedAccounts.length - selectedManualAccountCount;
+                    const allAccountsSelected = accounts.length > 0 && selectedAccountIds.length === accounts.length;
+                    const bulkAccountBusy = syncingAccounts || accountsLoading || bulkUpdatingAccounts || bulkArchivingAccounts;
 
                     return (
                       <div key={entity.id} className="grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_minmax(330px,360px)] md:items-start">
@@ -1052,17 +1180,80 @@ export default function EntityManagementPage() {
                               </div>
                             ) : accounts.length ? (
                               <div className="mt-3 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+                                {entity.canAdmin ? (
+                                  <div className="flex flex-col gap-2 border-b border-zinc-100 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-zinc-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={allAccountsSelected}
+                                        onChange={(event) => toggleAllBankAccounts(entity.id, accounts, event.target.checked)}
+                                        disabled={bulkAccountBusy}
+                                        className="h-4 w-4 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                                      />
+                                      <span>{selectedAccounts.length ? `${selectedAccounts.length} selected` : "Select accounts"}</span>
+                                    </label>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <SelectControl
+                                        value=""
+                                        onChange={(event) => {
+                                          const value = event.target.value as BankAccountRow["accountType"] | "";
+                                          if (value) void bulkUpdateBankAccountType(entity, selectedAccounts, value);
+                                          event.target.value = "";
+                                        }}
+                                        disabled={!selectedAccounts.length || bulkAccountBusy}
+                                        className="mt-0 w-36"
+                                        aria-label="Bulk classify selected accounts"
+                                      >
+                                        <option value="">{bulkUpdatingAccounts ? "Saving" : "Set Type"}</option>
+                                        <option value="bank">Bank</option>
+                                        <option value="money_processor">MP</option>
+                                      </SelectControl>
+                                      <button
+                                        type="button"
+                                        onClick={() => void bulkArchiveBankAccounts(entity, selectedAccounts)}
+                                        disabled={!selectedManualAccountCount || bulkAccountBusy}
+                                        title={
+                                          selectedManualAccountCount
+                                            ? "Archive selected upload accounts"
+                                            : "Select upload accounts to archive; Xero accounts are managed in Xero"
+                                        }
+                                        className={dangerButtonClassName}
+                                      >
+                                        {bulkArchivingAccounts ? <Spinner label="Archiving" /> : "Archive Selected"}
+                                      </button>
+                                    </div>
+                                    {selectedXeroAccountCount > 0 ? (
+                                      <div className="text-xs leading-5 text-zinc-500 sm:basis-full">
+                                        {selectedManualAccountCount > 0
+                                          ? `Archive will skip ${selectedXeroAccountCount} selected Xero account${selectedXeroAccountCount === 1 ? "" : "s"}.`
+                                          : "Xero accounts can be reclassified, but cannot be archived locally."}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                                 <div className="divide-y divide-zinc-100">
                                   {accounts.map((account) => {
                                     const isManual = account.source === "manual";
                                     const isEditingAccount = editingAccountId === account.id;
                                     const savingAccount = accountAction === `account-edit:${account.id}`;
                                     const deletingAccount = accountAction === `account-delete:${account.id}`;
-                                    const accountBusy = savingAccount || deletingAccount || syncingAccounts || accountsLoading;
+                                    const accountBusy = savingAccount || deletingAccount || bulkAccountBusy;
+                                    const accountSelected = selectedAccountIds.includes(account.id);
 
                                     return (
                                       <div key={account.id} className="grid min-w-0 gap-2 px-3 py-2.5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-                                        <div className="min-w-0">
+                                        <div className="flex min-w-0 items-start gap-2">
+                                          {entity.canAdmin ? (
+                                            <input
+                                              type="checkbox"
+                                              checked={accountSelected}
+                                              onChange={(event) => toggleSelectedBankAccount(entity.id, account.id, event.target.checked)}
+                                              disabled={accountBusy}
+                                              aria-label={`Select ${account.accountName}`}
+                                              className="mt-1 h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-50"
+                                            />
+                                          ) : null}
+                                          <div className="min-w-0 flex-1">
                                           {isEditingAccount ? (
                                             <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_120px] sm:items-end">
                                               <label className="block min-w-0 text-xs font-medium text-zinc-700">
@@ -1104,6 +1295,7 @@ export default function EntityManagementPage() {
                                               ) : null}
                                             </div>
                                           )}
+                                          </div>
                                         </div>
 
                                         <div className="flex min-w-0 flex-wrap gap-2 lg:justify-end">
