@@ -50,6 +50,7 @@ type LedgerAccount = {
   status: string;
   source: LedgerSource;
   accountType: Exclude<AccountType, "all">;
+  canAdmin: boolean;
   latestBalance: {
     amount: number;
     currency: string;
@@ -451,7 +452,7 @@ export default function DashboardPage() {
   }
 
   async function updateAccountClassification(account: LedgerAccount, accountType: Exclude<AccountType, "all">) {
-    if (!session || account.accountType === accountType || updatingAccountIds.has(account.id)) return;
+    if (!session || !account.canAdmin || account.accountType === accountType || updatingAccountIds.has(account.id)) return;
 
     setUpdatingAccountIds((current) => new Set(current).add(account.id));
     setClassificationNotice(null);
@@ -778,12 +779,14 @@ export default function DashboardPage() {
                                 id={`account-type-${account.id}`}
                                 value={account.accountType}
                                 onChange={(event) => void updateAccountClassification(account, event.target.value as Exclude<AccountType, "all">)}
-                                disabled={updatingAccountIds.has(account.id)}
-                                className="h-9 min-w-36 rounded-md border border-zinc-300 bg-white px-2 text-sm font-medium text-zinc-800 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-wait disabled:bg-zinc-100 disabled:text-zinc-500"
+                                disabled={!account.canAdmin || updatingAccountIds.has(account.id)}
+                                title={account.canAdmin ? "Update account classification" : "Manage account classification from Entity Setup"}
+                                className="h-9 min-w-36 rounded-md border border-zinc-300 bg-white px-2 text-sm font-medium text-zinc-800 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                               >
                                 <option value="bank">Bank</option>
                                 <option value="money_processor">Money Processor</option>
                               </select>
+                              {!account.canAdmin ? <div className="mt-1 text-xs text-zinc-500">Admin only</div> : null}
                             </td>
                             <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
                             <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
-import { requireEntityAccess } from "@/lib/server/orgs";
+import { requireEntityAccess, requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
 import type { TokenSet } from "xero-node";
@@ -183,7 +183,11 @@ export async function GET(request: Request) {
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
-    await requireEntityAccess(supabase, entityId, user.id);
+    if (shouldSync) {
+      await requireEntityAdmin(supabase, entityId, user.id);
+    } else {
+      await requireEntityAccess(supabase, entityId, user.id);
+    }
 
     const sync = shouldSync ? await syncXeroBankAccounts(supabase, entityId) : { synced: false, count: 0 };
     const accounts = await loadAccounts(supabase, entityId);
@@ -212,7 +216,7 @@ export async function POST(request: Request) {
     if (!accountName || accountName.length < 2) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
-    await requireEntityAccess(supabase, entityId, user.id);
+    await requireEntityAdmin(supabase, entityId, user.id);
 
     if (!allowDuplicate) {
       const existingAccounts = await loadAccounts(supabase, entityId);
@@ -262,7 +266,7 @@ export async function PATCH(request: Request) {
     if (body.accountType !== undefined && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose Bank or Money Processor." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
-    await requireEntityAccess(supabase, entityId, user.id);
+    await requireEntityAdmin(supabase, entityId, user.id);
 
     const accounts = await loadAccounts(supabase, entityId);
     const target = accounts.find((account) => account.id === accountId);
@@ -319,7 +323,7 @@ export async function DELETE(request: Request) {
     if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
-    await requireEntityAccess(supabase, entityId, user.id);
+    await requireEntityAdmin(supabase, entityId, user.id);
 
     const accounts = await loadAccounts(supabase, entityId);
     const target = accounts.find((account) => account.id === accountId);
