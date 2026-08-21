@@ -271,9 +271,14 @@ export default function DashboardPage() {
   const visibleTopAccounts = useMemo(() => topAccounts(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
   const visibleBalancesByEntity = useMemo(() => groupBalancesByEntity(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
   const currencyCount = new Set(filteredTotalsByCurrency.map((row) => row.currency)).size;
+  const accountTypeOptions = [
+    { type: "bank" as const, label: "Bank", accounts: bankAccounts.length, rows: bankTotals },
+    { type: "money_processor" as const, label: "Money Processors", accounts: mpAccounts.length, rows: mpTotals },
+    { type: "all" as const, label: "All Accounts", accounts: accounts.length, rows: groupBalances(accounts) },
+  ];
   const accountTypeChartRows = [
     { label: "Bank", amount: bankTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: bankAccounts.length },
-    { label: "MPs", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: mpAccounts.length },
+    { label: "Money Processors", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: mpAccounts.length },
   ];
   const accountTypeChartTotal = accountTypeChartRows.reduce((total, row) => total + row.amount, 0);
 
@@ -420,7 +425,7 @@ export default function DashboardPage() {
   if (loading || !session) {
     return (
       <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
-        <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        <div className="mx-auto min-w-0 max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
           <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-4">
               <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
@@ -432,7 +437,7 @@ export default function DashboardPage() {
           </header>
 
           <main className="mt-8">
-            <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+            <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="min-h-6 text-sm leading-6 text-zinc-600">
                 {error ? (
                   <Notice tone="error" title="Authentication Needs Configuration">
@@ -451,7 +456,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
-      <div className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto min-w-0 max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
         <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-4">
             <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
@@ -470,46 +475,56 @@ export default function DashboardPage() {
           </button>
         </header>
 
-        <main className="mt-8 space-y-5">
-          <section className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <div className="bg-[#15395f] px-5 py-3 text-center text-lg font-semibold text-white sm:text-xl">Mitrade Group Bank Balance Dashboard</div>
-            <div className="grid gap-3 border-b border-zinc-100 px-5 py-4 text-sm md:grid-cols-3">
-              <div>
-                <span className="font-semibold text-zinc-950">Selected View</span>
-                <div className="mt-2 flex rounded-md border border-zinc-200 bg-zinc-50 p-1">
-                  {(["bank", "money_processor", "all"] as AccountType[]).map((accountType) => (
-                    <button
-                      key={accountType}
-                      type="button"
-                      onClick={() => setSelectedAccountType(accountType)}
-                      className={`h-9 flex-1 rounded px-2 text-xs font-semibold transition sm:text-sm ${
-                        selectedAccountType === accountType ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-600 hover:text-zinc-950"
-                      }`}
-                    >
-                      {accountTypeLabel(accountType)}
-                    </button>
-                  ))}
-                </div>
+        <main className="mt-7 space-y-5">
+          <section className="border-b border-zinc-200 pb-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase text-zinc-500">Lumen Ledger</p>
+                <h1 className="mt-2 text-2xl font-semibold text-zinc-950 sm:text-3xl">Ledger Operations</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">Monitor cash positions, processor balances, and recent statement activity across entities.</p>
               </div>
-              <div>
-                <span className="font-semibold text-zinc-950">Last Refreshed</span>
-                <div className="mt-2 text-zinc-700">{ledgerData ? formatDateTime(ledgerData.asOf) : "Loading"}</div>
-              </div>
-              <div className="flex flex-wrap items-end justify-start gap-2 md:justify-end">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void loadLedgerDashboard(session.accessToken)}
                   disabled={ledgerLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
                   {ledgerLoading ? "Refreshing" : "Refresh"}
                 </button>
-                <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
+                <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Entities
                 </Link>
-                <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-md bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
+                <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Statement Intake
                 </Link>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div className="grid gap-2 sm:grid-cols-3">
+                {accountTypeOptions.map((option) => (
+                  <button
+                    key={option.type}
+                    type="button"
+                    onClick={() => setSelectedAccountType(option.type)}
+                    className={`min-h-24 rounded-lg border px-4 py-3 text-left transition ${
+                      selectedAccountType === option.type ? "border-zinc-950 bg-white shadow-sm" : "border-zinc-200 bg-white/70 hover:border-zinc-300 hover:bg-white"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-zinc-950">{option.label}</span>
+                      <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">{option.accounts}</span>
+                    </div>
+                    <div className="mt-3">
+                      <CompactMoneyList rows={option.rows.slice(0, 2)} emptyLabel="No balances" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="rounded-lg border border-zinc-200 bg-white/70 px-4 py-3 text-sm text-zinc-600">
+                <div className="text-xs font-semibold uppercase text-zinc-500">Updated</div>
+                <div className="mt-1 whitespace-nowrap font-medium text-zinc-900">{ledgerData ? formatDateTime(ledgerData.asOf) : "Loading"}</div>
               </div>
             </div>
           </section>
@@ -520,7 +535,7 @@ export default function DashboardPage() {
             </Notice>
           ) : null}
 
-          <section className="grid gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {ledgerLoading && !ledgerData ? (
               <>
                 <StatSkeleton />
@@ -531,25 +546,25 @@ export default function DashboardPage() {
               </>
             ) : (
               <>
-                <div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">Total Balance</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">
                     {filteredTotalsByCurrency.length === 1 ? formatMoney(filteredTotalsByCurrency[0].currency, filteredTotalsByCurrency[0].amount) : `${filteredTotalsByCurrency.length} currency totals`}
                   </div>
                 </div>
-                <div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">All Currencies</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{currencyCount}</div>
                 </div>
-                <div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">Accounts</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{visibleAccounts.length}</div>
                 </div>
-                <div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">With Balances</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{accountsWithBalances.length}</div>
                 </div>
-                <div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">Entities</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{ledgerData?.entities.length ?? 0}</div>
                 </div>
@@ -573,8 +588,8 @@ export default function DashboardPage() {
             <div className="space-y-4">
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
-                    <h2 className="text-sm font-semibold text-white">Summary by Account Type</h2>
+                  <div className="border-b border-zinc-100 px-5 py-3">
+                    <h2 className="text-sm font-semibold text-zinc-950">Account Type Totals</h2>
                   </div>
                   <div className="divide-y divide-zinc-100">
                     {[
@@ -585,7 +600,7 @@ export default function DashboardPage() {
                         key={row.type}
                         type="button"
                         onClick={() => setSelectedAccountType(row.type)}
-                        className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 ${selectedAccountType === row.type ? "bg-[#eef5fb]" : ""}`}
+                        className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 ${selectedAccountType === row.type ? "bg-zinc-50" : ""}`}
                       >
                         <div>
                           <div className="font-medium text-zinc-950">{accountTypeLabel(row.type)}</div>
@@ -600,8 +615,8 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
-                    <h2 className="text-sm font-semibold text-white">Summary by Entity</h2>
+                  <div className="border-b border-zinc-100 px-5 py-3">
+                    <h2 className="text-sm font-semibold text-zinc-950">Entity Balances</h2>
                   </div>
                   <div className="divide-y divide-zinc-100">
                     {visibleBalancesByEntity.length ? (
@@ -714,8 +729,8 @@ export default function DashboardPage() {
 
             <div className="space-y-4">
               <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="border-b border-[#15395f] bg-[#15395f] px-5 py-2">
-                  <h2 className="text-sm font-semibold text-white">Charts</h2>
+                <div className="border-b border-zinc-100 px-5 py-3">
+                  <h2 className="text-sm font-semibold text-zinc-950">Account Mix</h2>
                 </div>
                 <div className="space-y-5 p-5">
                   <div>
@@ -728,7 +743,7 @@ export default function DashboardPage() {
                             <span>{row.count} account{row.count === 1 ? "" : "s"}</span>
                           </div>
                           <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-100">
-                            <div className="h-full rounded-full bg-[#2f72c4]" style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
+                            <div className={`h-full rounded-full ${row.label === "Bank" ? "bg-sky-700" : "bg-emerald-700"}`} style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
                           </div>
                         </div>
                       ))}
