@@ -1,4 +1,5 @@
 import readXlsxFile, { type Row } from "read-excel-file/node";
+import * as legacyXlsx from "@e965/xlsx";
 import {
   parseStatementRows,
   type ParsedStatementInput,
@@ -24,6 +25,12 @@ type XlsxZipEntry = {
   uncompressedSize: number;
 };
 
+type WorkbookSheetRows = {
+  sheetNumber: number;
+  sheetName: string;
+  rows: StatementParserRow[];
+};
+
 export async function parseExcelStatement(excelData: ArrayBuffer, input: ParsedStatementInput): Promise<ParsedStatementResult> {
   const buffer = Buffer.from(excelData);
   validateXlsxArchive(buffer);
@@ -36,33 +43,30 @@ export async function parseExcelStatement(excelData: ArrayBuffer, input: ParsedS
     throw new Error(`Excel statement has too many worksheets for automatic parsing. Limit is ${maxExcelWorksheets}.`);
   }
 
-  const parseFailures: string[] = [];
-
-  for (const [sheetIndex, sheet] of sheets.entries()) {
-    const sheetNumber = sheetIndex + 1;
-    const sheetName = sheet.sheet;
-    const rows = sheet.data;
-    const statementRows = worksheetRowsToStatementRows(rows, sheetName);
-    if (!statementRows.length || !statementRows.some((row) => row.fields.some((field) => field.trim()))) continue;
-
+  try {
+    return parseWorkbookSheets(
+      sheets.map((sheet, sheetIndex) => ({
+        sheetNumber: sheetIndex + 1,
+        sheetName: sheet.sheet,
+        rows: worksheetRowsToStatementRows(sheet.data, sheet.sheet),
+      })),
+      input,
+      "Excel",
+      "excel",
+    );
+  } catch (primaryError) {
     try {
-      return parseStatementRows(statementRows, input, {
-        fileTypeName: "Excel",
-        sourceRecordPrefix: "excel",
-        sourceRowId: (row) => `${input.statementImportId}:sheet:${sheetNumber}:row:${row.sourceRowNumber}`,
-        balanceSourceRowId: (row, balanceType: BankBalanceInput["balanceType"]) =>
-          `${input.statementImportId}:sheet:${sheetNumber}:balance:${balanceType}:row:${row.sourceRowNumber}`,
-        rawPayload: (row) => excelRawPayload(input.fileName, sheetNumber, sheetName, row),
-        runningBalancePayload: (row) => excelRawPayload(input.fileName, sheetNumber, sheetName, row),
-        balancePayload: (row) => excelRawPayload(input.fileName, sheetNumber, sheetName, row),
-      });
-    } catch (error) {
-      parseFailures.push(`${sheetName}: ${getErrorMessage(error)}`);
+      return parseWorkbookSheets(readLegacyWorkbookRows(buffer), input, "Excel", "excel");
+    } catch (fallbackError) {
+      const detail = getErrorMessage(primaryError) || getErrorMessage(fallbackError);
+      throw new Error(detail ? `Excel statement could not be parsed automatically. ${detail}` : "Excel statement is missing a recognizable transaction worksheet.");
     }
   }
+}
 
-  const detail = parseFailures.at(0);
-  throw new Error(detail ? `Excel statement could not be parsed automatically. ${detail}` : "Excel statement is missing a recognizable transaction worksheet.");
+export function parseLegacyExcelStatement(excelData: ArrayBuffer, input: ParsedStatementInput): ParsedStatementResult {
+  const buffer = Buffer.from(excelData);
+  return parseWorkbookSheets(readLegacyWorkbookRows(buffer), input, "XLS", "xls");
 }
 
 function validateXlsxArchive(buffer: Buffer) {
@@ -189,6 +193,173 @@ function worksheetRowsToStatementRows(rows: Row[], sheetName: string): Statement
   });
 }
 
+function parseWorkbookSheets(
+  sheets: WorkbookSheetRows[],
+  input: ParsedStatementInput,
+  fileTypeName: string,
+  sourceRecordPrefix: string,
+): ParsedStatementResult {
+  const parseFailures: string[] = [];
+
+  for (const sheet of sheets) {
+    const candidates = [
+      ...layoutBStatementRows(sheet).map((rows) => ({ label: `${sheet.sheetName} normalized balance metadata`, rows })),
+      { label: sheet.sheetName, rows: sheet.rows },
+      ...layoutCStatementRows(sheet).map((rows) => ({ label: `${sheet.sheetName} normalized account_statement`, rows })),
+    ];
+
+    for (const candidate of candidates) {
+      if (!candidate.rows.length || !candidate.rows.some((row) => row.fields.some((field) => field.trim()))) continue;
+
+      try {
+        return parseStatementRows(candidate.rows, input, {
+          fileTypeName,
+          sourceRecordPrefix,
+          sourceRowId: (row) => `${input.statementImportId}:sheet:${sheet.sheetNumber}:row:${row.sourceRowNumber}`,
+          balanceSourceRowId: (row, balanceType: BankBalanceInput["balanceType"]) =>
+            `${input.statementImportId}:sheet:${sheet.sheetNumber}:balance:${balanceType}:row:${row.sourceRowNumber}`,
+          rawPayload: (row) => excelRawPayload(input.fileName, sheet.sheetNumber, sheet.sheetName, row),
+          runningBalancePayload: (row) => excelRawPayload(input.fileName, sheet.sheetNumber, sheet.sheetName, row),
+          balancePayload: (row) => excelRawPayload(input.fileName, sheet.sheetNumber, sheet.sheetName, row),
+        });
+      } catch (error) {
+        parseFailures.push(`${candidate.label}: ${getErrorMessage(error)}`);
+      }
+    }
+  }
+
+  const detail = parseFailures.at(0);
+  throw new Error(detail ?? `${fileTypeName} statement is missing a recognizable transaction worksheet.`);
+}
+
+function readLegacyWorkbookRows(buffer: Buffer): WorkbookSheetRows[] {
+  const workbook = legacyXlsx.read(buffer, { type: "buffer", cellDates: true });
+  if (!workbook.SheetNames.length) {
+    throw new Error("Excel statement is empty.");
+  }
+  if (workbook.SheetNames.length > maxExcelWorksheets) {
+    throw new Error(`Excel statement has too many worksheets for automatic parsing. Limit is ${maxExcelWorksheets}.`);
+  }
+
+  return workbook.SheetNames.map((sheetName, sheetIndex) => ({
+    sheetNumber: sheetIndex + 1,
+    sheetName,
+    rows: legacyWorksheetRowsToStatementRows(workbook.Sheets[sheetName], sheetName),
+  }));
+}
+
+function legacyWorksheetRowsToStatementRows(
+  sheet: legacyXlsx.WorkSheet | undefined,
+  sheetName: string,
+): StatementParserRow[] {
+  if (!sheet?.["!ref"]) return [];
+
+  const range = legacyXlsx.utils.decode_range(sheet["!ref"]);
+  const rowCount = range.e.r - range.s.r + 1;
+  const columnCount = range.e.c - range.s.c + 1;
+
+  if (rowCount > maxExcelRowsPerSheet) {
+    throw new Error(`Excel worksheet "${sheetName}" has too many rows for automatic parsing. Limit is ${maxExcelRowsPerSheet}.`);
+  }
+  if (columnCount > maxExcelColumnsPerSheet) {
+    throw new Error(`Excel worksheet "${sheetName}" has too many columns for automatic parsing. Limit is ${maxExcelColumnsPerSheet}.`);
+  }
+  if (rowCount * Math.max(columnCount, 1) > maxExcelCellsPerSheet) {
+    throw new Error(`Excel worksheet "${sheetName}" is too large for automatic parsing.`);
+  }
+
+  const rows: StatementParserRow[] = [];
+  for (let rowIndex = range.s.r; rowIndex <= range.e.r; rowIndex += 1) {
+    const fields: string[] = [];
+    for (let columnIndex = range.s.c; columnIndex <= range.e.c; columnIndex += 1) {
+      const address = legacyXlsx.utils.encode_cell({ r: rowIndex, c: columnIndex });
+      fields.push(legacyCellValueToText(sheet[address]?.v));
+    }
+    rows.push({ fields, sourceRowNumber: rowIndex + 1 });
+  }
+  return rows;
+}
+
+function layoutBStatementRows(sheet: WorkbookSheetRows): StatementParserRow[][] {
+  const headerIndex = sheet.rows.findIndex((row) => {
+    const headers = row.fields.map((field) => field.trim().toLowerCase().replace(/\s+/g, " "));
+    return (
+      headers.includes("date") &&
+      headers.includes("value date") &&
+      headers.some((header) => header.startsWith("transaction description")) &&
+      headers.includes("debit") &&
+      headers.includes("credit") &&
+      headers.includes("running balance")
+    );
+  });
+  if (headerIndex === -1) return [];
+
+  const headerRow = sheet.rows[headerIndex];
+  const transactionRows = sheet.rows.slice(headerIndex + 1);
+  const transactionDates = transactionRows.map((row) => row.fields[0]?.trim()).filter((value): value is string => Boolean(value));
+  const firstDate = transactionDates.at(0) ?? "";
+  const lastDate = transactionDates.at(-1) ?? firstDate;
+  const metadataRows = sheet.rows
+    .slice(0, headerIndex)
+    .map((row) => {
+      const label = row.fields.map((field) => field.trim()).find((field) => /^(Opening|Ledger|Available) Balance$/i.test(field));
+      const amount = firstAmountText(row.fields);
+      if (!label || !amount) return null;
+      const balanceDate = /^Opening Balance$/i.test(label) ? firstDate : lastDate;
+      if (!balanceDate) return null;
+      return {
+        sourceRowNumber: row.sourceRowNumber,
+        fields: [balanceDate, "", label, "", "", "", amount],
+      } satisfies StatementParserRow;
+    })
+    .filter((row): row is StatementParserRow => row !== null);
+
+  if (!metadataRows.length) return [];
+
+  return [
+    [
+      {
+        sourceRowNumber: headerRow.sourceRowNumber,
+        fields: ["Date", "Value Date", "Transaction Description 1", "Transaction Description 2", "Debit", "Credit", "Running Balance"],
+      },
+      ...metadataRows,
+      ...transactionRows,
+    ],
+  ];
+}
+
+function layoutCStatementRows(sheet: WorkbookSheetRows): StatementParserRow[][] {
+  if (sheet.sheetName.trim().toLowerCase() !== "account_statement") return [];
+
+  const dataRows = sheet.rows
+    .filter((row) => row.sourceRowNumber >= 4)
+    .map((row) => ({
+      sourceRowNumber: row.sourceRowNumber,
+      fields: [
+        row.fields[2] ?? "",
+        row.fields[3] ?? "",
+        row.fields[5] ?? "",
+        firstNonEmptyText(row.fields[8], row.fields[9], row.fields[10], row.fields[11]),
+        row.fields[12] ?? "",
+        row.fields[14] ?? "",
+        row.fields[15] ?? "",
+      ],
+    }))
+    .filter((row) => row.fields.some((field) => field.trim()));
+
+  if (!dataRows.length) return [];
+
+  return [
+    [
+      {
+        sourceRowNumber: 3,
+        fields: ["Date", "Value Date", "Description", "Reference", "Debit", "Credit", "Running Balance"],
+      },
+      ...dataRows,
+    ],
+  ];
+}
+
 function excelRawPayload(fileName: string | null | undefined, sheetNumber: number, sheetName: string, row: StatementParserRow) {
   return {
     fileName: fileName ?? null,
@@ -204,6 +375,25 @@ function cellValueToText(value: Row[number]): string {
   if (value instanceof Date) return value.toISOString().slice(0, 10);
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
   return "";
+}
+
+function legacyCellValueToText(value: unknown): string {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function firstNonEmptyText(...values: Array<string | undefined>) {
+  return values.map((value) => value?.trim() ?? "").find(Boolean) ?? "";
+}
+
+function firstAmountText(values: string[]) {
+  for (const value of values) {
+    const match = value.match(/\(?[+-]?(?:[$£€¥]|HKD|USD|SGD|AUD|CAD|NZD)?\s*\d[\d,\s]*(?:\.\d+)?\)?/i);
+    if (match) return match[0].trim();
+  }
+  return undefined;
 }
 
 function getErrorMessage(error: unknown) {
