@@ -534,39 +534,60 @@ function findFirstDate(values: string[], dateContext: DateParseContext) {
 }
 
 function inferDateContext(rows: StatementParserRow[], columns: ColumnMap): DateParseContext {
-  let slashDateFormat: DateFormat | null = null;
-  let hasAmbiguousSlashDate = false;
+  const dateColumnValues = rows.flatMap((row) => dateContextValues(row, columns));
+  let { slashDateFormat, hasAmbiguousSlashDate } = inferSlashDateFormat(dateColumnValues);
 
-  for (const row of rows) {
-    const values = [cell(row, columns.date), cell(row, columns.postedDate), ...row.fields];
-    for (const value of values) {
-      for (const match of slashDateParts(value)) {
-        const evidence = slashDateEvidence(match.first, match.second);
-        if (evidence) {
-          if (slashDateFormat && slashDateFormat !== evidence) {
-            throw new Error("CSV statement has conflicting slash date formats.");
-          }
-          slashDateFormat = evidence;
-        } else {
-          hasAmbiguousSlashDate = true;
-        }
-      }
-    }
+  let parsedDates = rows
+    .map((row) => parseDate(cell(row, columns.date), { slashDateFormat, fallbackBalanceDate: null }))
+    .filter((date): date is string => Boolean(date))
+    .sort();
+
+  if (!parsedDates.length) {
+    ({ slashDateFormat, hasAmbiguousSlashDate } = inferSlashDateFormat(rows.flatMap((row) => row.fields)));
+    parsedDates = rows
+      .flatMap((row) => row.fields)
+      .map((value) => findFirstDate([value], { slashDateFormat, fallbackBalanceDate: null }))
+      .filter((date): date is string => Boolean(date))
+      .sort();
   }
 
   if (hasAmbiguousSlashDate && !slashDateFormat) {
     throw new Error("CSV statement has ambiguous slash dates. Use ISO YYYY-MM-DD dates or include a date that proves D/M/Y or M/D/Y.");
   }
 
-  const parsedDates = rows
-    .map((row) => parseDate(cell(row, columns.date), { slashDateFormat, fallbackBalanceDate: null }))
-    .filter((date): date is string => Boolean(date))
-    .sort();
-
   return {
     slashDateFormat,
     fallbackBalanceDate: parsedDates.at(-1) ?? null,
   };
+}
+
+function dateContextValues(row: StatementParserRow, columns: ColumnMap) {
+  const values = [cell(row, columns.date)];
+  if (columns.postedDate !== undefined && columns.postedDate !== columns.date) {
+    values.push(cell(row, columns.postedDate));
+  }
+  return values;
+}
+
+function inferSlashDateFormat(values: string[]) {
+  let slashDateFormat: DateFormat | null = null;
+  let hasAmbiguousSlashDate = false;
+
+  for (const value of values) {
+    for (const match of slashDateParts(value)) {
+      const evidence = slashDateEvidence(match.first, match.second);
+      if (evidence) {
+        if (slashDateFormat && slashDateFormat !== evidence) {
+          throw new Error("CSV statement has conflicting slash date formats.");
+        }
+        slashDateFormat = evidence;
+      } else {
+        hasAmbiguousSlashDate = true;
+      }
+    }
+  }
+
+  return { slashDateFormat, hasAmbiguousSlashDate };
 }
 
 function slashDateParts(value: string) {
