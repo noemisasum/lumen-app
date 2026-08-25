@@ -155,10 +155,11 @@ export default function BankBalanceTrackerPage() {
   const fundTypes = useMemo(() => uniqueSorted(data?.monthlyBalances.map((row) => row.fundType) ?? []), [data]);
   const currencies = useMemo(() => uniqueSorted(data?.monthlyBalances.map((row) => row.currency) ?? []), [data]);
   const filteredBalances = useMemo(() => sortBalances(filterBalances(data?.monthlyBalances ?? [], filters), sortKey), [data, filters, sortKey]);
+  const usdConvertedBalances = useMemo(() => data?.monthlyBalances.filter((row) => row.balanceUsd !== null) ?? [], [data]);
   const currencyExposure = useMemo(() => groupCurrencyExposure(data?.monthlyBalances ?? []), [data]);
-  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data?.monthlyBalances ?? []), [data]);
-  const bankExposure = useMemo(() => groupBankExposure(data?.monthlyBalances ?? []), [data]);
-  const fundSplits = useMemo(() => groupFundTypes(data?.monthlyBalances ?? [], data?.kpis.totalUsd ?? 0), [data]);
+  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(usdConvertedBalances), [usdConvertedBalances]);
+  const bankExposure = useMemo(() => groupBankExposure(usdConvertedBalances), [usdConvertedBalances]);
+  const fundSplits = useMemo(() => groupFundTypes(usdConvertedBalances, data?.kpis.totalUsd ?? 0), [data, usdConvertedBalances]);
   const readiness = useMemo(() => statementReadiness(data ?? emptyBankBalanceData), [data]);
   const largestCountryMovement = useMemo(() => getLargestCountryMovement(data?.countrySummary ?? []), [data]);
   const largestLicense = useMemo(() => getLargestLicenseSplit(data?.licenseSummary ?? []), [data]);

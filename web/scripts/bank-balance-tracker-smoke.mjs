@@ -120,6 +120,16 @@ const currencyExposure = transforms.groupCurrencyExposure(ledgerDashboard.monthl
 assert.equal(currencyExposure.find((row) => row.currency === "HKD")?.missingUsdCount, 1);
 assert.equal(currencyExposure.find((row) => row.currency === "AUD")?.balanceUsd, 975);
 
+const usdConvertedBalances = ledgerDashboard.monthlyBalances.filter((row) => row.balanceUsd !== null);
+const fundSplits = transforms.groupFundTypes(usdConvertedBalances, ledgerDashboard.kpis.totalUsd);
+const accountEntityBalances = transforms.groupAccountEntityBalances(usdConvertedBalances);
+const bankExposure = transforms.groupBankExposure(usdConvertedBalances);
+assert.equal(fundSplits.every((row) => row.balanceUsd > 0), true);
+assert.equal(accountEntityBalances.length, 1);
+assert.equal(accountEntityBalances[0].balanceUsd, 975);
+assert.equal(bankExposure.length, 1);
+assert.equal(bankExposure[0].balanceUsd, 975);
+
 const usedRates = transforms.usedFxRates(ledgerDashboard.fxRates, ledgerDashboard.monthlyBalances);
 assert.deepEqual(
   usedRates.map((rate) => rate.currency).sort(),
