@@ -1,18 +1,19 @@
 export type BankBalanceKpis = {
   totalUsd: number;
-  priorMonthUsd: number;
-  movementUsd: number;
-  movementPct: number;
+  priorMonthUsd: number | null;
+  movementUsd: number | null;
+  movementPct: number | null;
   accounts: number;
   currencies: number;
+  excludedUsdAccounts?: number;
 };
 
 export type CountrySummaryRow = {
   country: string;
-  priorMonthUsd: number;
+  priorMonthUsd: number | null;
   currentMonthUsd: number;
-  movementUsd: number;
-  movementPct: number;
+  movementUsd: number | null;
+  movementPct: number | null;
 };
 
 export type LicenseSummaryRow = {
@@ -30,11 +31,11 @@ export type MonthlyBalanceRow = {
   maskedAccountNo: string;
   fundType: string;
   currency: string;
-  fxUnitsPerUsd: number;
+  fxUnitsPerUsd: number | null;
   balanceLocal: number;
-  balanceUsd: number;
-  priorMonthUsd: number;
-  movementUsd: number;
+  balanceUsd: number | null;
+  priorMonthUsd: number | null;
+  movementUsd: number | null;
   movementPct: number | null;
   sourceWorkbook: string;
   statementFileRef: string | null;
@@ -65,7 +66,7 @@ export type StatementUploadColumn =
 export type TopBankRow = {
   bank: string;
   totalUsd: number;
-  movementUsd: number;
+  movementUsd: number | null;
 };
 
 export type BankConcentrationRow = {
@@ -105,4 +106,13 @@ export type BankBalanceWorkbookData = {
     rows: Array<Record<StatementUploadColumn, string | number | null>>;
   };
   fxRates: FxRateRow[];
+  dataQualityIssues?: Array<{
+    code: string;
+    severity: "warning";
+    message: string;
+    entityId: string;
+    bankAccountId: string;
+    balanceId?: string;
+    currency: string;
+  }>;
 };
