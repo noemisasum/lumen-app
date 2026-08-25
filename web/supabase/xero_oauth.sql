@@ -437,6 +437,32 @@ create index if not exists bank_account_balances_account_date_idx
 create index if not exists bank_account_balances_entity_date_idx
   on public.bank_account_balances(entity_id, balance_date desc);
 
+create table if not exists public.fx_exchange_rates (
+  id uuid primary key default gen_random_uuid(),
+  base_currency text not null,
+  quote_currency text not null default 'USD',
+  rate_date date not null,
+  rate numeric not null check (rate > 0),
+  source text not null default 'frankfurter' check (source in ('frankfurter','xe','manual')),
+  as_of timestamptz not null default now(),
+  raw_payload jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint fx_exchange_rates_currency_check
+    check (base_currency ~ '^[A-Z]{3}$' and quote_currency ~ '^[A-Z]{3}$')
+);
+alter table public.fx_exchange_rates
+  alter column source set default 'frankfurter';
+alter table public.fx_exchange_rates
+  drop constraint if exists fx_exchange_rates_source_check;
+alter table public.fx_exchange_rates
+  add constraint fx_exchange_rates_source_check
+  check (source in ('frankfurter','xe','manual'));
+create unique index if not exists fx_exchange_rates_currency_date_source_uidx
+  on public.fx_exchange_rates(base_currency, quote_currency, rate_date, source);
+create index if not exists fx_exchange_rates_latest_idx
+  on public.fx_exchange_rates(base_currency, quote_currency, rate_date desc, as_of desc);
+
 create or replace function public.map_entity_to_xero_tenant(
   p_entity_id uuid,
   p_connection_tenant_id uuid,
@@ -640,6 +666,11 @@ create trigger set_bank_account_balances_updated_at
 before update on public.bank_account_balances
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_fx_exchange_rates_updated_at on public.fx_exchange_rates;
+create trigger set_fx_exchange_rates_updated_at
+before update on public.fx_exchange_rates
+for each row execute function public.set_updated_at();
+
 alter table public.xero_oauth_states enable row level security;
 alter table public.xero_connections enable row level security;
 alter table public.xero_connection_tenants enable row level security;
@@ -649,6 +680,7 @@ alter table public.bank_statement_imports enable row level security;
 alter table public.bank_statement_import_processing_logs enable row level security;
 alter table public.bank_account_transactions enable row level security;
 alter table public.bank_account_balances enable row level security;
+alter table public.fx_exchange_rates enable row level security;
 
 revoke all on public.xero_oauth_states from public;
 revoke all on public.xero_connections from public;
@@ -659,6 +691,7 @@ revoke all on public.bank_statement_imports from public;
 revoke all on public.bank_statement_import_processing_logs from public;
 revoke all on public.bank_account_transactions from public;
 revoke all on public.bank_account_balances from public;
+revoke all on public.fx_exchange_rates from public;
 revoke all on public.xero_oauth_states from anon;
 revoke all on public.xero_connections from anon;
 revoke all on public.xero_connection_tenants from anon;
@@ -668,6 +701,7 @@ revoke all on public.bank_statement_imports from anon;
 revoke all on public.bank_statement_import_processing_logs from anon;
 revoke all on public.bank_account_transactions from anon;
 revoke all on public.bank_account_balances from anon;
+revoke all on public.fx_exchange_rates from anon;
 revoke all on public.xero_oauth_states from authenticated;
 revoke all on public.xero_connections from authenticated;
 revoke all on public.xero_connection_tenants from authenticated;
@@ -677,6 +711,7 @@ revoke all on public.bank_statement_imports from authenticated;
 revoke all on public.bank_statement_import_processing_logs from authenticated;
 revoke all on public.bank_account_transactions from authenticated;
 revoke all on public.bank_account_balances from authenticated;
+revoke all on public.fx_exchange_rates from authenticated;
 
 grant all on public.xero_oauth_states to service_role;
 grant all on public.xero_connections to service_role;
@@ -687,6 +722,7 @@ grant all on public.bank_statement_imports to service_role;
 grant all on public.bank_statement_import_processing_logs to service_role;
 grant all on public.bank_account_transactions to service_role;
 grant all on public.bank_account_balances to service_role;
+grant all on public.fx_exchange_rates to service_role;
 
 revoke all on function public.map_entity_to_xero_tenant(uuid, uuid, uuid) from public;
 revoke all on function public.unmap_entity_from_xero_tenant(uuid, uuid) from public;

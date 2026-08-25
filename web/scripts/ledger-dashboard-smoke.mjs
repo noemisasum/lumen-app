@@ -1,5 +1,36 @@
 import assert from "node:assert/strict";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError } from "../src/lib/server/ledger-dashboard.ts";
+import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
+
+function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
+  const upserts = [];
+  return {
+    upserts,
+    from(table) {
+      assert.equal(table, "fx_exchange_rates");
+      let orderCount = 0;
+      return {
+        select() {
+          return this;
+        },
+        in() {
+          return this;
+        },
+        eq() {
+          return this;
+        },
+        order() {
+          orderCount += 1;
+          return orderCount >= 2 ? Promise.resolve({ data: cachedRows, error: null }) : this;
+        },
+        upsert(row, options) {
+          upserts.push({ row, options });
+          return Promise.resolve({ error: upsertError });
+        },
+      };
+    },
+  };
+}
 
 const payload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
@@ -113,9 +144,15 @@ const payload = buildLedgerDashboardPayload({
       status: "posted",
     },
   ],
+  usdRates: new Map([
+    ["HKD", { rateToUsd: 0.128, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+    ["USD", { rateToUsd: 1, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "identity", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.amount, 250.5);
+assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.usdConversion?.amount, 32.064);
 assert.equal(payload.accounts.find((account) => account.id === "account-paypal")?.accountType, "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "bank");
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
@@ -192,6 +229,11 @@ const largePayload = buildLedgerDashboardPayload({
   accounts: largeAccounts,
   balances: largeBalances,
   transactions: largeTransactions,
+  usdRates: new Map([
+    ["HKD", { rateToUsd: 0.128, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+    ["USD", { rateToUsd: 1, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "identity", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
 assert.deepEqual(largePayload.totalsByCurrency, [
@@ -222,10 +264,67 @@ const invalidCurrencyPayload = buildLedgerDashboardPayload({
     },
   ],
   transactions: [],
+  usdRates: new Map([
+    ["EUR", { rateToUsd: 1.16, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
-assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.currency, "EUR");
-assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "EUR", amount: 5, accountCount: 1 }]);
+assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.currency, "Unspecified");
+assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.usdConversion, null);
+assert.equal(invalidCurrencyPayload.dataQualityIssues[0]?.currency, "AUG");
+assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "Unspecified", amount: 5, accountCount: 1 }]);
+
+const olderInvalidCurrencyPayload = buildLedgerDashboardPayload({
+  asOf: "2026-08-22T00:00:00.000Z",
+  windowDays: 30,
+  entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
+  accounts: [{ id: "account-older-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
+  balances: [
+    {
+      id: "latest-valid-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-08-20",
+      asOf: "2026-08-20T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 10,
+      currency: "EUR",
+    },
+    {
+      id: "older-invalid-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-08-01",
+      asOf: "2026-08-01T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 5,
+      currency: "AUG",
+    },
+    {
+      id: "older-invalid-currency-duplicate",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-07-01",
+      asOf: "2026-07-01T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 4,
+      currency: "AUG",
+    },
+  ],
+  transactions: [],
+  usdRates: new Map([["EUR", { rateToUsd: 1.16, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }]]),
+  fxStatus: "available",
+});
+
+assert.equal(olderInvalidCurrencyPayload.accounts[0].latestBalance?.currency, "EUR");
+assert.deepEqual(
+  olderInvalidCurrencyPayload.dataQualityIssues.filter((issue) => issue.code === "invalid_balance_currency").map((issue) => issue.currency),
+  ["AUG"],
+);
 
 const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
@@ -246,9 +345,68 @@ const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
     },
   ],
   transactions: [],
+  fxStatus: "missing_credentials",
 });
 
 assert.equal(invalidAccountCurrencyPayload.accounts[0].currency, null);
 assert.equal(invalidAccountCurrencyPayload.accounts[0].latestBalance?.currency, "Unspecified");
+
+const originalFetch = globalThis.fetch;
+const originalFxRateProvider = process.env.FX_RATE_PROVIDER;
+const originalFrankfurterApiBaseUrl = process.env.FRANKFURTER_API_BASE_URL;
+const originalXeAccountId = process.env.XE_ACCOUNT_ID;
+const originalXeApiKey = process.env.XE_API_KEY;
+
+try {
+  delete process.env.FX_RATE_PROVIDER;
+  delete process.env.XE_ACCOUNT_ID;
+  delete process.env.XE_API_KEY;
+  process.env.FRANKFURTER_API_BASE_URL = "https://frankfurter.test/v2";
+  const fetchedUrls = [];
+  globalThis.fetch = async (url) => {
+    fetchedUrls.push(String(url));
+    return {
+      ok: true,
+      json: async () => ({
+        base: "HKD",
+        quote: "USD",
+        rate: 0.128,
+        date: "2026-08-20",
+      }),
+    };
+  };
+
+  const fxSupabase = createFxSupabaseStub();
+  const frankfurterRates = await getUsdRatesForCurrencies(fxSupabase, ["HKD", "USD", "hkd"]);
+  assert.equal(frankfurterRates.status, "available");
+  assert.equal(frankfurterRates.source, "frankfurter");
+  assert.equal(frankfurterRates.rates.get("HKD")?.source, "frankfurter");
+  assert.equal(frankfurterRates.rates.get("HKD")?.rateToUsd, 0.128);
+  assert.deepEqual(fetchedUrls, ["https://frankfurter.test/v2/rate/HKD/USD"]);
+  assert.equal(fxSupabase.upserts[0]?.row.source, "frankfurter");
+  assert.equal(fxSupabase.upserts[0]?.options.onConflict, "base_currency,quote_currency,rate_date,source");
+
+  globalThis.fetch = async () => ({ ok: false, status: 503, json: async () => ({ message: "unavailable" }) });
+  const failedFrankfurterRates = await getUsdRatesForCurrencies(createFxSupabaseStub(), ["EUR"]);
+  assert.equal(failedFrankfurterRates.status, "fetch_failed");
+  assert.equal(failedFrankfurterRates.source, "frankfurter");
+  assert.equal(failedFrankfurterRates.rates.get("EUR")?.status, "fetch_failed");
+  assert.deepEqual(failedFrankfurterRates.missingCurrencies, ["EUR"]);
+
+  process.env.FX_RATE_PROVIDER = "xe";
+  const xeMissingCredentialsRates = await getUsdRatesForCurrencies(createFxSupabaseStub(), ["EUR"]);
+  assert.equal(xeMissingCredentialsRates.status, "missing_credentials");
+  assert.equal(xeMissingCredentialsRates.source, "xe");
+} finally {
+  globalThis.fetch = originalFetch;
+  if (originalFxRateProvider === undefined) delete process.env.FX_RATE_PROVIDER;
+  else process.env.FX_RATE_PROVIDER = originalFxRateProvider;
+  if (originalFrankfurterApiBaseUrl === undefined) delete process.env.FRANKFURTER_API_BASE_URL;
+  else process.env.FRANKFURTER_API_BASE_URL = originalFrankfurterApiBaseUrl;
+  if (originalXeAccountId === undefined) delete process.env.XE_ACCOUNT_ID;
+  else process.env.XE_ACCOUNT_ID = originalXeAccountId;
+  if (originalXeApiKey === undefined) delete process.env.XE_API_KEY;
+  else process.env.XE_API_KEY = originalXeApiKey;
+}
 
 console.log("ledger-dashboard smoke ok");

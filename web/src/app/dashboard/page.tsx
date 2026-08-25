@@ -54,10 +54,18 @@ type LedgerAccount = {
   latestBalance: {
     amount: number;
     currency: string;
+    originalCurrency: string;
     source: LedgerSource;
     balanceDate: string;
     asOf: string;
     balanceType: string;
+    usdConversion: {
+      amount: number;
+      rate: number;
+      rateDate: string;
+      asOf: string;
+      source: string;
+    } | null;
   } | null;
 };
 
@@ -95,6 +103,59 @@ type LedgerDashboardData = {
   balancesByEntity: EntityMoneyGroup[];
   transactionBreakdowns: LedgerTransactionBreakdown[];
   recentTransactions: LedgerRecentTransaction[];
+  dataQualityIssues: Array<{
+    code: "invalid_balance_currency" | "missing_usd_rate";
+    severity: "warning";
+    message: string;
+    entityId: string;
+    bankAccountId: string;
+    balanceId?: string;
+    currency: string;
+  }>;
+  fx: {
+    enabled: boolean;
+    status: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
+    source: "frankfurter" | "xe";
+    missingCurrencies: string[];
+  };
+};
+
+type CleanupCandidate = {
+  accountId: string;
+  entityId: string;
+  accountName: string;
+  currency: string | null;
+  status: string;
+  source: LedgerSource;
+  transactionCount: number;
+  balanceCount: number;
+  importCount: number;
+  latestBalanceAmount: number | null;
+  latestBalanceCurrency: string | null;
+  reason: string;
+  protected: boolean;
+};
+
+type CleanupSummary = {
+  generatedAt: string;
+  dryRun: boolean;
+  counts: {
+    emptyManualAccounts: number;
+    emptyXeroAccounts: number;
+    zeroBalanceNoActivityAccounts: number;
+    duplicateNameGroups: number;
+    invalidBalanceCurrencies: number;
+    archivedAccounts: number;
+  };
+  candidates: {
+    emptyManualAccounts: CleanupCandidate[];
+    emptyXeroAccounts: CleanupCandidate[];
+    zeroBalanceNoActivityAccounts: CleanupCandidate[];
+    duplicateNameGroups: Array<{ entityId: string; normalizedName: string; accounts: CleanupCandidate[] }>;
+    invalidBalanceCurrencies: Array<{ currency: string; balanceCount: number; accountCount: number; exampleAccountName: string | null }>;
+  };
+  archived?: Array<{ id: string; entityId: string; accountName: string; status: string }>;
+  error?: string;
 };
 
 type AccountUpdateResponse = {
@@ -176,6 +237,26 @@ function formatDate(value: string | null | undefined) {
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not available";
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+function fxSourceLabel(source: string) {
+  if (source === "frankfurter") return "Frankfurter";
+  if (source === "xe") return "XE";
+  if (source === "identity") return "Identity";
+  if (source === "manual") return "Manual";
+  return "Cache";
+}
+
+function fxStatusLabel(fx: LedgerDashboardData["fx"]) {
+  const provider = fxSourceLabel(fx.source);
+  if (fx.status === "available") return `${provider} rates cached`;
+  if (fx.status === "missing_credentials") return `${provider} credentials missing`;
+  if (fx.status === "schema_missing") return "FX cache table missing";
+  return "FX refresh failed";
+}
+
+function formatRate(value: number) {
+  return new Intl.NumberFormat("en", { maximumFractionDigits: 8 }).format(value);
 }
 
 function StatSkeleton() {
@@ -276,7 +357,11 @@ export default function DashboardPage() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
   const [selectedAccountType, setSelectedAccountType] = useState<AccountType>("bank");
-  const [hideZeroBalances, setHideZeroBalances] = useState(false);
+  const [hideZeroBalances, setHideZeroBalances] = useState(true);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupApplying, setCleanupApplying] = useState(false);
+  const [cleanupSummary, setCleanupSummary] = useState<CleanupSummary | null>(null);
+  const [cleanupNotice, setCleanupNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
   const [updatingAccountIds, setUpdatingAccountIds] = useState<Set<string>>(() => new Set());
   const [classificationNotice, setClassificationNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
 
@@ -300,6 +385,9 @@ export default function DashboardPage() {
   const visibleTopAccounts = useMemo(() => topAccounts(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
   const visibleBalancesByEntity = useMemo(() => groupBalancesByEntity(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
   const currencyCount = new Set(filteredTotalsByCurrency.map((row) => row.currency)).size;
+  const hiddenZeroAccountCount = accountTypeFilteredAccounts.length - visibleAccounts.length;
+  const totalUsdBalance = visibleAccounts.reduce((total, account) => total + (account.latestBalance?.usdConversion?.amount ?? 0), 0);
+  const convertedBalanceCount = visibleAccounts.filter((account) => account.latestBalance?.usdConversion).length;
   const accountTypeOptions = [
     { type: "bank" as const, label: "Banks", accounts: visibleBankAccounts.length, rows: bankTotals },
     { type: "money_processor" as const, label: "Money Processors", accounts: visibleMpAccounts.length, rows: mpTotals },
@@ -347,6 +435,27 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const loadCleanupSummary = useCallback(async (accessToken: string) => {
+    setCleanupLoading(true);
+    setCleanupNotice(null);
+    try {
+      const response = await fetch("/api/entity-bank-accounts/cleanup", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = (await response.json()) as CleanupSummary;
+      if (!response.ok) throw new Error(body.error || "Failed to load cleanup candidates.");
+      setCleanupSummary(body);
+    } catch (e: unknown) {
+      setCleanupNotice({
+        tone: "warning",
+        title: "Cleanup Scan Unavailable",
+        message: getErrorMessage(e, "Failed to load cleanup candidates."),
+      });
+    } finally {
+      setCleanupLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     let unsub: { unsubscribe: () => void } | null = null;
 
@@ -375,6 +484,7 @@ export default function DashboardPage() {
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
         void loadLedgerDashboard(currentSession.accessToken);
+        void loadCleanupSummary(currentSession.accessToken);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
@@ -385,6 +495,7 @@ export default function DashboardPage() {
           setSession(nextSession);
           void loadXeroStatus(nextSession.accessToken);
           void loadLedgerDashboard(nextSession.accessToken);
+          void loadCleanupSummary(nextSession.accessToken);
         });
         unsub = sub.subscription;
       } catch (e: unknown) {
@@ -397,7 +508,7 @@ export default function DashboardPage() {
     return () => {
       unsub?.unsubscribe();
     };
-  }, [loadLedgerDashboard, loadXeroStatus, supabase]);
+  }, [loadCleanupSummary, loadLedgerDashboard, loadXeroStatus, supabase]);
 
   async function connectXero() {
     if (!session) return;
@@ -502,6 +613,39 @@ export default function DashboardPage() {
     }
   }
 
+  async function archiveEmptyManualAccounts() {
+    if (!session || cleanupApplying) return;
+    setCleanupApplying(true);
+    setCleanupNotice(null);
+    try {
+      const response = await fetch("/api/entity-bank-accounts/cleanup", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "archive_empty_manual_accounts", confirm: true }),
+      });
+      const body = (await response.json()) as CleanupSummary;
+      if (!response.ok) throw new Error(body.error || "Failed to archive empty manual accounts.");
+      setCleanupSummary(body);
+      await loadLedgerDashboard(session.accessToken);
+      setCleanupNotice({
+        tone: "success",
+        title: "Empty Accounts Archived",
+        message: `${body.archived?.length ?? 0} manual empty account${body.archived?.length === 1 ? "" : "s"} archived. Xero-backed accounts were left untouched.`,
+      });
+    } catch (e: unknown) {
+      setCleanupNotice({
+        tone: "warning",
+        title: "Cleanup Not Applied",
+        message: getErrorMessage(e, "Failed to archive empty manual accounts."),
+      });
+    } finally {
+      setCleanupApplying(false);
+    }
+  }
+
   if (loading || !session) {
     return (
       <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
@@ -566,11 +710,14 @@ export default function DashboardPage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => void loadLedgerDashboard(session.accessToken)}
-                  disabled={ledgerLoading}
+                  onClick={() => {
+                    void loadLedgerDashboard(session.accessToken);
+                    void loadCleanupSummary(session.accessToken);
+                  }}
+                  disabled={ledgerLoading || cleanupLoading}
                   className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
-                  {ledgerLoading ? "Refreshing" : "Refresh"}
+                  {ledgerLoading || cleanupLoading ? "Refreshing" : "Refresh"}
                 </button>
                 <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Entities
@@ -642,6 +789,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+                  <div className="text-xs font-semibold uppercase text-zinc-500">USD Converted</div>
+                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{convertedBalanceCount ? formatMoney("USD", totalUsdBalance) : "No rates"}</div>
+                  <div className="mt-2 text-xs text-zinc-500">{ledgerData ? fxStatusLabel(ledgerData.fx) : "Loading rates"}</div>
+                </div>
+                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">All Currencies</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{currencyCount}</div>
                 </div>
@@ -653,13 +805,16 @@ export default function DashboardPage() {
                   <div className="text-xs font-semibold uppercase text-zinc-500">With Balances</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{accountsWithBalances.length}</div>
                 </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">Entities</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{ledgerData?.entities.length ?? 0}</div>
-                </div>
               </>
             )}
           </section>
+
+          {ledgerData?.dataQualityIssues.length ? (
+            <Notice tone="warning" title="Ledger Data Quality">
+              {ledgerData.dataQualityIssues.slice(0, 3).map((issue) => issue.message).join(" ")}
+              {ledgerData.dataQualityIssues.length > 3 ? ` ${ledgerData.dataQualityIssues.length - 3} more issue${ledgerData.dataQualityIssues.length - 3 === 1 ? "" : "s"} found.` : ""}
+            </Notice>
+          ) : null}
 
           {ledgerData && !ledgerData.entities.length ? (
             <Notice tone="info" title="No Entity Access">
@@ -751,6 +906,7 @@ export default function DashboardPage() {
                         <th scope="col" className="px-5 py-3">Type</th>
                         <th scope="col" className="px-5 py-3">Source</th>
                         <th scope="col" className="px-5 py-3 text-right">Latest Balance</th>
+                        <th scope="col" className="px-5 py-3 text-right">USD</th>
                         <th scope="col" className="px-5 py-3">Balance Date</th>
                       </tr>
                     </thead>
@@ -758,7 +914,7 @@ export default function DashboardPage() {
                       {ledgerLoading && !ledgerData ? (
                         [0, 1, 2].map((item) => (
                           <tr key={item}>
-                            <td className="px-5 py-4" colSpan={6}>
+                            <td className="px-5 py-4" colSpan={7}>
                               <SkeletonBlock className="h-4 w-full" />
                             </td>
                           </tr>
@@ -792,12 +948,26 @@ export default function DashboardPage() {
                             <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">
                               {account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
                             </td>
+                            <td className="px-5 py-4 text-right">
+                              {account.latestBalance?.usdConversion ? (
+                                <div>
+                                  <div className="tabular-nums font-semibold text-zinc-950">{formatMoney("USD", account.latestBalance.usdConversion.amount)}</div>
+                                  <div className="mt-1 text-xs text-zinc-500">
+                                    {fxSourceLabel(account.latestBalance.usdConversion.source)} {formatRate(account.latestBalance.usdConversion.rate)} as of {formatDateTime(account.latestBalance.usdConversion.asOf)}
+                                  </div>
+                                </div>
+                              ) : account.latestBalance ? (
+                                <span className="text-sm text-zinc-500">No rate</span>
+                              ) : (
+                                <span className="text-sm text-zinc-500">-</span>
+                              )}
+                            </td>
                             <td className="px-5 py-4 text-zinc-700">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "Not available"}</td>
                           </tr>
                         ))
                       ) : (
                         <tr>
-                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={6}>
+                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={7}>
                             No ledger accounts to show.
                           </td>
                         </tr>
@@ -942,6 +1112,53 @@ export default function DashboardPage() {
                     Manage
                   </Link>
                 </div>
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Account Cleanup</h2>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">
+                      {cleanupLoading ? "Scanning ledger accounts." : cleanupSummary ? `${cleanupSummary.counts.emptyManualAccounts} empty manual, ${cleanupSummary.counts.emptyXeroAccounts} protected Xero, ${cleanupSummary.counts.invalidBalanceCurrencies} currency issue${cleanupSummary.counts.invalidBalanceCurrencies === 1 ? "" : "s"}.` : "Run a dry scan for noisy accounts."}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadCleanupSummary(session.accessToken)}
+                    disabled={cleanupLoading}
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    {cleanupLoading ? "Scanning" : "Scan"}
+                  </button>
+                </div>
+                {hiddenZeroAccountCount > 0 ? <div className="mt-3 text-xs text-zinc-500">{hiddenZeroAccountCount} zero-balance account{hiddenZeroAccountCount === 1 ? "" : "s"} hidden in this view.</div> : null}
+                {cleanupNotice ? (
+                  <div className="mt-4">
+                    <Notice tone={cleanupNotice.tone} title={cleanupNotice.title}>
+                      {cleanupNotice.message}
+                    </Notice>
+                  </div>
+                ) : null}
+                {cleanupSummary?.candidates.emptyManualAccounts.length ? (
+                  <div className="mt-4 border-t border-zinc-100 pt-4">
+                    <div className="text-xs font-semibold uppercase text-zinc-500">Empty Manual Candidates</div>
+                    <ul className="mt-3 space-y-2 text-sm text-zinc-700">
+                      {cleanupSummary.candidates.emptyManualAccounts.slice(0, 5).map((candidate) => (
+                        <li key={candidate.accountId} className="truncate">
+                          {candidate.accountName}
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      type="button"
+                      onClick={archiveEmptyManualAccounts}
+                      disabled={cleanupApplying}
+                      className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                    >
+                      {cleanupApplying ? "Archiving" : "Archive Empty Manual"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
 
               <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
