@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
+import { getUsdRatesForCurrencies } from "@/lib/server/fx-rates";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, type LedgerAccountType, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
 
 export const runtime = "nodejs";
@@ -201,6 +202,7 @@ export async function GET(request: Request) {
           )
         : Promise.resolve([]),
     ]);
+    const usdRates = await getUsdRatesForCurrencies(supabase, balanceResult.map((balance) => balance.currency));
 
     return NextResponse.json(
       buildLedgerDashboardPayload({
@@ -252,6 +254,9 @@ export async function GET(request: Request) {
             status: transaction.status,
           }),
         ),
+        usdRates: usdRates.rates,
+        fxStatus: usdRates.status,
+        fxMissingCurrencies: usdRates.missingCurrencies,
         windowDays: 30,
       }),
     );

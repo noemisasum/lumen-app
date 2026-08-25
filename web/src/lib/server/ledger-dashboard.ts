@@ -32,6 +32,24 @@ export type LedgerDashboardBalance = {
   currency: string;
 };
 
+export type LedgerUsdConversion = {
+  amount: number;
+  rate: number;
+  rateDate: string;
+  asOf: string;
+  source: string;
+};
+
+export type LedgerDataQualityIssue = {
+  code: "invalid_balance_currency" | "missing_usd_rate";
+  severity: "warning";
+  message: string;
+  entityId: string;
+  bankAccountId: string;
+  balanceId?: string;
+  currency: string;
+};
+
 export type LedgerDashboardTransaction = {
   id: string;
   entityId: string;
@@ -73,10 +91,12 @@ export type LedgerTransactionBreakdown = {
 export type LedgerDashboardLatestBalance = {
   amount: number;
   currency: string;
+  originalCurrency: string;
   source: LedgerSource;
   balanceDate: string;
   asOf: string;
   balanceType: string;
+  usdConversion: LedgerUsdConversion | null;
 };
 
 export type LedgerDashboardRecentTransaction = {
@@ -105,6 +125,13 @@ export type LedgerDashboardPayload = {
   balancesByEntity: LedgerEntityMoneyGroup[];
   transactionBreakdowns: LedgerTransactionBreakdown[];
   recentTransactions: LedgerDashboardRecentTransaction[];
+  dataQualityIssues: LedgerDataQualityIssue[];
+  fx: {
+    enabled: boolean;
+    status: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
+    source: "xe";
+    missingCurrencies: string[];
+  };
 };
 
 type GroupValue = {
@@ -152,7 +179,9 @@ export function isMissingLedgerAccountTypeColumnError(error: unknown) {
 }
 
 function displayCurrency(primary: string | null | undefined, fallback: string | null | undefined) {
-  return normalizeDashboardCurrency(primary) ?? normalizeDashboardCurrency(fallback) ?? "Unspecified";
+  const rawPrimary = primary?.trim();
+  if (rawPrimary) return normalizeDashboardCurrency(rawPrimary) ?? "Unspecified";
+  return normalizeDashboardCurrency(fallback) ?? "Unspecified";
 }
 
 function compareIsoDesc(left: string | null | undefined, right: string | null | undefined) {
@@ -191,6 +220,9 @@ export function buildLedgerDashboardPayload(input: {
   accounts: LedgerDashboardAccount[];
   balances: LedgerDashboardBalance[];
   transactions: LedgerDashboardTransaction[];
+  usdRates?: Map<string, { rateToUsd: number; rateDate: string; asOf: string; source: string; status: string }>;
+  fxStatus?: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
+  fxMissingCurrencies?: string[];
   asOf?: string;
   windowDays?: number;
 }): LedgerDashboardPayload {
@@ -200,17 +232,61 @@ export function buildLedgerDashboardPayload(input: {
   const accountById = new Map(input.accounts.map((account) => [account.id, account]));
   const sortedBalances = [...input.balances].sort(compareBalances);
   const latestBalanceByAccountId = new Map<string, LedgerDashboardLatestBalance>();
+  const dataQualityIssues: LedgerDataQualityIssue[] = [];
+  const fxMissingCurrencies = new Set(input.fxMissingCurrencies ?? []);
 
   for (const balance of sortedBalances) {
     if (latestBalanceByAccountId.has(balance.bankAccountId)) continue;
     const account = accountById.get(balance.bankAccountId);
+    const normalizedBalanceCurrency = normalizeDashboardCurrency(balance.currency);
+    const displayedCurrency = displayCurrency(balance.currency, account?.currency);
+    const amount = numberValue(balance.amount);
+    let usdConversion: LedgerUsdConversion | null = null;
+
+    if (!normalizedBalanceCurrency) {
+      const invalidCurrency = balance.currency?.trim().toUpperCase() || "Unspecified";
+      dataQualityIssues.push({
+        code: "invalid_balance_currency",
+        severity: "warning",
+        message: `${invalidCurrency} is not a supported ISO currency code for ${account?.accountName ?? "a bank account"} balance.`,
+        entityId: balance.entityId,
+        bankAccountId: balance.bankAccountId,
+        balanceId: balance.id,
+        currency: invalidCurrency,
+      });
+    } else {
+      const rate = input.usdRates?.get(normalizedBalanceCurrency);
+      if (rate?.status === "available" && Number.isFinite(rate.rateToUsd) && rate.rateToUsd > 0) {
+        usdConversion = {
+          amount: amount * rate.rateToUsd,
+          rate: rate.rateToUsd,
+          rateDate: rate.rateDate,
+          asOf: rate.asOf,
+          source: rate.source,
+        };
+      } else if (normalizedBalanceCurrency !== "USD") {
+        fxMissingCurrencies.add(normalizedBalanceCurrency);
+        dataQualityIssues.push({
+          code: "missing_usd_rate",
+          severity: "warning",
+          message: `No cached USD exchange rate is available for ${normalizedBalanceCurrency}.`,
+          entityId: balance.entityId,
+          bankAccountId: balance.bankAccountId,
+          balanceId: balance.id,
+          currency: normalizedBalanceCurrency,
+        });
+      }
+    }
+
     latestBalanceByAccountId.set(balance.bankAccountId, {
-      amount: numberValue(balance.amount),
-      currency: displayCurrency(balance.currency, account?.currency),
+      amount,
+      currency: displayedCurrency,
+      originalCurrency: balance.currency?.trim().toUpperCase() || displayedCurrency,
       source: balance.source,
       balanceDate: balance.balanceDate,
       asOf: balance.asOf,
       balanceType: balance.balanceType,
+      usdConversion,
     });
   }
 
@@ -322,5 +398,12 @@ export function buildLedgerDashboardPayload(input: {
       (left, right) => left.source.localeCompare(right.source) || left.currency.localeCompare(right.currency),
     ),
     recentTransactions,
+    dataQualityIssues,
+    fx: {
+      enabled: input.fxStatus === "available",
+      status: input.fxStatus ?? "missing_credentials",
+      source: "xe",
+      missingCurrencies: Array.from(fxMissingCurrencies).sort(),
+    },
   };
 }

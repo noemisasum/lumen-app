@@ -113,9 +113,15 @@ const payload = buildLedgerDashboardPayload({
       status: "posted",
     },
   ],
+  usdRates: new Map([
+    ["HKD", { rateToUsd: 0.128, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+    ["USD", { rateToUsd: 1, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "identity", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.amount, 250.5);
+assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.usdConversion?.amount, 32.064);
 assert.equal(payload.accounts.find((account) => account.id === "account-paypal")?.accountType, "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "bank");
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
@@ -192,6 +198,11 @@ const largePayload = buildLedgerDashboardPayload({
   accounts: largeAccounts,
   balances: largeBalances,
   transactions: largeTransactions,
+  usdRates: new Map([
+    ["HKD", { rateToUsd: 0.128, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+    ["USD", { rateToUsd: 1, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "identity", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
 assert.deepEqual(largePayload.totalsByCurrency, [
@@ -222,10 +233,16 @@ const invalidCurrencyPayload = buildLedgerDashboardPayload({
     },
   ],
   transactions: [],
+  usdRates: new Map([
+    ["EUR", { rateToUsd: 1.16, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }],
+  ]),
+  fxStatus: "available",
 });
 
-assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.currency, "EUR");
-assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "EUR", amount: 5, accountCount: 1 }]);
+assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.currency, "Unspecified");
+assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.usdConversion, null);
+assert.equal(invalidCurrencyPayload.dataQualityIssues[0]?.currency, "AUG");
+assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "Unspecified", amount: 5, accountCount: 1 }]);
 
 const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
@@ -246,6 +263,7 @@ const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
     },
   ],
   transactions: [],
+  fxStatus: "missing_credentials",
 });
 
 assert.equal(invalidAccountCurrencyPayload.accounts[0].currency, null);
