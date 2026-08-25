@@ -722,6 +722,9 @@ export default function DashboardPage() {
                 <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Entities
                 </Link>
+                <Link href="/dashboard/bank-balances" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
+                  Bank Balance Tracker
+                </Link>
                 <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
                   Statement Intake
                 </Link>
@@ -1097,6 +1100,21 @@ export default function DashboardPage() {
                     </ul>
                   </div>
                 ) : null}
+              </div>
+
+              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Bank Balance Tracker</h2>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Review the bank balance workbook presentation with country, license, concentration, mapping, and FX views.</p>
+                  </div>
+                  <Link
+                    href="/dashboard/bank-balances"
+                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
+                  >
+                    Open
+                  </Link>
+                </div>
               </div>
 
               <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
