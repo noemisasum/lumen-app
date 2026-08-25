@@ -5,3 +5,4 @@ dist
 .env
 .env.*
 .DS_Store
+web/.bank-balance-tracker-smoke/

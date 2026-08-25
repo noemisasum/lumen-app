@@ -29,6 +29,20 @@ export type FundTypeSplitRow = {
   shareOfTotal: number;
 };
 
+export type AccountEntityBalanceRow = {
+  accountEntity: string;
+  balanceUsd: number;
+  movementUsd: number;
+  accountCount: number;
+};
+
+export type BankExposureRow = {
+  bank: string;
+  balanceUsd: number;
+  movementUsd: number;
+  accountCount: number;
+};
+
 export type StatementReadiness = {
   readyAccounts: number;
   mappedAccounts: number;
@@ -97,6 +111,34 @@ export function groupFundTypes(rows: MonthlyBalanceRow[], totalUsd: number): Fun
   return Array.from(grouped.values())
     .map((row) => ({ ...row, shareOfTotal: totalUsd ? row.balanceUsd / totalUsd : 0 }))
     .sort((left, right) => Math.abs(right.balanceUsd) - Math.abs(left.balanceUsd));
+}
+
+export function groupAccountEntityBalances(rows: MonthlyBalanceRow[]): AccountEntityBalanceRow[] {
+  const grouped = new Map<string, AccountEntityBalanceRow>();
+
+  for (const row of rows) {
+    const current = grouped.get(row.accountEntity) ?? { accountEntity: row.accountEntity, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
+    current.balanceUsd += row.balanceUsd;
+    current.movementUsd += row.movementUsd;
+    current.accountCount += 1;
+    grouped.set(row.accountEntity, current);
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => Math.abs(right.balanceUsd) - Math.abs(left.balanceUsd));
+}
+
+export function groupBankExposure(rows: MonthlyBalanceRow[]): BankExposureRow[] {
+  const grouped = new Map<string, BankExposureRow>();
+
+  for (const row of rows) {
+    const current = grouped.get(row.bank) ?? { bank: row.bank, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
+    current.balanceUsd += row.balanceUsd;
+    current.movementUsd += row.movementUsd;
+    current.accountCount += 1;
+    grouped.set(row.bank, current);
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => Math.abs(right.balanceUsd) - Math.abs(left.balanceUsd));
 }
 
 export function getLargestCountryMovement(rows: CountrySummaryRow[]) {

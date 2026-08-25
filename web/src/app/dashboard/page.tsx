@@ -269,11 +269,11 @@ function StatSkeleton() {
   );
 }
 
-function CompactMoneyList({ rows, emptyLabel }: { rows: MoneyGroup[]; emptyLabel: string }) {
+function CompactMoneyList({ rows, emptyLabel, className = "" }: { rows: MoneyGroup[]; emptyLabel: string; className?: string }) {
   if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
 
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${className}`}>
       {rows.map((row) => (
         <div key={row.currency} className="flex items-baseline justify-between gap-3 text-sm">
           <span className="font-medium text-zinc-700">{currencyLabel(row.currency)}</span>
@@ -847,13 +847,13 @@ export default function DashboardPage() {
                         key={row.type}
                         type="button"
                         onClick={() => setSelectedAccountType(row.type)}
-                        className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 ${selectedAccountType === row.type ? "bg-zinc-50" : ""}`}
+                        className={`flex w-full flex-col gap-3 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${selectedAccountType === row.type ? "bg-zinc-50" : ""}`}
                       >
-                        <div>
+                        <div className="min-w-0">
                           <div className="font-medium text-zinc-950">{accountTypePluralLabel(row.type)}</div>
                           <div className="mt-1 text-xs text-zinc-500">{row.accounts} account{row.accounts === 1 ? "" : "s"}</div>
                         </div>
-                        <div className="min-w-32 text-right">
+                        <div className="min-w-0 sm:min-w-32 sm:text-right">
                           <CompactMoneyList rows={row.rows} emptyLabel="No balances" />
                         </div>
                       </button>
@@ -1040,9 +1040,12 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm font-semibold text-zinc-950">Currency Totals</div>
-                    <div className="mt-3">
-                      <CompactMoneyList rows={filteredTotalsByCurrency} emptyLabel="No balances in this view." />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-semibold text-zinc-950">Currency Totals</div>
+                      <div className="text-xs text-zinc-500">{filteredTotalsByCurrency.length} total{filteredTotalsByCurrency.length === 1 ? "" : "s"}</div>
+                    </div>
+                    <div className="mt-3 max-h-80 overflow-y-auto pr-1 [scrollbar-gutter:stable]" tabIndex={0} aria-label="Currency totals list">
+                      <CompactMoneyList rows={filteredTotalsByCurrency} emptyLabel="No balances in this view." className="pb-1" />
                     </div>
                   </div>
                 </div>
