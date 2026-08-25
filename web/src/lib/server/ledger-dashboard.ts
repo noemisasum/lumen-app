@@ -233,7 +233,27 @@ export function buildLedgerDashboardPayload(input: {
   const sortedBalances = [...input.balances].sort(compareBalances);
   const latestBalanceByAccountId = new Map<string, LedgerDashboardLatestBalance>();
   const dataQualityIssues: LedgerDataQualityIssue[] = [];
+  const invalidBalanceIssueKeys = new Set<string>();
   const fxMissingCurrencies = new Set(input.fxMissingCurrencies ?? []);
+
+  for (const balance of input.balances) {
+    if (normalizeDashboardCurrency(balance.currency)) continue;
+    const account = accountById.get(balance.bankAccountId);
+    const invalidCurrency = balance.currency?.trim().toUpperCase() || "Unspecified";
+    const issueKey = `${balance.bankAccountId}:${invalidCurrency}`;
+    if (invalidBalanceIssueKeys.has(issueKey)) continue;
+
+    invalidBalanceIssueKeys.add(issueKey);
+    dataQualityIssues.push({
+      code: "invalid_balance_currency",
+      severity: "warning",
+      message: `${invalidCurrency} is not a supported ISO currency code for ${account?.accountName ?? "a bank account"} balance.`,
+      entityId: balance.entityId,
+      bankAccountId: balance.bankAccountId,
+      balanceId: balance.id,
+      currency: invalidCurrency,
+    });
+  }
 
   for (const balance of sortedBalances) {
     if (latestBalanceByAccountId.has(balance.bankAccountId)) continue;
@@ -243,18 +263,7 @@ export function buildLedgerDashboardPayload(input: {
     const amount = numberValue(balance.amount);
     let usdConversion: LedgerUsdConversion | null = null;
 
-    if (!normalizedBalanceCurrency) {
-      const invalidCurrency = balance.currency?.trim().toUpperCase() || "Unspecified";
-      dataQualityIssues.push({
-        code: "invalid_balance_currency",
-        severity: "warning",
-        message: `${invalidCurrency} is not a supported ISO currency code for ${account?.accountName ?? "a bank account"} balance.`,
-        entityId: balance.entityId,
-        bankAccountId: balance.bankAccountId,
-        balanceId: balance.id,
-        currency: invalidCurrency,
-      });
-    } else {
+    if (normalizedBalanceCurrency) {
       const rate = input.usdRates?.get(normalizedBalanceCurrency);
       if (rate?.status === "available" && Number.isFinite(rate.rateToUsd) && rate.rateToUsd > 0) {
         usdConversion = {

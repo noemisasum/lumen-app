@@ -244,6 +244,57 @@ assert.equal(invalidCurrencyPayload.accounts[0].latestBalance?.usdConversion, nu
 assert.equal(invalidCurrencyPayload.dataQualityIssues[0]?.currency, "AUG");
 assert.deepEqual(invalidCurrencyPayload.totalsByCurrency, [{ currency: "Unspecified", amount: 5, accountCount: 1 }]);
 
+const olderInvalidCurrencyPayload = buildLedgerDashboardPayload({
+  asOf: "2026-08-22T00:00:00.000Z",
+  windowDays: 30,
+  entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
+  accounts: [{ id: "account-older-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
+  balances: [
+    {
+      id: "latest-valid-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-08-20",
+      asOf: "2026-08-20T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 10,
+      currency: "EUR",
+    },
+    {
+      id: "older-invalid-currency",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-08-01",
+      asOf: "2026-08-01T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 5,
+      currency: "AUG",
+    },
+    {
+      id: "older-invalid-currency-duplicate",
+      entityId: "entity-a",
+      bankAccountId: "account-older-invalid",
+      source: "manual",
+      balanceDate: "2026-07-01",
+      asOf: "2026-07-01T10:00:00.000Z",
+      balanceType: "closing",
+      amount: 4,
+      currency: "AUG",
+    },
+  ],
+  transactions: [],
+  usdRates: new Map([["EUR", { rateToUsd: 1.16, rateDate: "2026-08-20", asOf: "2026-08-20T12:00:00.000Z", source: "xe", status: "available" }]]),
+  fxStatus: "available",
+});
+
+assert.equal(olderInvalidCurrencyPayload.accounts[0].latestBalance?.currency, "EUR");
+assert.deepEqual(
+  olderInvalidCurrencyPayload.dataQualityIssues.filter((issue) => issue.code === "invalid_balance_currency").map((issue) => issue.currency),
+  ["AUG"],
+);
+
 const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,

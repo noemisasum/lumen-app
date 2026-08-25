@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireEntityAccess, requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
+import { loadBankAccountRelatedRowsPaged, type SupabasePagedClient } from "@/lib/server/supabase-pagination";
 import { normalizeFxCurrency } from "@/lib/server/fx-rates";
 
 export const runtime = "nodejs";
@@ -187,28 +188,37 @@ async function buildCleanupSummary(supabase: ReturnType<typeof getSupabaseServic
 
   const accounts = (accountsData ?? []) as BankAccountRow[];
   const accountIds = accounts.map((account) => account.id);
+  const pagedSupabase = supabase as unknown as SupabasePagedClient;
 
-  const [transactionsResult, balancesResult, importsResult] = await Promise.all([
-    accountIds.length ? supabase.from("bank_account_transactions").select("bank_account_id").in("bank_account_id", accountIds) : Promise.resolve({ data: [], error: null }),
-    accountIds.length ? supabase.from("bank_account_balances").select("bank_account_id,amount,currency,balance_date,as_of").in("bank_account_id", accountIds) : Promise.resolve({ data: [], error: null }),
-    accountIds.length ? supabase.from("bank_statement_imports").select("bank_account_id").in("bank_account_id", accountIds) : Promise.resolve({ data: [], error: null }),
+  const [transactionRows, balanceRows, importRows] = await Promise.all([
+    loadBankAccountRelatedRowsPaged<CountRow>(pagedSupabase, {
+      table: "bank_account_transactions",
+      selectColumns: "bank_account_id",
+      accountIds,
+    }),
+    loadBankAccountRelatedRowsPaged<BalanceRow>(pagedSupabase, {
+      table: "bank_account_balances",
+      selectColumns: "bank_account_id,amount,currency,balance_date,as_of",
+      accountIds,
+    }),
+    loadBankAccountRelatedRowsPaged<CountRow>(pagedSupabase, {
+      table: "bank_statement_imports",
+      selectColumns: "bank_account_id",
+      accountIds,
+    }),
   ]);
-
-  if (transactionsResult.error) throw transactionsResult.error;
-  if (balancesResult.error) throw balancesResult.error;
-  if (importsResult.error) throw importsResult.error;
 
   const transactionCounts = new Map<string, number>();
   const balanceCounts = new Map<string, number>();
   const importCounts = new Map<string, number>();
-  for (const row of (transactionsResult.data ?? []) as CountRow[]) incrementCount(transactionCounts, row.bank_account_id);
-  for (const row of (balancesResult.data ?? []) as BalanceRow[]) incrementCount(balanceCounts, row.bank_account_id);
-  for (const row of (importsResult.data ?? []) as CountRow[]) {
+  for (const row of transactionRows) incrementCount(transactionCounts, row.bank_account_id);
+  for (const row of balanceRows) incrementCount(balanceCounts, row.bank_account_id);
+  for (const row of importRows) {
     if (row.bank_account_id) incrementCount(importCounts, row.bank_account_id);
   }
 
   const latestBalanceByAccountId = new Map<string, BalanceRow>();
-  for (const balance of [...((balancesResult.data ?? []) as BalanceRow[])].sort(sortLatestBalances)) {
+  for (const balance of [...balanceRows].sort(sortLatestBalances)) {
     if (!latestBalanceByAccountId.has(balance.bank_account_id)) latestBalanceByAccountId.set(balance.bank_account_id, balance);
   }
 
@@ -240,7 +250,7 @@ async function buildCleanupSummary(supabase: ReturnType<typeof getSupabaseServic
     }
   }
 
-  for (const balance of (balancesResult.data ?? []) as BalanceRow[]) {
+  for (const balance of balanceRows) {
     const currency = balance.currency?.trim().toUpperCase() || "Unspecified";
     if (normalizeFxCurrency(currency)) continue;
     const account = accounts.find((item) => item.id === balance.bank_account_id);
