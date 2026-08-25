@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type FxRateSource = "identity" | "cache" | "xe" | "manual";
+export type FxRateProvider = "frankfurter" | "xe";
+export type FxRateSource = "identity" | "cache" | FxRateProvider | "manual";
 export type FxRateStatus = "available" | "missing_credentials" | "schema_missing" | "fetch_failed" | "invalid_currency";
 
 export type FxUsdRate = {
@@ -31,7 +32,16 @@ type XeConversionResponse = {
   timestamp?: string;
 };
 
+type FrankfurterRateResponse = {
+  base?: string;
+  quote?: string;
+  rate?: number;
+  date?: string;
+};
+
+const FRANKFURTER_SOURCE = "frankfurter";
 const XE_SOURCE = "xe";
+const FX_RATE_SOURCES = new Set<string>([FRANKFURTER_SOURCE, XE_SOURCE, "manual"]);
 const USD_RATE: FxUsdRate = {
   currency: "USD",
   rateToUsd: 1,
@@ -58,11 +68,19 @@ function isMissingFxTableError(error: unknown) {
   return text.includes("fx_exchange_rates") && (code === "42P01" || code === "PGRST205" || text.includes("does not exist") || text.includes("schema cache"));
 }
 
+function getFxRateProvider(): FxRateProvider {
+  return process.env.FX_RATE_PROVIDER?.trim().toLowerCase() === XE_SOURCE ? XE_SOURCE : FRANKFURTER_SOURCE;
+}
+
 function getXeCredentials() {
   const accountId = process.env.XE_ACCOUNT_ID?.trim();
   const apiKey = process.env.XE_API_KEY?.trim();
   const apiBaseUrl = process.env.XE_API_BASE_URL?.trim() || "https://xecdapi.xe.com/v1";
   return accountId && apiKey ? { accountId, apiKey, apiBaseUrl } : null;
+}
+
+function getFrankfurterApiBaseUrl() {
+  return process.env.FRANKFURTER_API_BASE_URL?.trim() || "https://api.frankfurter.dev/v2";
 }
 
 function rateFromRow(row: FxRateRow): FxUsdRate | null {
@@ -75,7 +93,7 @@ function rateFromRow(row: FxRateRow): FxUsdRate | null {
     rateToUsd: rate,
     rateDate: row.rate_date,
     asOf: row.as_of,
-    source: row.source === XE_SOURCE ? "xe" : row.source === "manual" ? "manual" : "cache",
+    source: FX_RATE_SOURCES.has(row.source) ? (row.source as FxRateSource) : "cache",
     status: "available",
   };
 }
@@ -154,6 +172,33 @@ async function fetchXeUsdRate(currency: string): Promise<FxUsdRate> {
   };
 }
 
+async function fetchFrankfurterUsdRate(currency: string): Promise<FxUsdRate> {
+  const url = new URL(`${getFrankfurterApiBaseUrl().replace(/\/+$/, "")}/rate/${currency}/USD`);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) throw new Error(`Frankfurter returned ${response.status} for ${currency}.`);
+
+  const body = (await response.json()) as FrankfurterRateResponse;
+  const rate = body.rate;
+  if (!Number.isFinite(rate) || !rate || rate <= 0) throw new Error(`Frankfurter did not return a usable USD rate for ${currency}.`);
+
+  const rateDate = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : new Date().toISOString().slice(0, 10);
+  return {
+    currency,
+    rateToUsd: rate,
+    rateDate,
+    asOf: new Date().toISOString(),
+    source: "frankfurter",
+    status: "available",
+    rawPayload: body,
+  };
+}
+
 async function cacheFetchedRate(supabase: SupabaseClient, rate: FxUsdRate) {
   const { error } = await supabase.from("fx_exchange_rates").upsert(
     {
@@ -161,7 +206,7 @@ async function cacheFetchedRate(supabase: SupabaseClient, rate: FxUsdRate) {
       quote_currency: "USD",
       rate_date: rate.rateDate,
       rate: rate.rateToUsd,
-      source: XE_SOURCE,
+      source: rate.source,
       as_of: rate.asOf,
       raw_payload: rate.rawPayload ?? {},
       updated_at: new Date().toISOString(),
@@ -179,19 +224,21 @@ export async function getUsdRatesForCurrencies(supabase: SupabaseClient, inputCu
     return {
       rates,
       status: "schema_missing" as const,
+      source: getFxRateProvider(),
       missingCurrencies: currencies.filter((currency) => !rates.has(currency)),
     };
   }
 
   const missingCurrencies = currencies.filter((currency) => !rates.has(currency));
-  const credentials = getXeCredentials();
-  if (!credentials) {
-    return { rates, status: missingCurrencies.length ? ("missing_credentials" as const) : ("available" as const), missingCurrencies };
+  const provider = getFxRateProvider();
+  const credentials = provider === "xe" ? getXeCredentials() : null;
+  if (provider === "xe" && !credentials) {
+    return { rates, status: missingCurrencies.length ? ("missing_credentials" as const) : ("available" as const), source: provider, missingCurrencies };
   }
 
   for (const currency of missingCurrencies) {
     try {
-      const fetched = await fetchXeUsdRate(currency);
+      const fetched = provider === "xe" ? await fetchXeUsdRate(currency) : await fetchFrankfurterUsdRate(currency);
       await cacheFetchedRate(supabase, fetched);
       rates.set(currency, fetched);
     } catch {
@@ -200,12 +247,12 @@ export async function getUsdRatesForCurrencies(supabase: SupabaseClient, inputCu
         rateToUsd: 0,
         rateDate: new Date().toISOString().slice(0, 10),
         asOf: new Date().toISOString(),
-        source: "xe",
+        source: provider,
         status: "fetch_failed",
       });
     }
   }
 
   const stillMissing = currencies.filter((currency) => !rates.has(currency) || rates.get(currency)?.status !== "available");
-  return { rates, status: stillMissing.length ? ("fetch_failed" as const) : ("available" as const), missingCurrencies: stillMissing };
+  return { rates, status: stillMissing.length ? ("fetch_failed" as const) : ("available" as const), source: provider, missingCurrencies: stillMissing };
 }

@@ -129,7 +129,7 @@ export type LedgerDashboardPayload = {
   fx: {
     enabled: boolean;
     status: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
-    source: "xe";
+    source: "frankfurter" | "xe";
     missingCurrencies: string[];
   };
 };
@@ -222,6 +222,7 @@ export function buildLedgerDashboardPayload(input: {
   transactions: LedgerDashboardTransaction[];
   usdRates?: Map<string, { rateToUsd: number; rateDate: string; asOf: string; source: string; status: string }>;
   fxStatus?: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
+  fxSource?: "frankfurter" | "xe";
   fxMissingCurrencies?: string[];
   asOf?: string;
   windowDays?: number;
@@ -411,7 +412,7 @@ export function buildLedgerDashboardPayload(input: {
     fx: {
       enabled: input.fxStatus === "available",
       status: input.fxStatus ?? "missing_credentials",
-      source: "xe",
+      source: input.fxSource ?? "frankfurter",
       missingCurrencies: Array.from(fxMissingCurrencies).sort(),
     },
   };

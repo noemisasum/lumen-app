@@ -4,7 +4,7 @@ create table if not exists public.fx_exchange_rates (
   quote_currency text not null default 'USD',
   rate_date date not null,
   rate numeric not null check (rate > 0),
-  source text not null default 'xe' check (source in ('xe','manual')),
+  source text not null default 'frankfurter' check (source in ('frankfurter','xe','manual')),
   as_of timestamptz not null default now(),
   raw_payload jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -12,6 +12,14 @@ create table if not exists public.fx_exchange_rates (
   constraint fx_exchange_rates_currency_check
     check (base_currency ~ '^[A-Z]{3}$' and quote_currency ~ '^[A-Z]{3}$')
 );
+
+alter table public.fx_exchange_rates
+  alter column source set default 'frankfurter';
+alter table public.fx_exchange_rates
+  drop constraint if exists fx_exchange_rates_source_check;
+alter table public.fx_exchange_rates
+  add constraint fx_exchange_rates_source_check
+  check (source in ('frankfurter','xe','manual'));
 
 create unique index if not exists fx_exchange_rates_currency_date_source_uidx
   on public.fx_exchange_rates(base_currency, quote_currency, rate_date, source);

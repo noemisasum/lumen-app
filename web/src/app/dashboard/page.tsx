@@ -115,7 +115,7 @@ type LedgerDashboardData = {
   fx: {
     enabled: boolean;
     status: "available" | "missing_credentials" | "schema_missing" | "fetch_failed";
-    source: "xe";
+    source: "frankfurter" | "xe";
     missingCurrencies: string[];
   };
 };
@@ -239,10 +239,19 @@ function formatDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function fxStatusLabel(status: LedgerDashboardData["fx"]["status"]) {
-  if (status === "available") return "XE rates cached";
-  if (status === "missing_credentials") return "XE credentials missing";
-  if (status === "schema_missing") return "FX cache table missing";
+function fxSourceLabel(source: string) {
+  if (source === "frankfurter") return "Frankfurter";
+  if (source === "xe") return "XE";
+  if (source === "identity") return "Identity";
+  if (source === "manual") return "Manual";
+  return "Cache";
+}
+
+function fxStatusLabel(fx: LedgerDashboardData["fx"]) {
+  const provider = fxSourceLabel(fx.source);
+  if (fx.status === "available") return `${provider} rates cached`;
+  if (fx.status === "missing_credentials") return `${provider} credentials missing`;
+  if (fx.status === "schema_missing") return "FX cache table missing";
   return "FX refresh failed";
 }
 
@@ -782,7 +791,7 @@ export default function DashboardPage() {
                 <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">USD Converted</div>
                   <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{convertedBalanceCount ? formatMoney("USD", totalUsdBalance) : "No rates"}</div>
-                  <div className="mt-2 text-xs text-zinc-500">{ledgerData ? fxStatusLabel(ledgerData.fx.status) : "Loading rates"}</div>
+                  <div className="mt-2 text-xs text-zinc-500">{ledgerData ? fxStatusLabel(ledgerData.fx) : "Loading rates"}</div>
                 </div>
                 <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
                   <div className="text-xs font-semibold uppercase text-zinc-500">All Currencies</div>
@@ -944,7 +953,7 @@ export default function DashboardPage() {
                                 <div>
                                   <div className="tabular-nums font-semibold text-zinc-950">{formatMoney("USD", account.latestBalance.usdConversion.amount)}</div>
                                   <div className="mt-1 text-xs text-zinc-500">
-                                    {account.latestBalance.usdConversion.source.toUpperCase()} {formatRate(account.latestBalance.usdConversion.rate)} as of {formatDateTime(account.latestBalance.usdConversion.asOf)}
+                                    {fxSourceLabel(account.latestBalance.usdConversion.source)} {formatRate(account.latestBalance.usdConversion.rate)} as of {formatDateTime(account.latestBalance.usdConversion.asOf)}
                                   </div>
                                 </div>
                               ) : account.latestBalance ? (

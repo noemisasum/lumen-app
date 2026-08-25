@@ -256,6 +256,7 @@ export async function GET(request: Request) {
         ),
         usdRates: usdRates.rates,
         fxStatus: usdRates.status,
+        fxSource: usdRates.source,
         fxMissingCurrencies: usdRates.missingCurrencies,
         windowDays: 30,
       }),
