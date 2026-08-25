@@ -766,7 +766,7 @@ function Panel({
 
 function CompactTable({ headers, rows }: { headers: string[]; rows: Array<Array<ReactNode>> }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" role="region" tabIndex={0} aria-label={`Scrollable table: ${headers.join(", ")}`}>
       <table className="min-w-full divide-y divide-zinc-100 text-sm">
         <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
           <tr>
