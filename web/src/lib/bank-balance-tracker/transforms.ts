@@ -29,8 +29,8 @@ export type FundTypeSplitRow = {
   shareOfTotal: number;
 };
 
-export type EntityGroupExposureRow = {
-  entityGroup: string;
+export type AccountEntityBalanceRow = {
+  accountEntity: string;
   balanceUsd: number;
   movementUsd: number;
   accountCount: number;
@@ -113,11 +113,11 @@ export function groupFundTypes(rows: MonthlyBalanceRow[], totalUsd: number): Fun
     .sort((left, right) => Math.abs(right.balanceUsd) - Math.abs(left.balanceUsd));
 }
 
-export function groupEntityExposure(rows: MonthlyBalanceRow[]): EntityGroupExposureRow[] {
-  const grouped = new Map<string, EntityGroupExposureRow>();
+export function groupAccountEntityBalances(rows: MonthlyBalanceRow[]): AccountEntityBalanceRow[] {
+  const grouped = new Map<string, AccountEntityBalanceRow>();
 
   for (const row of rows) {
-    const current = grouped.get(row.accountEntity) ?? { entityGroup: row.accountEntity, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
+    const current = grouped.get(row.accountEntity) ?? { accountEntity: row.accountEntity, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
     current.balanceUsd += row.balanceUsd;
     current.movementUsd += row.movementUsd;
     current.accountCount += 1;

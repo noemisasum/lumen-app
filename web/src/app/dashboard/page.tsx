@@ -1044,7 +1044,7 @@ export default function DashboardPage() {
                       <div className="text-sm font-semibold text-zinc-950">Currency Totals</div>
                       <div className="text-xs text-zinc-500">{filteredTotalsByCurrency.length} total{filteredTotalsByCurrency.length === 1 ? "" : "s"}</div>
                     </div>
-                    <div className="mt-3 max-h-80 overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+                    <div className="mt-3 max-h-80 overflow-y-auto pr-1 [scrollbar-gutter:stable]" tabIndex={0} aria-label="Currency totals list">
                       <CompactMoneyList rows={filteredTotalsByCurrency} emptyLabel="No balances in this view." className="pb-1" />
                     </div>
                   </div>

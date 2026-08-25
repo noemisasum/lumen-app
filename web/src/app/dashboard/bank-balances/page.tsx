@@ -9,11 +9,11 @@ import { sampleBankBalanceWorkbook } from "@/lib/bank-balance-tracker/sample-dat
 import {
   filterBalances,
   formatUploadCoverage,
+  groupAccountEntityBalances,
   groupBankExposure,
   getLargestCountryMovement,
   getLargestLicenseSplit,
   groupCurrencyExposure,
-  groupEntityExposure,
   groupFundTypes,
   normalizeStatementStatus,
   percentOf,
@@ -101,7 +101,7 @@ export default function BankBalanceTrackerPage() {
   const filteredBalances = useMemo(() => sortBalances(filterBalances(data.monthlyBalances, filters), sortKey), [filters, sortKey]);
   const filteredUsd = useMemo(() => filteredBalances.reduce((total, row) => total + row.balanceUsd, 0), [filteredBalances]);
   const currencyExposure = useMemo(() => groupCurrencyExposure(data.monthlyBalances), []);
-  const entityExposure = useMemo(() => groupEntityExposure(data.monthlyBalances), []);
+  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data.monthlyBalances), []);
   const bankExposure = useMemo(() => groupBankExposure(data.monthlyBalances), []);
   const fundSplits = useMemo(() => groupFundTypes(data.monthlyBalances, data.kpis.totalUsd), []);
   const readiness = useMemo(() => statementReadiness(data), []);
@@ -208,7 +208,7 @@ export default function BankBalanceTrackerPage() {
                   concentration={data.concentration}
                   fundSplits={fundSplits}
                   currencyExposure={currencyExposure}
-                  entityExposure={entityExposure}
+                  accountEntityBalances={accountEntityBalances}
                   bankExposure={bankExposure}
                   largestCountryMovement={largestCountryMovement}
                   largestLicense={largestLicense}
@@ -279,7 +279,7 @@ function OverviewPanel({
   concentration,
   fundSplits,
   currencyExposure,
-  entityExposure,
+  accountEntityBalances,
   bankExposure,
   largestCountryMovement,
   largestLicense,
@@ -290,7 +290,7 @@ function OverviewPanel({
   concentration: BankConcentrationRow[];
   fundSplits: Array<{ fundType: string; balanceUsd: number; accountCount: number; shareOfTotal: number }>;
   currencyExposure: Array<{ currency: string; balanceUsd: number; accountCount: number }>;
-  entityExposure: Array<{ entityGroup: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
+  accountEntityBalances: Array<{ accountEntity: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
   bankExposure: Array<{ bank: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
   largestCountryMovement: CountrySummaryRow | null;
   largestLicense: LicenseSummaryRow | null;
@@ -298,7 +298,7 @@ function OverviewPanel({
   const maxCountryUsd = Math.max(...countrySummary.map((row) => row.currentMonthUsd), 1);
   const totalLicenseUsd = licenseSummary.reduce((total, row) => total + row.totalUsd, 0);
   const highConcentration = concentration.filter((row) => row.concentrationLevel === "High").slice(0, 6);
-  const maxEntityUsd = Math.max(...entityExposure.map((row) => Math.abs(row.balanceUsd)), 1);
+  const maxAccountEntityUsd = Math.max(...accountEntityBalances.map((row) => Math.abs(row.balanceUsd)), 1);
   const maxBankUsd = Math.max(...bankExposure.map((row) => Math.abs(row.balanceUsd)), 1);
 
   return (
@@ -318,15 +318,15 @@ function OverviewPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Entity / Group Exposure" subtitle="Top workbook entity groups by USD balance, with month movement.">
+        <Panel title="Top Account / Entity Balances" subtitle="Top workbook account/entity rows by USD balance, with month movement.">
           <div className="space-y-3">
-            {entityExposure.slice(0, 8).map((row) => (
+            {accountEntityBalances.slice(0, 8).map((row) => (
               <HorizontalMetricBar
-                key={row.entityGroup}
-                label={row.entityGroup}
+                key={row.accountEntity}
+                label={row.accountEntity}
                 value={formatUsd(row.balanceUsd)}
-                detail={`${row.accountCount} account${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
-                percent={percentOf(row.balanceUsd, maxEntityUsd)}
+                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
+                percent={percentOf(row.balanceUsd, maxAccountEntityUsd)}
                 tone="sky"
               />
             ))}
