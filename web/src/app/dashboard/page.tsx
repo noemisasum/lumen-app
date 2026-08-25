@@ -1109,7 +1109,7 @@ export default function DashboardPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-sm font-semibold text-zinc-950">Bank Balance Tracker</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Review the bank balance workbook presentation with country, license, concentration, mapping, and FX views.</p>
+                    <p className="mt-2 text-sm leading-6 text-zinc-600">Review the bank balance dashboard with country, license, concentration, mapping, and FX views.</p>
                   </div>
                   <Link
                     href="/dashboard/bank-balances"

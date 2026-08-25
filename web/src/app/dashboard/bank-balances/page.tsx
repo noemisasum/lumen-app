@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
-import { Notice } from "@/components/ui";
+import { Notice, Spinner } from "@/components/ui";
+import { adaptLedgerDashboardToBankBalanceData, type LedgerDashboardData } from "@/lib/bank-balance-tracker/ledger-adapter";
 import { sampleBankBalanceWorkbook } from "@/lib/bank-balance-tracker/sample-data";
 import {
   filterBalances,
@@ -25,6 +26,7 @@ import {
   type BalanceSortKey,
 } from "@/lib/bank-balance-tracker/transforms";
 import type {
+  BankBalanceWorkbookData,
   BankConcentrationRow,
   CountrySummaryRow,
   FxRateRow,
@@ -32,10 +34,11 @@ import type {
   MonthlyBalanceRow,
   TopBankRow,
 } from "@/lib/bank-balance-tracker/types";
+import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 type TrackerTab = "overview" | "balances" | "operations" | "fx";
 
-const data = sampleBankBalanceWorkbook;
+type DataSourceState = "loading" | "ledger" | "fallback";
 
 const selectClassName =
   "h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950";
@@ -85,6 +88,9 @@ function movementClass(value: number) {
 }
 
 export default function BankBalanceTrackerPage() {
+  const [data, setData] = useState<BankBalanceWorkbookData>(sampleBankBalanceWorkbook);
+  const [dataSource, setDataSource] = useState<DataSourceState>("loading");
+  const [dataNotice, setDataNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<TrackerTab>(() => {
     if (typeof window === "undefined") return "overview";
     const requestedTab = new URLSearchParams(window.location.search).get("tab");
@@ -94,25 +100,62 @@ export default function BankBalanceTrackerPage() {
   const [filters, setFilters] = useState<BalanceFilters>({ country: "", fundType: "", currency: "", search: "" });
   const [sortKey, setSortKey] = useState<BalanceSortKey>("balanceUsd");
   const [fxSearch, setFxSearch] = useState("");
+  const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
-  const countries = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.country)), []);
-  const fundTypes = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.fundType)), []);
-  const currencies = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.currency)), []);
-  const filteredBalances = useMemo(() => sortBalances(filterBalances(data.monthlyBalances, filters), sortKey), [filters, sortKey]);
-  const filteredUsd = useMemo(() => filteredBalances.reduce((total, row) => total + row.balanceUsd, 0), [filteredBalances]);
-  const currencyExposure = useMemo(() => groupCurrencyExposure(data.monthlyBalances), []);
-  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data.monthlyBalances), []);
-  const bankExposure = useMemo(() => groupBankExposure(data.monthlyBalances), []);
-  const fundSplits = useMemo(() => groupFundTypes(data.monthlyBalances, data.kpis.totalUsd), []);
-  const readiness = useMemo(() => statementReadiness(data), []);
-  const largestCountryMovement = useMemo(() => getLargestCountryMovement(data.countrySummary), []);
-  const largestLicense = useMemo(() => getLargestLicenseSplit(data.licenseSummary), []);
-  const usedRates = useMemo(() => usedFxRates(data.fxRates, data.monthlyBalances), []);
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (!supabase) throw new Error("Authentication is not configured for this deployment.");
+
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) throw sessionError;
+        if (!sessionData.session) throw new Error("Sign in to load live bank ledger balances.");
+
+        const response = await fetch("/api/dashboard/ledger", {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+        });
+        const body = (await response.json()) as LedgerDashboardData | { error?: string };
+        if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load bank ledger balances.");
+
+        const ledgerData = adaptLedgerDashboardToBankBalanceData(body as LedgerDashboardData, sampleBankBalanceWorkbook.fxRates);
+        if (!ledgerData) throw new Error("No bank ledger balances are available yet.");
+        if (cancelled) return;
+
+        setData(ledgerData);
+        setDataSource("ledger");
+        setDataNotice(null);
+      } catch (error) {
+        if (cancelled) return;
+        setData(sampleBankBalanceWorkbook);
+        setDataSource("fallback");
+        setDataNotice(error instanceof Error ? error.message : "Live bank ledger balances are unavailable.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  const countries = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.country)), [data]);
+  const fundTypes = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.fundType)), [data]);
+  const currencies = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.currency)), [data]);
+  const filteredBalances = useMemo(() => sortBalances(filterBalances(data.monthlyBalances, filters), sortKey), [data, filters, sortKey]);
+  const currencyExposure = useMemo(() => groupCurrencyExposure(data.monthlyBalances), [data]);
+  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data.monthlyBalances), [data]);
+  const bankExposure = useMemo(() => groupBankExposure(data.monthlyBalances), [data]);
+  const fundSplits = useMemo(() => groupFundTypes(data.monthlyBalances, data.kpis.totalUsd), [data]);
+  const readiness = useMemo(() => statementReadiness(data), [data]);
+  const largestCountryMovement = useMemo(() => getLargestCountryMovement(data.countrySummary), [data]);
+  const largestLicense = useMemo(() => getLargestLicenseSplit(data.licenseSummary), [data]);
+  const usedRates = useMemo(() => usedFxRates(data.fxRates, data.monthlyBalances), [data]);
   const visibleFxRates = useMemo(() => {
     const query = fxSearch.trim().toLowerCase();
     if (!query) return data.fxRates;
     return data.fxRates.filter((rate) => `${rate.currency} ${rate.name}`.toLowerCase().includes(query));
-  }, [fxSearch]);
+  }, [data, fxSearch]);
 
   function selectTab(nextTab: TrackerTab) {
     setTab(nextTab);
@@ -153,29 +196,40 @@ export default function BankBalanceTrackerPage() {
                 <p className="text-xs font-semibold uppercase text-zinc-500">Mitrade Group</p>
                 <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">{data.metadata.title}</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Month end {formatDate(data.metadata.selectedMonth)} from a masked workbook sample. Account identifiers are masked while balances, movement, mapping, and FX context stay available for presentation review.
+                  Month end {formatDate(data.metadata.selectedMonth)} bank balance dashboard with account identifiers masked while balances, movement, mapping, and FX context stay available for treasury review.
                 </p>
               </div>
               <div className="grid gap-2 min-[520px]:grid-cols-2">
                 <InfoPill label="Last refreshed" value={formatDateTime(data.metadata.lastRefreshed)} />
-                <InfoPill label="Workbook sheets" value={String(data.metadata.workbookSheets.length)} />
+                <InfoPill label="Data source" value={dataSource === "ledger" ? "Ledger API" : dataSource === "loading" ? "Loading" : "Cached baseline"} />
               </div>
             </div>
           </section>
+
+          {dataSource === "loading" ? (
+            <Notice tone="info" title="Loading Bank Ledger">
+              <Spinner label="Loading live balances" />
+            </Notice>
+          ) : null}
+
+          {dataSource === "fallback" && dataNotice ? (
+            <Notice tone="warning" title="Live Ledger Unavailable">
+              {dataNotice} Showing the cached dashboard baseline until authenticated ledger data is available.
+            </Notice>
+          ) : null}
 
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <KpiCard className="lg:col-span-2" label="Total USD" value={formatUsd(data.kpis.totalUsd)} detail={`Prior ${formatUsd(data.kpis.priorMonthUsd)}`} />
             <KpiCard label="Movement" value={formatUsd(data.kpis.movementUsd)} detail={formatPct(data.kpis.movementPct)} valueClassName={movementClass(data.kpis.movementUsd)} />
             <KpiCard label="Accounts" value={String(data.kpis.accounts)} detail={`${readiness.activeMappings} active mappings`} />
             <KpiCard label="Currencies" value={String(data.kpis.currencies)} detail={currencies.join(", ")} />
-            <KpiCard label="Filtered USD" value={formatUsd(filteredUsd)} detail={`${filteredBalances.length} visible rows`} />
           </section>
 
           <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
             <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-zinc-950">Workbook Presentation Views</h2>
-                <p className="mt-1 text-sm leading-6 text-zinc-600">Use the same extracted dataset across summary, drilldown, upload readiness, and FX views.</p>
+                <h2 className="text-sm font-semibold text-zinc-950">Bank Balance Dashboard Views</h2>
+                <p className="mt-1 text-sm leading-6 text-zinc-600">Review the same bank ledger data across summary, drilldown, upload readiness, and FX views.</p>
               </div>
               <div className="grid grid-cols-2 gap-2 min-[520px]:flex">
                 {[
@@ -318,7 +372,7 @@ function OverviewPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Top Account / Entity Balances" subtitle="Top workbook account/entity rows by USD balance, with month movement.">
+        <Panel title="Top Account / Entity Balances" subtitle="Top account and entity balances by USD value, with month movement.">
           <div className="space-y-3">
             {accountEntityBalances.slice(0, 8).map((row) => (
               <HorizontalMetricBar
@@ -372,7 +426,7 @@ function OverviewPanel({
           </div>
         </Panel>
 
-        <Panel title="License Client / Corporate Split" subtitle="Workbook regulatory view by license.">
+        <Panel title="License Client / Corporate Split" subtitle="Regulatory and source view by license or balance source.">
           <div className="space-y-4">
             {licenseSummary.map((row) => (
               <div key={row.license}>
@@ -396,7 +450,7 @@ function OverviewPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Panel title="Top Banks by USD Balance" subtitle="Largest bank balances from the Dashboard sheet.">
+        <Panel title="Top Banks by USD Balance" subtitle="Largest bank balances in the dashboard.">
           <CompactTable
             headers={["Bank", "Total", "Move"]}
             rows={topBanks.map((row) => [
@@ -436,7 +490,7 @@ function OverviewPanel({
         </Panel>
       </div>
 
-      <Panel title="High Concentration Relationships" subtitle="Entity/group-bank combinations marked High in the workbook summary.">
+      <Panel title="High Concentration Relationships" subtitle="Entity and bank combinations marked High for treasury review.">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {highConcentration.map((row) => (
             <div key={`${row.entityGroup}:${row.bank}`} className="rounded-lg border border-zinc-200 p-3">
@@ -532,7 +586,7 @@ function BalancesPanel({
         </label>
       </div>
 
-      <Panel title="Monthly Balances" subtitle={`${balances.length} workbook rows after filters. Account numbers are masked in source and UI.`} flush>
+      <Panel title="Monthly Balances" subtitle={`${balances.length} balance rows after filters. Account numbers are masked in source and UI.`} flush>
         <div className="max-h-[640px] overflow-auto">
           <table className="min-w-[1120px] divide-y divide-zinc-100 text-sm">
             <thead className="sticky top-0 bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
@@ -598,10 +652,10 @@ function OperationsPanel({
       </div>
 
       <Notice tone="info" title="Statement Upload Queue">
-        The workbook includes the expected statement-upload schema but no uploaded statement rows yet. The route shows the queue as ready without mutating production data.
+        The statement intake queue is ready for bank files and does not mutate production data from this dashboard.
       </Notice>
 
-      <Panel title="Bank Mapping" subtitle={`${bankMapping.length} account mappings from the workbook. Full account numbers are masked.`} flush>
+      <Panel title="Bank Mapping" subtitle={`${bankMapping.length} account mappings. Full account numbers are masked.`} flush>
         <div className="max-h-[560px] overflow-auto">
           <table className="min-w-[920px] divide-y divide-zinc-100 text-sm">
             <thead className="sticky top-0 bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
@@ -652,7 +706,7 @@ function FxPanel({
 }) {
   return (
     <div className="space-y-4">
-      <Panel title="Workbook Currencies" subtitle="Rates used by the 101 monthly balance rows.">
+      <Panel title="Dashboard Currencies" subtitle={`Rates used by ${usedRates.length} dashboard currencies.`}>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {usedRates.map((rate) => (
             <div key={rate.currency} className="rounded-lg border border-zinc-200 p-3">

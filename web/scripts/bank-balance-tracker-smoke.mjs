@@ -10,6 +10,7 @@ const outputDir = path.join(appDir, ".bank-balance-tracker-smoke");
 const sources = [
   ["sample-data", path.join(appDir, "src/lib/bank-balance-tracker/sample-data.ts")],
   ["transforms", path.join(appDir, "src/lib/bank-balance-tracker/transforms.ts")],
+  ["ledger-adapter", path.join(appDir, "src/lib/bank-balance-tracker/ledger-adapter.ts")],
 ];
 
 mkdirSync(outputDir, { recursive: true });
@@ -29,6 +30,7 @@ for (const [name, sourcePath] of sources) {
 
 const { sampleBankBalanceWorkbook } = await import(`${pathToFileURL(path.join(outputDir, "sample-data.mjs")).href}?${Date.now()}`);
 const transforms = await import(`${pathToFileURL(path.join(outputDir, "transforms.mjs")).href}?${Date.now()}`);
+const { adaptLedgerDashboardToBankBalanceData } = await import(`${pathToFileURL(path.join(outputDir, "ledger-adapter.mjs")).href}?${Date.now()}`);
 
 const data = sampleBankBalanceWorkbook;
 
@@ -88,5 +90,39 @@ const bankExposure = transforms.groupBankExposure(data.monthlyBalances);
 assert.equal(bankExposure.length > 0, true);
 assert.equal(Math.round(bankExposure.reduce((total, row) => total + row.balanceUsd, 0)), Math.round(data.kpis.totalUsd));
 assert.equal(bankExposure[0].balanceUsd >= bankExposure.at(-1).balanceUsd, true);
+
+const ledgerDashboard = adaptLedgerDashboardToBankBalanceData(
+  {
+    asOf: "2026-08-26T09:00:00.000Z",
+    entities: [{ id: "entity-1", name: "Mitrade AU", code: "AU", orgId: "org-1" }],
+    accounts: [
+      {
+        id: "account-xero-1",
+        entityId: "entity-1",
+        accountName: "NAB Operating",
+        currency: "AUD",
+        source: "xero",
+        latestBalance: {
+          amount: 1500,
+          currency: "AUD",
+          originalCurrency: "AUD",
+          source: "xero",
+          balanceDate: "2026-08-25",
+          asOf: "2026-08-26T08:30:00.000Z",
+          usdConversion: { amount: 975, rate: 0.65, rateDate: "2026-08-25", asOf: "2026-08-26T08:30:00.000Z", source: "xe" },
+        },
+      },
+    ],
+    totalsBySource: [{ source: "xero", currency: "AUD", amount: 1500, accountCount: 1 }],
+  },
+  data.fxRates,
+);
+
+assert.equal(ledgerDashboard.metadata.source.includes("Xero-backed"), true);
+assert.equal(ledgerDashboard.metadata.workbookSheets.length, 0);
+assert.equal(ledgerDashboard.kpis.totalUsd, 975);
+assert.equal(ledgerDashboard.monthlyBalances[0].fundType, "Xero");
+assert.equal(ledgerDashboard.monthlyBalances[0].sourceWorkbook, "Xero ledger");
+assert.equal(adaptLedgerDashboardToBankBalanceData({ asOf: "2026-08-26T09:00:00.000Z", entities: [], accounts: [], totalsBySource: [] }, data.fxRates), null);
 
 console.log("Bank balance tracker smoke passed.");
