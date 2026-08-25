@@ -9,9 +9,11 @@ import { sampleBankBalanceWorkbook } from "@/lib/bank-balance-tracker/sample-dat
 import {
   filterBalances,
   formatUploadCoverage,
+  groupBankExposure,
   getLargestCountryMovement,
   getLargestLicenseSplit,
   groupCurrencyExposure,
+  groupEntityExposure,
   groupFundTypes,
   normalizeStatementStatus,
   percentOf,
@@ -99,6 +101,8 @@ export default function BankBalanceTrackerPage() {
   const filteredBalances = useMemo(() => sortBalances(filterBalances(data.monthlyBalances, filters), sortKey), [filters, sortKey]);
   const filteredUsd = useMemo(() => filteredBalances.reduce((total, row) => total + row.balanceUsd, 0), [filteredBalances]);
   const currencyExposure = useMemo(() => groupCurrencyExposure(data.monthlyBalances), []);
+  const entityExposure = useMemo(() => groupEntityExposure(data.monthlyBalances), []);
+  const bankExposure = useMemo(() => groupBankExposure(data.monthlyBalances), []);
   const fundSplits = useMemo(() => groupFundTypes(data.monthlyBalances, data.kpis.totalUsd), []);
   const readiness = useMemo(() => statementReadiness(data), []);
   const largestCountryMovement = useMemo(() => getLargestCountryMovement(data.countrySummary), []);
@@ -204,6 +208,8 @@ export default function BankBalanceTrackerPage() {
                   concentration={data.concentration}
                   fundSplits={fundSplits}
                   currencyExposure={currencyExposure}
+                  entityExposure={entityExposure}
+                  bankExposure={bankExposure}
                   largestCountryMovement={largestCountryMovement}
                   largestLicense={largestLicense}
                 />
@@ -273,6 +279,8 @@ function OverviewPanel({
   concentration,
   fundSplits,
   currencyExposure,
+  entityExposure,
+  bankExposure,
   largestCountryMovement,
   largestLicense,
 }: {
@@ -282,12 +290,16 @@ function OverviewPanel({
   concentration: BankConcentrationRow[];
   fundSplits: Array<{ fundType: string; balanceUsd: number; accountCount: number; shareOfTotal: number }>;
   currencyExposure: Array<{ currency: string; balanceUsd: number; accountCount: number }>;
+  entityExposure: Array<{ entityGroup: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
+  bankExposure: Array<{ bank: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
   largestCountryMovement: CountrySummaryRow | null;
   largestLicense: LicenseSummaryRow | null;
 }) {
   const maxCountryUsd = Math.max(...countrySummary.map((row) => row.currentMonthUsd), 1);
   const totalLicenseUsd = licenseSummary.reduce((total, row) => total + row.totalUsd, 0);
   const highConcentration = concentration.filter((row) => row.concentrationLevel === "High").slice(0, 6);
+  const maxEntityUsd = Math.max(...entityExposure.map((row) => Math.abs(row.balanceUsd)), 1);
+  const maxBankUsd = Math.max(...bankExposure.map((row) => Math.abs(row.balanceUsd)), 1);
 
   return (
     <div className="space-y-4">
@@ -303,6 +315,38 @@ function OverviewPanel({
         <Notice tone="warning" title="Concentration Review">
           {highConcentration.length ? `${highConcentration.length} high-concentration bank relationships are highlighted for treasury review.` : "No high concentration relationships found."}
         </Notice>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+        <Panel title="Entity / Group Exposure" subtitle="Top workbook entity groups by USD balance, with month movement.">
+          <div className="space-y-3">
+            {entityExposure.slice(0, 8).map((row) => (
+              <HorizontalMetricBar
+                key={row.entityGroup}
+                label={row.entityGroup}
+                value={formatUsd(row.balanceUsd)}
+                detail={`${row.accountCount} account${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
+                percent={percentOf(row.balanceUsd, maxEntityUsd)}
+                tone="sky"
+              />
+            ))}
+          </div>
+        </Panel>
+
+        <Panel title="Bank Exposure Mix" subtitle="Largest bank relationships across all mapped entities.">
+          <div className="space-y-3">
+            {bankExposure.slice(0, 7).map((row) => (
+              <HorizontalMetricBar
+                key={row.bank}
+                label={row.bank}
+                value={formatUsd(row.balanceUsd, true)}
+                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
+                percent={percentOf(row.balanceUsd, maxBankUsd)}
+                tone="emerald"
+              />
+            ))}
+          </div>
+        </Panel>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -409,6 +453,35 @@ function OverviewPanel({
           ))}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+function HorizontalMetricBar({
+  label,
+  value,
+  detail,
+  percent,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  percent: number;
+  tone: "sky" | "emerald";
+}) {
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3 text-sm">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-zinc-950">{label}</div>
+          <div className="mt-1 text-xs text-zinc-500">{detail}</div>
+        </div>
+        <div className="shrink-0 text-right tabular-nums font-semibold text-zinc-950">{value}</div>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
+        <div className={`h-full rounded-full ${tone === "sky" ? "bg-sky-700" : "bg-emerald-700"}`} style={{ width: `${percent}%` }} />
+      </div>
     </div>
   );
 }

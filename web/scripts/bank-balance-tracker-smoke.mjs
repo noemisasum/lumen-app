@@ -78,4 +78,14 @@ assert.deepEqual(
   ["AUD", "CNH", "CNY", "EUR", "GBP", "HKD", "MUR", "SGD", "USD"],
 );
 
+const entityExposure = transforms.groupEntityExposure(data.monthlyBalances);
+assert.equal(entityExposure.length > 0, true);
+assert.equal(Math.round(entityExposure.reduce((total, row) => total + row.balanceUsd, 0)), Math.round(data.kpis.totalUsd));
+assert.equal(entityExposure[0].balanceUsd >= entityExposure.at(-1).balanceUsd, true);
+
+const bankExposure = transforms.groupBankExposure(data.monthlyBalances);
+assert.equal(bankExposure.length > 0, true);
+assert.equal(Math.round(bankExposure.reduce((total, row) => total + row.balanceUsd, 0)), Math.round(data.kpis.totalUsd));
+assert.equal(bankExposure[0].balanceUsd >= bankExposure.at(-1).balanceUsd, true);
+
 console.log("Bank balance tracker smoke passed.");
