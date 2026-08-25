@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, Spinner } from "@/components/ui";
 import { adaptLedgerDashboardToBankBalanceData, type LedgerDashboardData } from "@/lib/bank-balance-tracker/ledger-adapter";
-import { sampleBankBalanceWorkbook } from "@/lib/bank-balance-tracker/sample-data";
 import {
   filterBalances,
   formatUploadCoverage,
@@ -38,13 +37,21 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 type TrackerTab = "overview" | "balances" | "operations" | "fx";
 
-type DataSourceState = "loading" | "ledger" | "fallback";
+type DataSourceState = "loading" | "ledger" | "unavailable";
 
 const selectClassName =
   "h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950";
 
 const inputClassName =
   "h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950";
+
+const emptyBankBalanceData: Pick<BankBalanceWorkbookData, "bankMapping" | "statementUploads"> = {
+  bankMapping: [],
+  statementUploads: {
+    columns: [],
+    rows: [],
+  },
+};
 
 function formatUsd(value: number, compact = false) {
   return new Intl.NumberFormat("en", {
@@ -81,14 +88,19 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function movementClass(value: number) {
+function movementClass(value: number | null) {
+  if (value === null) return "text-zinc-500";
   if (value > 0) return "text-emerald-800";
   if (value < 0) return "text-red-800";
   return "text-zinc-600";
 }
 
+function formatUsdOrUnavailable(value: number | null | undefined, compact = false) {
+  return value === null || value === undefined ? "Unavailable" : formatUsd(value, compact);
+}
+
 export default function BankBalanceTrackerPage() {
-  const [data, setData] = useState<BankBalanceWorkbookData>(sampleBankBalanceWorkbook);
+  const [data, setData] = useState<BankBalanceWorkbookData | null>(null);
   const [dataSource, setDataSource] = useState<DataSourceState>("loading");
   const [dataNotice, setDataNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<TrackerTab>(() => {
@@ -119,7 +131,7 @@ export default function BankBalanceTrackerPage() {
         const body = (await response.json()) as LedgerDashboardData | { error?: string };
         if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load bank ledger balances.");
 
-        const ledgerData = adaptLedgerDashboardToBankBalanceData(body as LedgerDashboardData, sampleBankBalanceWorkbook.fxRates);
+        const ledgerData = adaptLedgerDashboardToBankBalanceData(body as LedgerDashboardData, []);
         if (!ledgerData) throw new Error("No bank ledger balances are available yet.");
         if (cancelled) return;
 
@@ -128,8 +140,8 @@ export default function BankBalanceTrackerPage() {
         setDataNotice(null);
       } catch (error) {
         if (cancelled) return;
-        setData(sampleBankBalanceWorkbook);
-        setDataSource("fallback");
+        setData(null);
+        setDataSource("unavailable");
         setDataNotice(error instanceof Error ? error.message : "Live bank ledger balances are unavailable.");
       }
     })();
@@ -139,23 +151,24 @@ export default function BankBalanceTrackerPage() {
     };
   }, [supabase]);
 
-  const countries = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.country)), [data]);
-  const fundTypes = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.fundType)), [data]);
-  const currencies = useMemo(() => uniqueSorted(data.monthlyBalances.map((row) => row.currency)), [data]);
-  const filteredBalances = useMemo(() => sortBalances(filterBalances(data.monthlyBalances, filters), sortKey), [data, filters, sortKey]);
-  const currencyExposure = useMemo(() => groupCurrencyExposure(data.monthlyBalances), [data]);
-  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data.monthlyBalances), [data]);
-  const bankExposure = useMemo(() => groupBankExposure(data.monthlyBalances), [data]);
-  const fundSplits = useMemo(() => groupFundTypes(data.monthlyBalances, data.kpis.totalUsd), [data]);
-  const readiness = useMemo(() => statementReadiness(data), [data]);
-  const largestCountryMovement = useMemo(() => getLargestCountryMovement(data.countrySummary), [data]);
-  const largestLicense = useMemo(() => getLargestLicenseSplit(data.licenseSummary), [data]);
-  const usedRates = useMemo(() => usedFxRates(data.fxRates, data.monthlyBalances), [data]);
+  const countries = useMemo(() => uniqueSorted(data?.monthlyBalances.map((row) => row.country) ?? []), [data]);
+  const fundTypes = useMemo(() => uniqueSorted(data?.monthlyBalances.map((row) => row.fundType) ?? []), [data]);
+  const currencies = useMemo(() => uniqueSorted(data?.monthlyBalances.map((row) => row.currency) ?? []), [data]);
+  const filteredBalances = useMemo(() => sortBalances(filterBalances(data?.monthlyBalances ?? [], filters), sortKey), [data, filters, sortKey]);
+  const currencyExposure = useMemo(() => groupCurrencyExposure(data?.monthlyBalances ?? []), [data]);
+  const accountEntityBalances = useMemo(() => groupAccountEntityBalances(data?.monthlyBalances ?? []), [data]);
+  const bankExposure = useMemo(() => groupBankExposure(data?.monthlyBalances ?? []), [data]);
+  const fundSplits = useMemo(() => groupFundTypes(data?.monthlyBalances ?? [], data?.kpis.totalUsd ?? 0), [data]);
+  const readiness = useMemo(() => statementReadiness(data ?? emptyBankBalanceData), [data]);
+  const largestCountryMovement = useMemo(() => getLargestCountryMovement(data?.countrySummary ?? []), [data]);
+  const largestLicense = useMemo(() => getLargestLicenseSplit(data?.licenseSummary ?? []), [data]);
+  const usedRates = useMemo(() => usedFxRates(data?.fxRates ?? [], data?.monthlyBalances ?? []), [data]);
   const visibleFxRates = useMemo(() => {
     const query = fxSearch.trim().toLowerCase();
-    if (!query) return data.fxRates;
-    return data.fxRates.filter((rate) => `${rate.currency} ${rate.name}`.toLowerCase().includes(query));
+    if (!query) return data?.fxRates ?? [];
+    return (data?.fxRates ?? []).filter((rate) => `${rate.currency} ${rate.name}`.toLowerCase().includes(query));
   }, [data, fxSearch]);
+  const missingUsdRows = useMemo(() => data?.monthlyBalances.filter((row) => row.balanceUsd === null) ?? [], [data]);
 
   function selectTab(nextTab: TrackerTab) {
     setTab(nextTab);
@@ -194,14 +207,16 @@ export default function BankBalanceTrackerPage() {
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase text-zinc-500">Mitrade Group</p>
-                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">{data.metadata.title}</h1>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">{data?.metadata.title ?? "Mitrade Group Bank Balance Dashboard"}</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Month end {formatDate(data.metadata.selectedMonth)} bank balance dashboard with account identifiers masked while balances, movement, mapping, and FX context stay available for treasury review.
+                  {data
+                    ? `Month end ${formatDate(data.metadata.selectedMonth)} bank balance dashboard with account identifiers masked while balances, mapping, and FX context stay available for treasury review.`
+                    : "Authenticated bank ledger balances load here after Xero or ledger sync data is available."}
                 </p>
               </div>
               <div className="grid gap-2 min-[520px]:grid-cols-2">
-                <InfoPill label="Last refreshed" value={formatDateTime(data.metadata.lastRefreshed)} />
-                <InfoPill label="Data source" value={dataSource === "ledger" ? "Ledger API" : dataSource === "loading" ? "Loading" : "Cached baseline"} />
+                <InfoPill label="Last refreshed" value={data ? formatDateTime(data.metadata.lastRefreshed) : "Unavailable"} />
+                <InfoPill label="Data source" value={dataSource === "ledger" ? "Ledger API" : dataSource === "loading" ? "Loading" : "Unavailable"} />
               </div>
             </div>
           </section>
@@ -212,20 +227,34 @@ export default function BankBalanceTrackerPage() {
             </Notice>
           ) : null}
 
-          {dataSource === "fallback" && dataNotice ? (
+          {dataSource === "unavailable" && dataNotice ? (
             <Notice tone="warning" title="Live Ledger Unavailable">
-              {dataNotice} Showing the cached dashboard baseline until authenticated ledger data is available.
+              {dataNotice} Connect Xero, sync bank ledger data, or upload statements through Statement Intake, then refresh this dashboard.
             </Notice>
           ) : null}
 
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            <KpiCard className="lg:col-span-2" label="Total USD" value={formatUsd(data.kpis.totalUsd)} detail={`Prior ${formatUsd(data.kpis.priorMonthUsd)}`} />
-            <KpiCard label="Movement" value={formatUsd(data.kpis.movementUsd)} detail={formatPct(data.kpis.movementPct)} valueClassName={movementClass(data.kpis.movementUsd)} />
-            <KpiCard label="Accounts" value={String(data.kpis.accounts)} detail={`${readiness.activeMappings} active mappings`} />
-            <KpiCard label="Currencies" value={String(data.kpis.currencies)} detail={currencies.join(", ")} />
-          </section>
+          {missingUsdRows.length ? (
+            <Notice tone="warning" title="Missing FX Conversion">
+              {missingUsdRows.length} ledger balance{missingUsdRows.length === 1 ? "" : "s"} lack USD conversion and are excluded from USD totals. Local balances remain visible in the balance table.
+            </Notice>
+          ) : null}
 
-          <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+          {data ? (
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <KpiCard
+                className="lg:col-span-2"
+                label="Total USD"
+                value={formatUsd(data.kpis.totalUsd)}
+                detail={data.kpis.excludedUsdAccounts ? `${data.kpis.excludedUsdAccounts} account${data.kpis.excludedUsdAccounts === 1 ? "" : "s"} excluded for missing FX` : "Prior unavailable"}
+              />
+              <KpiCard label="Movement" value="Unavailable" detail="Latest ledger payload has no prior period" valueClassName={movementClass(null)} />
+              <KpiCard label="Accounts" value={String(data.kpis.accounts)} detail={`${readiness.activeMappings} active mappings`} />
+              <KpiCard label="Currencies" value={String(data.kpis.currencies)} detail={currencies.join(", ")} />
+            </section>
+          ) : null}
+
+          {data ? (
+            <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
             <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-zinc-950">Bank Balance Dashboard Views</h2>
@@ -288,7 +317,12 @@ export default function BankBalanceTrackerPage() {
 
               {tab === "fx" ? <FxPanel usedRates={usedRates} rates={visibleFxRates} search={fxSearch} onSearchChange={setFxSearch} /> : null}
             </div>
-          </section>
+            </section>
+          ) : dataSource !== "loading" ? (
+            <Notice tone="info" title="No Bank Ledger Data">
+              This dashboard is intentionally empty until authenticated ledger or Xero-backed balances are available.
+            </Notice>
+          ) : null}
         </main>
       </div>
     </div>
@@ -343,9 +377,9 @@ function OverviewPanel({
   topBanks: TopBankRow[];
   concentration: BankConcentrationRow[];
   fundSplits: Array<{ fundType: string; balanceUsd: number; accountCount: number; shareOfTotal: number }>;
-  currencyExposure: Array<{ currency: string; balanceUsd: number; accountCount: number }>;
-  accountEntityBalances: Array<{ accountEntity: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
-  bankExposure: Array<{ bank: string; balanceUsd: number; movementUsd: number; accountCount: number }>;
+  currencyExposure: Array<{ currency: string; balanceUsd: number; accountCount: number; missingUsdCount: number }>;
+  accountEntityBalances: Array<{ accountEntity: string; balanceUsd: number; movementUsd: number | null; accountCount: number }>;
+  bankExposure: Array<{ bank: string; balanceUsd: number; movementUsd: number | null; accountCount: number }>;
   largestCountryMovement: CountrySummaryRow | null;
   largestLicense: LicenseSummaryRow | null;
 }) {
@@ -360,7 +394,7 @@ function OverviewPanel({
       <div className="grid gap-3 lg:grid-cols-3">
         <Notice tone="info" title="Movement Context">
           {largestCountryMovement
-            ? `${largestCountryMovement.country} has the largest absolute country movement at ${formatUsd(largestCountryMovement.movementUsd)} (${formatPct(largestCountryMovement.movementPct)}).`
+            ? `${largestCountryMovement.country} has USD balance coverage of ${formatUsd(largestCountryMovement.currentMonthUsd)}. Prior period movement is unavailable in the latest ledger payload.`
             : "No country movement data is available."}
         </Notice>
         <Notice tone="success" title="License Split">
@@ -379,7 +413,7 @@ function OverviewPanel({
                 key={row.accountEntity}
                 label={row.accountEntity}
                 value={formatUsd(row.balanceUsd)}
-                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
+                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · movement unavailable`}
                 percent={percentOf(row.balanceUsd, maxAccountEntityUsd)}
                 tone="sky"
               />
@@ -394,7 +428,7 @@ function OverviewPanel({
                 key={row.bank}
                 label={row.bank}
                 value={formatUsd(row.balanceUsd, true)}
-                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · ${formatUsd(row.movementUsd, true)} move`}
+                detail={`${row.accountCount} row${row.accountCount === 1 ? "" : "s"} · movement unavailable`}
                 percent={percentOf(row.balanceUsd, maxBankUsd)}
                 tone="emerald"
               />
@@ -404,7 +438,7 @@ function OverviewPanel({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <Panel title="Country Summary" subtitle="Current USD, prior USD, and month movement.">
+        <Panel title="Country Summary" subtitle="Current USD for balances with available FX conversion. Prior period movement is unavailable.">
           <div className="space-y-3">
             {countrySummary.map((row) => (
               <div key={row.country}>
@@ -416,9 +450,9 @@ function OverviewPanel({
                   <div className="h-full rounded-full bg-sky-700" style={{ width: `${percentOf(row.currentMonthUsd, maxCountryUsd)}%` }} />
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-500">
-                  <span>Prior {formatUsd(row.priorMonthUsd)}</span>
+                  <span>Prior unavailable</span>
                   <span className={movementClass(row.movementUsd)}>
-                    {formatUsd(row.movementUsd)} · {formatPct(row.movementPct)}
+                    Movement unavailable
                   </span>
                 </div>
               </div>
@@ -457,7 +491,7 @@ function OverviewPanel({
               row.bank,
               formatUsd(row.totalUsd, true),
               <span key={`${row.bank}-move`} className={movementClass(row.movementUsd)}>
-                {formatUsd(row.movementUsd, true)}
+                Unavailable
               </span>,
             ])}
           />
@@ -485,7 +519,7 @@ function OverviewPanel({
         <Panel title="Currency Exposure" subtitle="USD-converted exposure by source currency.">
           <CompactTable
             headers={["Currency", "USD", "Rows"]}
-            rows={currencyExposure.map((row) => [row.currency, formatUsd(row.balanceUsd, true), String(row.accountCount)])}
+            rows={currencyExposure.map((row) => [row.currency, row.missingUsdCount ? `${formatUsd(row.balanceUsd, true)}*` : formatUsd(row.balanceUsd, true), String(row.accountCount)])}
           />
         </Panel>
       </div>
@@ -614,8 +648,8 @@ function BalancesPanel({
                     <td className="px-4 py-3 text-zinc-700">{row.fundType}</td>
                     <td className="px-4 py-3 text-zinc-700">{row.currency}</td>
                     <td className="px-4 py-3 text-right tabular-nums text-zinc-700">{formatNumber(row.balanceLocal, Math.abs(row.balanceLocal) >= 1000 ? 0 : 2)}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">{formatUsd(row.balanceUsd)}</td>
-                    <td className={`px-4 py-3 text-right tabular-nums font-medium ${movementClass(row.movementUsd)}`}>{formatUsd(row.movementUsd)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">{formatUsdOrUnavailable(row.balanceUsd)}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums font-medium ${movementClass(row.movementUsd)}`}>{formatUsdOrUnavailable(row.movementUsd)}</td>
                     <td className={`px-4 py-3 text-right tabular-nums ${movementClass(row.movementUsd)}`}>{formatPct(row.movementPct)}</td>
                   </tr>
                 ))
@@ -732,7 +766,7 @@ function FxPanel({
         <div className="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600 shadow-sm">{rates.length} displayed rates</div>
       </div>
 
-      <Panel title="XE Rates Reference" subtitle="Full reference sheet extracted for lookup." flush>
+      <Panel title="XE Rates Reference" subtitle="Live ledger FX conversion rates available to this dashboard." flush>
         <div className="max-h-[560px] overflow-auto">
           <table className="min-w-[680px] divide-y divide-zinc-100 text-sm">
             <thead className="sticky top-0 bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">

@@ -20,6 +20,7 @@ export type CurrencyExposureRow = {
   balanceUsd: number;
   balanceLocal: number;
   accountCount: number;
+  missingUsdCount: number;
 };
 
 export type FundTypeSplitRow = {
@@ -32,14 +33,14 @@ export type FundTypeSplitRow = {
 export type AccountEntityBalanceRow = {
   accountEntity: string;
   balanceUsd: number;
-  movementUsd: number;
+  movementUsd: number | null;
   accountCount: number;
 };
 
 export type BankExposureRow = {
   bank: string;
   balanceUsd: number;
-  movementUsd: number;
+  movementUsd: number | null;
   accountCount: number;
 };
 
@@ -73,25 +74,26 @@ export function filterBalances(rows: MonthlyBalanceRow[], filters: BalanceFilter
 
 export function sortBalances(rows: MonthlyBalanceRow[], sortKey: BalanceSortKey) {
   return [...rows].sort((left, right) => {
-    if (sortKey === "country") return left.country.localeCompare(right.country) || right.balanceUsd - left.balanceUsd;
-    if (sortKey === "bank") return left.bank.localeCompare(right.bank) || right.balanceUsd - left.balanceUsd;
+    if (sortKey === "country") return left.country.localeCompare(right.country) || (right.balanceUsd ?? 0) - (left.balanceUsd ?? 0);
+    if (sortKey === "bank") return left.bank.localeCompare(right.bank) || (right.balanceUsd ?? 0) - (left.balanceUsd ?? 0);
     if (sortKey === "movementPct") return Math.abs(right.movementPct ?? 0) - Math.abs(left.movementPct ?? 0);
-    return Math.abs(right[sortKey]) - Math.abs(left[sortKey]);
+    return Math.abs(right[sortKey] ?? 0) - Math.abs(left[sortKey] ?? 0);
   });
 }
 
-export function sumUsd(rows: Array<{ balanceUsd: number }>) {
-  return rows.reduce((total, row) => total + row.balanceUsd, 0);
+export function sumUsd(rows: Array<{ balanceUsd: number | null }>) {
+  return rows.reduce((total, row) => total + (row.balanceUsd ?? 0), 0);
 }
 
 export function groupCurrencyExposure(rows: MonthlyBalanceRow[]): CurrencyExposureRow[] {
   const grouped = new Map<string, CurrencyExposureRow>();
 
   for (const row of rows) {
-    const current = grouped.get(row.currency) ?? { currency: row.currency, balanceUsd: 0, balanceLocal: 0, accountCount: 0 };
-    current.balanceUsd += row.balanceUsd;
+    const current = grouped.get(row.currency) ?? { currency: row.currency, balanceUsd: 0, balanceLocal: 0, accountCount: 0, missingUsdCount: 0 };
+    current.balanceUsd += row.balanceUsd ?? 0;
     current.balanceLocal += row.balanceLocal;
     current.accountCount += 1;
+    if (row.balanceUsd === null) current.missingUsdCount += 1;
     grouped.set(row.currency, current);
   }
 
@@ -103,7 +105,7 @@ export function groupFundTypes(rows: MonthlyBalanceRow[], totalUsd: number): Fun
 
   for (const row of rows) {
     const current = grouped.get(row.fundType) ?? { fundType: row.fundType, balanceUsd: 0, accountCount: 0 };
-    current.balanceUsd += row.balanceUsd;
+    current.balanceUsd += row.balanceUsd ?? 0;
     current.accountCount += 1;
     grouped.set(row.fundType, current);
   }
@@ -117,9 +119,9 @@ export function groupAccountEntityBalances(rows: MonthlyBalanceRow[]): AccountEn
   const grouped = new Map<string, AccountEntityBalanceRow>();
 
   for (const row of rows) {
-    const current = grouped.get(row.accountEntity) ?? { accountEntity: row.accountEntity, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
-    current.balanceUsd += row.balanceUsd;
-    current.movementUsd += row.movementUsd;
+    const current = grouped.get(row.accountEntity) ?? { accountEntity: row.accountEntity, balanceUsd: 0, movementUsd: null, accountCount: 0 };
+    current.balanceUsd += row.balanceUsd ?? 0;
+    if (row.movementUsd !== null) current.movementUsd = (current.movementUsd ?? 0) + row.movementUsd;
     current.accountCount += 1;
     grouped.set(row.accountEntity, current);
   }
@@ -131,9 +133,9 @@ export function groupBankExposure(rows: MonthlyBalanceRow[]): BankExposureRow[] 
   const grouped = new Map<string, BankExposureRow>();
 
   for (const row of rows) {
-    const current = grouped.get(row.bank) ?? { bank: row.bank, balanceUsd: 0, movementUsd: 0, accountCount: 0 };
-    current.balanceUsd += row.balanceUsd;
-    current.movementUsd += row.movementUsd;
+    const current = grouped.get(row.bank) ?? { bank: row.bank, balanceUsd: 0, movementUsd: null, accountCount: 0 };
+    current.balanceUsd += row.balanceUsd ?? 0;
+    if (row.movementUsd !== null) current.movementUsd = (current.movementUsd ?? 0) + row.movementUsd;
     current.accountCount += 1;
     grouped.set(row.bank, current);
   }
@@ -142,7 +144,7 @@ export function groupBankExposure(rows: MonthlyBalanceRow[]): BankExposureRow[] 
 }
 
 export function getLargestCountryMovement(rows: CountrySummaryRow[]) {
-  return [...rows].sort((left, right) => Math.abs(right.movementUsd) - Math.abs(left.movementUsd))[0] ?? null;
+  return [...rows].sort((left, right) => Math.abs(right.movementUsd ?? 0) - Math.abs(left.movementUsd ?? 0))[0] ?? null;
 }
 
 export function getLargestLicenseSplit(rows: LicenseSummaryRow[]) {

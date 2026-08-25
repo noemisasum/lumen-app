@@ -25,11 +25,22 @@ type LedgerAccount = {
   } | null;
 };
 
+type LedgerDataQualityIssue = {
+  code: string;
+  severity: "warning";
+  message: string;
+  entityId: string;
+  bankAccountId: string;
+  balanceId?: string;
+  currency: string;
+};
+
 export type LedgerDashboardData = {
   asOf: string;
   entities: Array<{ id: string; name: string; code: string | null; orgId: string }>;
   accounts: LedgerAccount[];
   totalsBySource: Array<{ source: LedgerSource; currency: string; amount: number; accountCount: number }>;
+  dataQualityIssues?: LedgerDataQualityIssue[];
 };
 
 function sourceLabel(source: LedgerSource) {
@@ -40,13 +51,9 @@ function sourceLabel(source: LedgerSource) {
 
 function balanceUsd(account: LedgerAccount) {
   const balance = account.latestBalance;
-  if (!balance) return 0;
+  if (!balance) return null;
   if (balance.usdConversion) return balance.usdConversion.amount;
-  return balance.currency === "USD" ? balance.amount : 0;
-}
-
-function movementPct(current: number, prior: number) {
-  return prior ? (current - prior) / Math.abs(prior) : null;
+  return balance.currency === "USD" ? balance.amount : null;
 }
 
 function concentrationLevel(share: number): "Low" | "Moderate" | "High" {
@@ -85,7 +92,6 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
   if (!accountsWithBalances.length) return null;
 
   const entityById = new Map(payload.entities.map((entity) => [entity.id, entity]));
-  const totalUsd = accountsWithBalances.reduce((total, account) => total + balanceUsd(account), 0);
   const currencies = new Set(accountsWithBalances.map((account) => account.latestBalance?.currency || account.currency || "Unspecified"));
   const selectedMonth = accountsWithBalances
     .map((account) => account.latestBalance?.balanceDate)
@@ -96,6 +102,8 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
     const latest = account.latestBalance;
     const currentUsd = balanceUsd(account);
     const currency = latest?.currency || account.currency || "Unspecified";
+    const hasMissingUsd = currentUsd === null;
+    const source = sourceLabel(latest?.source ?? account.source);
 
     return {
       monthEnd: latest?.balanceDate ?? selectedMonth ?? payload.asOf.slice(0, 10),
@@ -105,52 +113,58 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
       maskedAccountNo: maskedAccountId(account.id),
       fundType: sourceLabel(latest?.source ?? account.source),
       currency,
-      fxUnitsPerUsd: latest?.usdConversion?.rate ? 1 / latest.usdConversion.rate : 1,
+      fxUnitsPerUsd: latest?.usdConversion?.rate ? 1 / latest.usdConversion.rate : currency === "USD" ? 1 : null,
       balanceLocal: latest?.amount ?? 0,
       balanceUsd: currentUsd,
-      priorMonthUsd: currentUsd,
-      movementUsd: 0,
-      movementPct: movementPct(currentUsd, currentUsd),
-      sourceWorkbook: `${sourceLabel(latest?.source ?? account.source)} ledger`,
+      priorMonthUsd: null,
+      movementUsd: null,
+      movementPct: null,
+      sourceWorkbook: `${source} ledger`,
       statementFileRef: null,
-      notes: latest?.asOf ? `Balance as of ${latest.asOf}` : null,
+      notes: hasMissingUsd
+        ? `Balance as of ${latest?.asOf ?? "latest sync"}. USD conversion is unavailable for ${currency}; excluded from USD totals.`
+        : latest?.asOf
+          ? `Balance as of ${latest.asOf}. Prior period and movement are unavailable in the latest ledger payload.`
+          : "Prior period and movement are unavailable in the latest ledger payload.",
     };
   });
 
+  const usdConvertedBalances = monthlyBalances.filter((row) => row.balanceUsd !== null);
+  const totalUsd = usdConvertedBalances.reduce((total, row) => total + (row.balanceUsd ?? 0), 0);
+  const excludedUsdAccounts = monthlyBalances.length - usdConvertedBalances.length;
+
   const countrySummary = Array.from(
-    monthlyBalances.reduce((groups, row) => {
-      const current = groups.get(row.country) ?? { country: row.country, priorMonthUsd: 0, currentMonthUsd: 0, movementUsd: 0, movementPct: null as number | null };
-      current.currentMonthUsd += row.balanceUsd;
-      current.priorMonthUsd += row.priorMonthUsd;
-      current.movementUsd += row.movementUsd;
-      current.movementPct = movementPct(current.currentMonthUsd, current.priorMonthUsd);
+    usdConvertedBalances.reduce((groups, row) => {
+      const current = groups.get(row.country) ?? { country: row.country, priorMonthUsd: null, currentMonthUsd: 0, movementUsd: null, movementPct: null };
+      current.currentMonthUsd += row.balanceUsd ?? 0;
       groups.set(row.country, current);
       return groups;
-    }, new Map<string, { country: string; priorMonthUsd: number; currentMonthUsd: number; movementUsd: number; movementPct: number | null }>()),
-  ).map(([, row]) => ({ ...row, movementPct: row.movementPct ?? 0 }));
+    }, new Map<string, { country: string; priorMonthUsd: number | null; currentMonthUsd: number; movementUsd: number | null; movementPct: number | null }>()),
+  ).map(([, row]) => row);
 
   const licenseSummary = Array.from(
-    monthlyBalances.reduce((groups, row) => {
+    usdConvertedBalances.reduce((groups, row) => {
       const current = groups.get(row.fundType) ?? { license: row.fundType, clientFundsUsd: 0, corporateFundsUsd: 0, totalUsd: 0 };
-      current.totalUsd += row.balanceUsd;
-      if (row.fundType === "Xero") current.clientFundsUsd += row.balanceUsd;
-      else current.corporateFundsUsd += row.balanceUsd;
+      current.totalUsd += row.balanceUsd ?? 0;
+      if (row.fundType === "Xero") current.clientFundsUsd += row.balanceUsd ?? 0;
+      else current.corporateFundsUsd += row.balanceUsd ?? 0;
       groups.set(row.fundType, current);
       return groups;
     }, new Map<string, { license: string; clientFundsUsd: number; corporateFundsUsd: number; totalUsd: number }>()),
   ).map(([, row]) => row);
 
-  const topBanks = [...monthlyBalances]
-    .sort((left, right) => Math.abs(right.balanceUsd) - Math.abs(left.balanceUsd))
+  const topBanks = [...usdConvertedBalances]
+    .sort((left, right) => Math.abs(right.balanceUsd ?? 0) - Math.abs(left.balanceUsd ?? 0))
     .slice(0, 10)
-    .map((row) => ({ bank: row.bank, totalUsd: row.balanceUsd, movementUsd: row.movementUsd }));
+    .map((row) => ({ bank: row.bank, totalUsd: row.balanceUsd ?? 0, movementUsd: null }));
 
-  const concentration = monthlyBalances.map((row) => {
-    const share = totalUsd ? Math.abs(row.balanceUsd / totalUsd) : 0;
+  const concentration = usdConvertedBalances.map((row) => {
+    const balance = row.balanceUsd ?? 0;
+    const share = totalUsd ? Math.abs(balance / totalUsd) : 0;
     return {
       entityGroup: row.accountEntity,
       bank: row.bank,
-      totalUsd: row.balanceUsd,
+      totalUsd: balance,
       proportion: share,
       hhiIndex: share * share,
       concentrationLevel: concentrationLevel(share),
@@ -168,11 +182,12 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
     },
     kpis: {
       totalUsd,
-      priorMonthUsd: totalUsd,
-      movementUsd: 0,
-      movementPct: 0,
+      priorMonthUsd: null,
+      movementUsd: null,
+      movementPct: null,
       accounts: accountsWithBalances.length,
       currencies: currencies.size,
+      excludedUsdAccounts,
     },
     countrySummary,
     licenseSummary,
@@ -194,5 +209,6 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
       rows: [],
     },
     fxRates: makeFxRates(accountsWithBalances, fallbackRates),
+    dataQualityIssues: payload.dataQualityIssues ?? [],
   };
 }

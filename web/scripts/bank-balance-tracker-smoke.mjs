@@ -8,7 +8,6 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptDir, "..");
 const outputDir = path.join(appDir, ".bank-balance-tracker-smoke");
 const sources = [
-  ["sample-data", path.join(appDir, "src/lib/bank-balance-tracker/sample-data.ts")],
   ["transforms", path.join(appDir, "src/lib/bank-balance-tracker/transforms.ts")],
   ["ledger-adapter", path.join(appDir, "src/lib/bank-balance-tracker/ledger-adapter.ts")],
 ];
@@ -28,68 +27,13 @@ for (const [name, sourcePath] of sources) {
   writeFileSync(path.join(outputDir, `${name}.mjs`), transpiled.outputText);
 }
 
-const { sampleBankBalanceWorkbook } = await import(`${pathToFileURL(path.join(outputDir, "sample-data.mjs")).href}?${Date.now()}`);
+const pageSource = readFileSync(path.join(appDir, "src/app/dashboard/bank-balances/page.tsx"), "utf8");
+assert.equal(pageSource.includes("sampleBankBalanceWorkbook"), false);
+assert.equal(pageSource.includes("Cached baseline"), false);
+assert.equal(pageSource.includes("Full reference sheet extracted"), false);
+
 const transforms = await import(`${pathToFileURL(path.join(outputDir, "transforms.mjs")).href}?${Date.now()}`);
 const { adaptLedgerDashboardToBankBalanceData } = await import(`${pathToFileURL(path.join(outputDir, "ledger-adapter.mjs")).href}?${Date.now()}`);
-
-const data = sampleBankBalanceWorkbook;
-
-assert.equal(data.metadata.title, "Mitrade Group Bank Balance Dashboard");
-assert.equal(data.metadata.selectedMonth, "2026-04-30");
-assert.equal(data.kpis.accounts, 101);
-assert.equal(data.kpis.currencies, 9);
-assert.equal(data.monthlyBalances.length, 101);
-assert.equal(data.bankMapping.length, 101);
-assert.equal(data.fxRates.length, 193);
-assert.equal(data.statementUploads.columns.length, 8);
-assert.equal(data.statementUploads.rows.length, 0);
-
-assert.equal(Math.round(data.kpis.totalUsd), 79755166);
-assert.equal(Math.round(data.kpis.priorMonthUsd), 76388155);
-assert.equal(Math.round(data.kpis.movementUsd), 3367010);
-
-const recalculatedTotal = data.monthlyBalances.reduce((total, row) => total + row.balanceUsd, 0);
-assert.equal(Math.round(recalculatedTotal), Math.round(data.kpis.totalUsd));
-assert.equal(data.monthlyBalances.every((row) => !/\d{6,}/.test(row.maskedAccountNo)), true);
-assert.equal(data.monthlyBalances.every((row) => !/\([^)]+\d{5,}[^)]*\)/.test(row.accountEntity)), true);
-
-const australiaClientTrust = transforms.filterBalances(data.monthlyBalances, {
-  country: "Australia",
-  fundType: "Client Funds",
-  currency: "",
-  search: "",
-});
-assert.equal(australiaClientTrust.length > 0, true);
-assert.equal(australiaClientTrust.every((row) => row.country === "Australia" && row.fundType === "Client Funds"), true);
-
-const sortedMovement = transforms.sortBalances(data.monthlyBalances, "movementUsd");
-assert.equal(Math.abs(sortedMovement[0].movementUsd) >= Math.abs(sortedMovement.at(-1).movementUsd), true);
-
-const readiness = transforms.statementReadiness(data);
-assert.deepEqual(readiness, {
-  readyAccounts: 101,
-  mappedAccounts: 101,
-  unmappedAccounts: 0,
-  activeMappings: 101,
-  uploadRows: 0,
-});
-
-const usedRates = transforms.usedFxRates(data.fxRates, data.monthlyBalances);
-assert.deepEqual(
-  usedRates.map((rate) => rate.currency).sort(),
-  ["AUD", "CNH", "CNY", "EUR", "GBP", "HKD", "MUR", "SGD", "USD"],
-);
-
-const accountEntityBalances = transforms.groupAccountEntityBalances(data.monthlyBalances);
-assert.equal(accountEntityBalances.length > 0, true);
-assert.equal(accountEntityBalances.length, new Set(data.monthlyBalances.map((row) => row.accountEntity)).size);
-assert.equal(Math.round(accountEntityBalances.reduce((total, row) => total + row.balanceUsd, 0)), Math.round(data.kpis.totalUsd));
-assert.equal(accountEntityBalances[0].balanceUsd >= accountEntityBalances.at(-1).balanceUsd, true);
-
-const bankExposure = transforms.groupBankExposure(data.monthlyBalances);
-assert.equal(bankExposure.length > 0, true);
-assert.equal(Math.round(bankExposure.reduce((total, row) => total + row.balanceUsd, 0)), Math.round(data.kpis.totalUsd));
-assert.equal(bankExposure[0].balanceUsd >= bankExposure.at(-1).balanceUsd, true);
 
 const ledgerDashboard = adaptLedgerDashboardToBankBalanceData(
   {
@@ -112,17 +56,74 @@ const ledgerDashboard = adaptLedgerDashboardToBankBalanceData(
           usdConversion: { amount: 975, rate: 0.65, rateDate: "2026-08-25", asOf: "2026-08-26T08:30:00.000Z", source: "xe" },
         },
       },
+      {
+        id: "account-xero-2",
+        entityId: "entity-1",
+        accountName: "CBA HKD",
+        currency: "HKD",
+        source: "xero",
+        latestBalance: {
+          amount: 7800,
+          currency: "HKD",
+          originalCurrency: "HKD",
+          source: "xero",
+          balanceDate: "2026-08-25",
+          asOf: "2026-08-26T08:30:00.000Z",
+          usdConversion: null,
+        },
+      },
     ],
     totalsBySource: [{ source: "xero", currency: "AUD", amount: 1500, accountCount: 1 }],
+    dataQualityIssues: [
+      {
+        code: "missing_usd_rate",
+        severity: "warning",
+        message: "No cached USD exchange rate is available for HKD.",
+        entityId: "entity-1",
+        bankAccountId: "account-xero-2",
+        balanceId: "balance-2",
+        currency: "HKD",
+      },
+    ],
   },
-  data.fxRates,
+  [],
 );
 
 assert.equal(ledgerDashboard.metadata.source.includes("Xero-backed"), true);
 assert.equal(ledgerDashboard.metadata.workbookSheets.length, 0);
 assert.equal(ledgerDashboard.kpis.totalUsd, 975);
+assert.equal(ledgerDashboard.kpis.priorMonthUsd, null);
+assert.equal(ledgerDashboard.kpis.movementUsd, null);
+assert.equal(ledgerDashboard.kpis.movementPct, null);
+assert.equal(ledgerDashboard.kpis.accounts, 2);
+assert.equal(ledgerDashboard.kpis.excludedUsdAccounts, 1);
 assert.equal(ledgerDashboard.monthlyBalances[0].fundType, "Xero");
 assert.equal(ledgerDashboard.monthlyBalances[0].sourceWorkbook, "Xero ledger");
-assert.equal(adaptLedgerDashboardToBankBalanceData({ asOf: "2026-08-26T09:00:00.000Z", entities: [], accounts: [], totalsBySource: [] }, data.fxRates), null);
+assert.equal(ledgerDashboard.monthlyBalances[0].priorMonthUsd, null);
+assert.equal(ledgerDashboard.monthlyBalances[0].movementUsd, null);
+assert.equal(ledgerDashboard.monthlyBalances[1].balanceUsd, null);
+assert.match(ledgerDashboard.monthlyBalances[1].notes, /excluded from USD totals/);
+assert.equal(ledgerDashboard.topBanks.length, 1);
+assert.equal(ledgerDashboard.concentration.length, 1);
+assert.equal(ledgerDashboard.dataQualityIssues[0]?.code, "missing_usd_rate");
+assert.equal(adaptLedgerDashboardToBankBalanceData({ asOf: "2026-08-26T09:00:00.000Z", entities: [], accounts: [], totalsBySource: [] }, []), null);
+
+const filtered = transforms.filterBalances(ledgerDashboard.monthlyBalances, {
+  country: "Mitrade AU",
+  fundType: "Xero",
+  currency: "",
+  search: "",
+});
+assert.equal(filtered.length, 2);
+
+const currencyExposure = transforms.groupCurrencyExposure(ledgerDashboard.monthlyBalances);
+assert.equal(currencyExposure.find((row) => row.currency === "HKD")?.missingUsdCount, 1);
+assert.equal(currencyExposure.find((row) => row.currency === "AUD")?.balanceUsd, 975);
+
+const usedRates = transforms.usedFxRates(ledgerDashboard.fxRates, ledgerDashboard.monthlyBalances);
+assert.deepEqual(
+  usedRates.map((rate) => rate.currency).sort(),
+  ["AUD", "HKD"],
+);
 
 console.log("Bank balance tracker smoke passed.");
