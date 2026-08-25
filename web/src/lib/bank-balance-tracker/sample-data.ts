@@ -406,7 +406,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 100105.18805738658,
       "movementUsd": 174991.9314779717,
       "movementPct": 1.7480805428151769,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -424,7 +424,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 315945.42,
       "movementUsd": -173188.68,
       "movementPct": -0.5481601220869098,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -442,7 +442,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 7691.032230909532,
       "movementUsd": 6.872866558967871,
       "movementPct": 0.0008936208239183383,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -460,7 +460,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 2475.2274225444958,
       "movementUsd": 49.84047533709008,
       "movementPct": 0.020135715564210597,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -478,7 +478,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 17824.25149700599,
       "movementUsd": 306.8533587294078,
       "movementPct": 0.017215497592196292,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -496,7 +496,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 7967.088680939826,
       "movementUsd": 82.5556711369818,
       "movementPct": 0.010362087638673459,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -514,7 +514,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 41193.540131834045,
       "movementUsd": 497.9048096933111,
       "movementPct": 0.01208696334667615,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -532,7 +532,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 597160.79,
       "movementUsd": -2.050000000046566,
       "movementPct": -0.000003432911260041983,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -550,7 +550,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 38.26384194482354,
       "movementUsd": 0.03419336596501665,
       "movementPct": 0.0008936208239184002,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -568,7 +568,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 14854.594804187669,
       "movementUsd": 179.54694292794193,
       "movementPct": 0.012086963346676123,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -586,7 +586,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 36278.8,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -604,7 +604,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 7460.2563223905145,
       "movementUsd": 359.61436726465854,
       "movementPct": 0.04820402298850586,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -622,7 +622,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 4421.397495056032,
       "movementUsd": 108.2467200444562,
       "movementPct": 0.02448246740210459,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -640,7 +640,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 797.9963150621834,
       "movementUsd": -8.669549873349183,
       "movementPct": -0.010864147753205619,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -658,7 +658,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": null,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -676,7 +676,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": null,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -694,7 +694,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 2348339.47,
       "movementUsd": -895359.6200000001,
       "movementPct": -0.38127350472033755,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -712,7 +712,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 38798.084528887164,
       "movementUsd": 468.95102562190004,
       "movementPct": 0.012086963346676095,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -730,7 +730,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 38986.58394726638,
       "movementUsd": 471.2294111827214,
       "movementPct": 0.012086963346676147,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -748,7 +748,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 94585.31971763415,
       "movementUsd": 181901.39005248083,
       "movementPct": 1.9231461139583987,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -766,7 +766,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 141826.98238640258,
       "movementUsd": 7603.0750848618045,
       "movementPct": 0.053608100214298404,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -784,7 +784,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 911497.3545336166,
       "movementUsd": 109311.40265029157,
       "movementPct": 0.11992509040931078,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -802,7 +802,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1297425.55,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -820,7 +820,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 4851.374134740594,
       "movementUsd": -1626.9703991084098,
       "movementPct": -0.33536279699759847,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -838,7 +838,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 76574.95716537592,
       "movementUsd": 3691.2209955436265,
       "movementPct": 0.04820402298850578,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -856,7 +856,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 28276.47397512667,
       "movementUsd": -7339.363958706312,
       "movementPct": -0.25955725473983654,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -874,7 +874,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 12961249.99657323,
       "movementUsd": 1895333.0925072301,
       "movementPct": 0.1462307333789819,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -892,7 +892,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 997768.26,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -910,7 +910,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1454690.8847919952,
       "movementUsd": 258031.52900110837,
       "movementPct": 0.17737894125734077,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -928,7 +928,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 111033.7331231581,
       "movementUsd": 7184.197911324649,
       "movementPct": 0.06470284038235452,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -946,7 +946,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 9034.007264752245,
       "movementUsd": 315.36773524775526,
       "movementPct": 0.03490895302666155,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -964,7 +964,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 685353.9853334246,
       "movementUsd": 33036.819264276535,
       "movementPct": 0.048204022988505894,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -982,7 +982,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 685353.9853334246,
       "movementUsd": 33036.819264276535,
       "movementPct": 0.048204022988505894,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1000,7 +1000,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": null,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1018,7 +1018,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1370707.9706668493,
       "movementUsd": 66073.63852855307,
       "movementPct": 0.048204022988505894,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1036,7 +1036,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 2056061.956000274,
       "movementUsd": 99110.45779282972,
       "movementPct": 0.04820402298850595,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1054,7 +1054,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1370707.9706668493,
       "movementUsd": 66073.63852855307,
       "movementPct": 0.048204022988505894,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1072,7 +1072,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 685353.9853334246,
       "movementUsd": 33036.819264276535,
       "movementPct": 0.048204022988505894,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1090,7 +1090,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 685353.9853334246,
       "movementUsd": 47544.37673554092,
       "movementPct": 0.06937200009482776,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1108,7 +1108,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 716385.3813994928,
       "movementUsd": 34532.65739361069,
       "movementPct": 0.04820402298850585,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1126,7 +1126,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 221142.49709189608,
       "movementUsd": 2672.9412567421678,
       "movementPct": 0.012086963346676072,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1144,7 +1144,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 10311557.38,
       "movementUsd": -4745568.500000001,
       "movementPct": -0.460218405922307,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1162,7 +1162,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 5515987.29,
       "movementUsd": -1844837.98,
       "movementPct": -0.3344529062538866,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1180,7 +1180,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 6000000,
       "movementPct": null,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1198,7 +1198,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 795589.97,
       "movementUsd": 1.349999999976717,
       "movementPct": 0.000001696853971118712,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1216,7 +1216,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 33818.670203946276,
       "movementUsd": -8.020796927521587,
       "movementPct": -0.0002371706775917418,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1234,7 +1234,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1252,7 +1252,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 57.577153385536626,
       "movementUsd": 1.0669939285614234,
       "movementPct": 0.0185315505512548,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1270,7 +1270,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 22005595.48,
       "movementUsd": 2792864.829999998,
       "movementPct": 0.12691612151728957,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1288,7 +1288,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 3095062.64,
       "movementUsd": 8661.879999999888,
       "movementPct": 0.002798612179299831,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1306,7 +1306,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 89760,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1324,7 +1324,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 15091.390903098221,
       "movementUsd": -8040.481071484968,
       "movementPct": -0.5327859521440319,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1342,7 +1342,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 10000,
       "movementPct": null,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1360,7 +1360,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1378,7 +1378,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1396,7 +1396,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1414,7 +1414,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1432,7 +1432,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 8115.359261700725,
       "movementUsd": 5516.851493323717,
       "movementPct": 0.6798037296216455,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1450,7 +1450,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 6613.579433091628,
       "movementUsd": -4947.772806258385,
       "movementPct": -0.7481232903171567,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1468,7 +1468,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 180500.25,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1486,7 +1486,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 3474.009672961769,
       "movementUsd": -510.5684343973776,
       "movementPct": -0.14696805203829275,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1504,7 +1504,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1695.2901888530632,
       "movementUsd": 599.7602451136268,
       "movementPct": 0.3537802843767947,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1522,7 +1522,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 61578.17825886688,
       "movementUsd": 1141.1391232583774,
       "movementPct": 0.018531550551254907,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1540,7 +1540,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 2189.336711192999,
       "movementUsd": -780.739479196752,
       "movementPct": -0.35661005235294146,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1558,7 +1558,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 172246.57,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1576,7 +1576,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 44910.17964071857,
       "movementUsd": 832.2552642779119,
       "movementPct": 0.018531550551254838,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1594,7 +1594,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 258717.44,
       "movementUsd": -150048.78,
       "movementPct": -0.5799716478332501,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1612,7 +1612,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 193748.4569322893,
       "movementUsd": 7994.048345683957,
       "movementPct": 0.04125993296802202,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1630,7 +1630,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 189959.37,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1648,7 +1648,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 199612.90879778904,
       "movementUsd": -10010.32845530723,
       "movementPct": -0.05014870288498149,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1666,7 +1666,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 14816.44403500691,
       "movementUsd": -14196.211804183547,
       "movementPct": -0.9581389279804293,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1684,7 +1684,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 176808.53,
       "movementUsd": -26808.53,
       "movementPct": -0.15162464163917883,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1702,7 +1702,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 748067.21,
       "movementUsd": 0,
       "movementPct": 1,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1720,7 +1720,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1738,7 +1738,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 36.22940013183916,
       "movementUsd": 1.0872755878783877,
       "movementPct": 0.7585,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1756,7 +1756,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 107.55453979690019,
       "movementUsd": 2015.3075128877365,
       "movementPct": 928.0472975709462,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1774,7 +1774,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 31350.59,
       "movementUsd": 0,
       "movementPct": 1,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1792,7 +1792,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1810,7 +1810,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 338838.86,
       "movementUsd": -24320.77999999997,
       "movementPct": 0.9282231677913213,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1828,7 +1828,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 90769.55,
       "movementUsd": 0,
       "movementPct": 1,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1846,7 +1846,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 10.28327959465684,
       "movementUsd": 0.19056511564107126,
       "movementPct": 0.8684000000000001,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1864,7 +1864,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 10.28327959465684,
       "movementUsd": 0.19056511564107126,
       "movementPct": 0.8684000000000001,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1882,7 +1882,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 3799.222604783742,
       "movementUsd": 6984.571743931895,
       "movementPct": 133.46086627342066,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1900,7 +1900,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 965.8571738326339,
       "movementUsd": 1080.3672781863108,
       "movementPct": 1.1185580098756087,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1918,7 +1918,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 6154.14,
       "movementUsd": -200.6900000000005,
       "movementPct": -0.03261056784538546,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1936,7 +1936,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 122728.90705712792,
       "movementUsd": -77613.14486239517,
       "movementPct": -0.6323949811291627,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1954,7 +1954,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 2036.312500906073,
       "movementUsd": 74.93219084967473,
       "movementPct": 0.036797982046632365,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1972,7 +1972,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1119.441858092165,
       "movementUsd": 1.0003565555568912,
       "movementPct": 0.0008936208239182447,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -1990,7 +1990,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1358188.91,
       "movementUsd": -518558.1499999999,
       "movementPct": -0.3818011958292311,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2008,7 +2008,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": -531.4567044628394,
       "movementUsd": 191.62547113844232,
       "movementPct": -0.3605664761198646,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2026,7 +2026,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 14339.152838539341,
       "movementUsd": -858.0873871969961,
       "movementPct": -0.05984226522020985,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2044,7 +2044,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 294.2412917873041,
       "movementUsd": 0.26294014559778134,
       "movementPct": 0.0008936208239183875,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2062,7 +2062,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 59801.92,
       "movementUsd": -27362.269999999997,
       "movementPct": -0.45754835296258045,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2080,7 +2080,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 1000,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2098,7 +2098,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 10.02,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2116,7 +2116,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2134,7 +2134,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 0,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2152,7 +2152,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 3958.663571547007,
       "movementUsd": 5994.713676866815,
       "movementPct": 1.5143276432869843,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2170,7 +2170,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 25180.857942272287,
       "movementUsd": 261.72955223642566,
       "movementPct": 0.010393988673318711,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2188,7 +2188,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 51849.91,
       "movementUsd": 0,
       "movementPct": 0,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     },
@@ -2206,7 +2206,7 @@ export const sampleBankBalanceWorkbook = {
       "priorMonthUsd": 4987.537466678571,
       "movementUsd": -1025.3363509291426,
       "movementPct": -0.2055796789055423,
-      "sourceWorkbook": "59._Group_bank_balance_as_at_30.04.2026---27150b09-18a0-4492-8f70-403605ab1f08.xlsx",
+      "sourceWorkbook": "Masked workbook sample",
       "statementFileRef": null,
       "notes": null
     }

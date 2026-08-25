@@ -8,6 +8,7 @@ const appDir = path.resolve(scriptDir, "..");
 const defaultOutputPath = path.join(appDir, "src/lib/bank-balance-tracker/sample-data.ts");
 const workbookPath = process.argv[2];
 const outputPath = process.argv[3] ?? defaultOutputPath;
+const maskedSourceWorkbook = "Masked workbook sample";
 
 if (!workbookPath) {
   throw new Error("Usage: node scripts/extract-bank-balance-workbook.mjs /path/to/workbook.xlsx [output.ts]");
@@ -124,7 +125,7 @@ const monthlyBalances = monthlyRows.slice(1).filter((row) => text(row[0])).map((
   priorMonthUsd: number(fromHeader(row, monthlyHeader, "Prior Month USD")),
   movementUsd: number(fromHeader(row, monthlyHeader, "Movement USD")),
   movementPct: nullableNumber(fromHeader(row, monthlyHeader, "Movement %")),
-  sourceWorkbook: normalizeString(fromHeader(row, monthlyHeader, "Source Workbook")),
+  sourceWorkbook: maskedSourceWorkbook,
   statementFileRef: text(fromHeader(row, monthlyHeader, "Statement File / Ref")) || null,
   notes: text(fromHeader(row, monthlyHeader, "Notes")) || null,
 }));
