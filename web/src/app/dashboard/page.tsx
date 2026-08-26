@@ -108,11 +108,9 @@ type LiquidityMixRow = {
   color: string;
 };
 
-type ActionItem = {
-  id: string;
-  title: string;
-  detail: string;
-  tone: "warning" | "info";
+type CommentaryMetric = {
+  label: string;
+  value: string;
 };
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -321,52 +319,44 @@ function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
-function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null): ActionItem[] {
-  if (!data) return [];
-
-  const missingFxAccounts = data.accounts.filter((account) => account.latestBalance && balanceUsd(account) === null);
-  const missingBalanceAccounts = data.accounts.filter((account) => !account.latestBalance);
-  const inactiveAccounts = data.accounts.filter((account) => account.status !== "active");
-  const items: ActionItem[] = [];
-
-  if (missingFxAccounts.length) {
-    const currencies = Array.from(new Set(missingFxAccounts.map((account) => account.latestBalance?.currency ?? account.currency ?? "Unspecified"))).join(", ");
-    items.push({
-      id: "missing-fx",
-      title: "Add Exchange Rates",
-      detail: `${missingFxAccounts.length} account${missingFxAccounts.length === 1 ? "" : "s"} excluded from USD liquidity because ${currencies} conversion is unavailable.`,
-      tone: "warning",
-    });
+function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null) {
+  if (!data) {
+    return {
+      headline: "Waiting for ledger data",
+      detail: "Momentum commentary will appear once balances and recent movements load.",
+      metrics: [] as CommentaryMetric[],
+    };
   }
 
-  if (missingBalanceAccounts.length) {
-    items.push({
-      id: "missing-balances",
-      title: "Sync Account Balances",
-      detail: `${missingBalanceAccounts.length} account${missingBalanceAccounts.length === 1 ? "" : "s"} have no latest balance yet.`,
-      tone: "info",
-    });
-  }
+  const accountsWithBalances = data.accounts.filter((account) => account.latestBalance);
+  const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
+  const missingBalanceCount = data.accounts.length - accountsWithBalances.length;
+  const missingFxCount = accountsWithBalances.length - convertedAccounts.length;
+  const totalUsd = sumUsd(convertedAccounts);
+  const mixRows = liquidityMixRows(groupExposure(data.accounts, new Map(data.entities.map((entity) => [entity.id, entity.name])), "accountType"));
+  const ownFunds = Math.abs(mixRows.find((row) => row.accountType === "operating_bank")?.amountUsd ?? 0);
+  const externalFloat = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
+  const totalExposure = absoluteMixTotal(mixRows);
+  const ownFundsShare = totalExposure ? ownFunds / totalExposure : 0;
+  const externalFloatShare = totalExposure ? externalFloat / totalExposure : 0;
+  const recentMovements = data.recentTransactions;
+  const inflowCount = recentMovements.filter((transaction) => transaction.direction === "inflow" || transaction.signedAmount > 0).length;
+  const outflowCount = recentMovements.filter((transaction) => transaction.direction === "outflow" || transaction.signedAmount < 0).length;
+  const movementBias = inflowCount > outflowCount ? "inflow-biased" : outflowCount > inflowCount ? "outflow-biased" : "balanced";
+  const connectionNote = xeroStatus?.connected ? "Xero is connected, so this view can keep tracking new postings." : "Connect a ledger source to keep the movement read current.";
+  const dataGapNote = missingBalanceCount || missingFxCount ? ` ${missingBalanceCount + missingFxCount} account${missingBalanceCount + missingFxCount === 1 ? "" : "s"} still need balance or FX coverage.` : "";
 
-  if (inactiveAccounts.length) {
-    items.push({
-      id: "inactive-accounts",
-      title: "Review Inactive Accounts",
-      detail: `${inactiveAccounts.length} inactive account${inactiveAccounts.length === 1 ? "" : "s"} remain in the ledger feed.`,
-      tone: "info",
-    });
-  }
-
-  if (!xeroStatus?.connected) {
-    items.push({
-      id: "connection",
-      title: "Connect a Ledger Source",
-      detail: "Connect an accounting source or continue with manual statement uploads to keep balances fresh.",
-      tone: "info",
-    });
-  }
-
-  return items.slice(0, 4);
+  return {
+    headline: recentMovements.length ? `Recent ledger activity is ${movementBias}` : "No recent ledger movement yet",
+    detail: recentMovements.length
+      ? `${recentMovements.length} posted movement${recentMovements.length === 1 ? "" : "s"} in the last ${data.windowDays} days, with ${inflowCount} inflow${inflowCount === 1 ? "" : "s"} and ${outflowCount} outflow${outflowCount === 1 ? "" : "s"}. Own funds represent ${formatPercent(ownFundsShare)} of visible USD exposure, while processor/provider float is ${formatPercent(externalFloatShare)}.${dataGapNote} ${connectionNote}`
+      : `${connectionNote}${dataGapNote}`,
+    metrics: [
+      { label: "Visible liquidity", value: formatUsdCompact(Math.abs(totalUsd)) },
+      { label: "Movements", value: String(recentMovements.length) },
+      { label: "Own funds", value: formatPercent(ownFundsShare) },
+    ],
+  };
 }
 
 function StatSkeleton() {
@@ -519,7 +509,7 @@ export default function DashboardPage() {
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
-  const actionItems = useMemo(() => buildActionItems(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
+  const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
@@ -759,20 +749,23 @@ export default function DashboardPage() {
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
-            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
-              {actionItems.length ? (
-                <div className="space-y-3">
-                  {actionItems.map((item) => (
-                    <Notice key={item.id} tone={item.tone} title={item.title}>
-                      {item.detail}
-                    </Notice>
-                  ))}
+            <Panel title="Treasury Commentary" subtitle="Movement momentum and balance concentration from the current ledger view.">
+              <div className="space-y-4">
+                <div>
+                  <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">{treasuryCommentary.detail}</p>
                 </div>
-              ) : (
-                <Notice tone="success" title="No Immediate Actions">
-                  USD balances are available and no account-level data issues are currently reported.
-                </Notice>
-              )}
+                {treasuryCommentary.metrics.length ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {treasuryCommentary.metrics.map((metric) => (
+                      <div key={metric.label} className="min-w-0 border-t border-zinc-100 pt-3">
+                        <div className="truncate text-[11px] font-medium text-zinc-500">{metric.label}</div>
+                        <div className="mt-1 truncate text-sm font-semibold tabular-nums text-zinc-950">{metric.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </Panel>
           </section>
 
@@ -847,7 +840,16 @@ export default function DashboardPage() {
 
           <Panel title="Account Detail" subtitle="Latest balances with local amounts, USD value, source, and account status.">
             <div className="overflow-x-auto">
-              <table className="min-w-[860px] divide-y divide-zinc-100 text-sm">
+              <table className="w-full min-w-[1040px] table-fixed divide-y divide-zinc-100 text-sm">
+                <colgroup>
+                  <col className="w-[22%]" />
+                  <col className="w-[23%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[13%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[7%]" />
+                </colgroup>
                 <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500">
                   <tr>
                     <th scope="col" className="px-4 py-3">Entity</th>
@@ -874,13 +876,19 @@ export default function DashboardPage() {
                       const latestBalance = account.latestBalance;
                       return (
                         <tr key={account.id} className="align-top">
-                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned entity"}</td>
-                          <td className="max-w-64 px-4 py-3">
+                          <td className="px-4 py-3 font-medium text-zinc-950">
+                            <div className="truncate">{entityNameById.get(account.entityId) ?? "Unassigned entity"}</div>
+                          </td>
+                          <td className="px-4 py-3">
                             <div className="truncate font-medium text-zinc-900">{account.accountName}</div>
                             <div className="mt-1 text-xs text-zinc-500">{formatDate(latestBalance?.balanceDate)}</div>
                           </td>
-                          <td className="px-4 py-3 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
-                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(latestBalance?.source ?? account.source)}</td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            <div className="truncate">{accountTypeLabel(account.accountType)}</div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">
+                            <div className="truncate">{sourceLabel(latestBalance?.source ?? account.source)}</div>
+                          </td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
                             {latestBalance ? formatLocalMoney(latestBalance.currency, latestBalance.amount) : "Not available"}
                           </td>
