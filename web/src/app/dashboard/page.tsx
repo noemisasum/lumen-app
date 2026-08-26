@@ -119,17 +119,17 @@ function getXeroErrorMessage(body: XeroErrorBody, fallback: string) {
 function xeroStatusMessage(status: string | null) {
   switch (status) {
     case "connected":
-      return { tone: "success" as const, title: "Connection ready", message: "The ledger connection is ready for balance sync." };
+      return { tone: "success" as const, title: "Connection Ready", message: "The ledger connection is ready for balance sync." };
     case "denied":
-      return { tone: "warning" as const, title: "Connection cancelled", message: "Access was not granted. Start the connection again when ready." };
+      return { tone: "warning" as const, title: "Connection Cancelled", message: "Access was not granted. Start the connection again when ready." };
     case "configuration_error":
-      return { tone: "error" as const, title: "Connection needs configuration", message: "Required integration or server settings are missing." };
+      return { tone: "error" as const, title: "Connection Needs Configuration", message: "Required integration or server settings are missing." };
     case "invalid_state":
     case "expired_state":
     case "invalid_callback":
-      return { tone: "error" as const, title: "Connection expired", message: "Start the connection again to refresh authorization." };
+      return { tone: "error" as const, title: "Connection Expired", message: "Start the connection again to refresh authorization." };
     case "connect_failed":
-      return { tone: "error" as const, title: "Connection failed", message: "Authorization returned, but token storage did not complete." };
+      return { tone: "error" as const, title: "Connection Failed", message: "Authorization returned, but token storage did not complete." };
     default:
       return null;
   }
@@ -137,15 +137,15 @@ function xeroStatusMessage(status: string | null) {
 
 function sourceLabel(source: LedgerSource) {
   if (source === "xero") return "Xero";
-  if (source === "bank_feed") return "Bank feed";
+  if (source === "bank_feed") return "Bank Feed";
   return "Manual";
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  if (accountType === "client_money") return "Client funds";
-  if (accountType === "money_processor") return "Money processors";
-  if (accountType === "liquidity_provider") return "Liquidity providers";
-  return "Own funds";
+  if (accountType === "client_money") return "Client Funds";
+  if (accountType === "money_processor") return "Money Processors";
+  if (accountType === "liquidity_provider") return "Liquidity Providers";
+  return "Own Funds";
 }
 
 function formatMoney(currency: string, amount: number, compact = false) {
@@ -189,8 +189,8 @@ function hasNonZeroBalance(account: LedgerAccount) {
   return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
 }
 
-function isCashBankAccount(account: LedgerAccount) {
-  return account.accountType === "operating_bank" || account.accountType === "client_money";
+function isExternalFloatAccount(account: LedgerAccount) {
+  return account.accountType === "money_processor" || account.accountType === "liquidity_provider";
 }
 
 function sumUsd(accounts: LedgerAccount[]) {
@@ -244,18 +244,12 @@ function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
   const relationshipLabel = remainingRows.length === 1 ? "relationship" : "relationships";
   visibleRows.push({
     id: "__remaining",
-    label: "Other/remaining",
+    label: "Other/Remaining",
     detail: `${remainingRows.length} ${relationshipLabel} represented`,
     amountUsd: remainingRows.reduce((total, row) => total + row.amountUsd, 0),
     accountCount: remainingRows.reduce((total, row) => total + row.accountCount, 0),
   });
   return visibleRows;
-}
-
-function concentrationTone(share: number) {
-  if (share >= 0.35) return "High";
-  if (share >= 0.2) return "Elevated";
-  return "Balanced";
 }
 
 function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null): ActionItem[] {
@@ -270,7 +264,7 @@ function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStat
     const currencies = Array.from(new Set(missingFxAccounts.map((account) => account.latestBalance?.currency ?? account.currency ?? "Unspecified"))).join(", ");
     items.push({
       id: "missing-fx",
-      title: "Add exchange rates",
+      title: "Add Exchange Rates",
       detail: `${missingFxAccounts.length} account${missingFxAccounts.length === 1 ? "" : "s"} excluded from USD liquidity because ${currencies} conversion is unavailable.`,
       tone: "warning",
     });
@@ -279,7 +273,7 @@ function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStat
   if (missingBalanceAccounts.length) {
     items.push({
       id: "missing-balances",
-      title: "Sync account balances",
+      title: "Sync Account Balances",
       detail: `${missingBalanceAccounts.length} account${missingBalanceAccounts.length === 1 ? "" : "s"} have no latest balance yet.`,
       tone: "info",
     });
@@ -288,7 +282,7 @@ function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStat
   if (inactiveAccounts.length) {
     items.push({
       id: "inactive-accounts",
-      title: "Review inactive accounts",
+      title: "Review Inactive Accounts",
       detail: `${inactiveAccounts.length} inactive account${inactiveAccounts.length === 1 ? "" : "s"} remain in the ledger feed.`,
       tone: "info",
     });
@@ -297,7 +291,7 @@ function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStat
   if (!xeroStatus?.connected) {
     items.push({
       id: "connection",
-      title: "Connect a ledger source",
+      title: "Connect a Ledger Source",
       detail: "Connect an accounting source or continue with manual statement uploads to keep balances fresh.",
       tone: "info",
     });
@@ -323,7 +317,7 @@ function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; va
     <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="text-xs font-semibold text-zinc-500">{label}</div>
       <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
-      <div className="mt-2 text-xs leading-5 text-zinc-500">{detail}</div>
+      <div className="mt-2 break-words text-xs leading-5 text-zinc-500">{detail}</div>
     </div>
   );
 }
@@ -396,9 +390,8 @@ export default function DashboardPage() {
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
-  const cashBankUsd = sumUsd(convertedAccounts.filter(isCashBankAccount));
-  const lpMpUsd = totalUsd - cashBankUsd;
-  const latestBalanceDate = latestIso(accountsWithBalances.map((account) => account.latestBalance?.balanceDate));
+  const externalFloatUsd = sumUsd(convertedAccounts.filter(isExternalFloatAccount));
+  const externalFloatShare = totalUsd ? externalFloatUsd / totalUsd : 0;
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
@@ -528,17 +521,17 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Treasury dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
           </header>
 
           <main className="mt-8">
             {error ? (
-              <Notice tone="error" title="Authentication needs configuration">
+              <Notice tone="error" title="Authentication Needs Configuration">
                 {error}
               </Notice>
             ) : (
               <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <Spinner label="Checking session" />
+                <Spinner label="Checking Session" />
               </section>
             )}
           </main>
@@ -556,14 +549,14 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Treasury dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
               Entities
             </Link>
             <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
-              Statement intake
+              Statement Intake
             </Link>
             <button
               type="button"
@@ -571,7 +564,7 @@ export default function DashboardPage() {
               disabled={signingOut || !supabase}
               className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:px-4"
             >
-              {signingOut ? "Signing out" : "Sign out"}
+              {signingOut ? "Signing Out" : "Sign Out"}
             </button>
           </div>
         </header>
@@ -580,10 +573,10 @@ export default function DashboardPage() {
           <section className="border-b border-zinc-200 pb-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-zinc-500">Treasury workspace</p>
-                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury dashboard</h1>
+                <p className="text-xs font-semibold text-zinc-500">Treasury Workspace</p>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury Dashboard</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Monitor operating cash, client money, processor balances, liquidity-provider balances, and recent ledger movement from authenticated treasury data.
+                  Monitor Operating Cash, Client Money, Processor Balances, Liquidity-Provider Balances, And Recent Ledger Movement From Authenticated Treasury Data.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -604,7 +597,7 @@ export default function DashboardPage() {
                   disabled={xeroConnecting || xeroLoading}
                   className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
-                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect source" : "Connect source"}
+                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect Source" : "Connect Source"}
                 </button>
               </div>
             </div>
@@ -617,19 +610,19 @@ export default function DashboardPage() {
           ) : null}
 
           {xeroError ? (
-            <Notice tone="warning" title="Connection status unavailable">
+            <Notice tone="warning" title="Connection Status Unavailable">
               {xeroError}
             </Notice>
           ) : null}
 
           {ledgerError ? (
-            <Notice tone="error" title="Treasury dashboard unavailable">
+            <Notice tone="error" title="Treasury Dashboard Unavailable">
               {ledgerError}
             </Notice>
           ) : null}
 
           {missingFxAccounts ? (
-            <Notice tone="warning" title="Missing FX conversion">
+            <Notice tone="warning" title="Missing FX Conversion">
               {missingFxAccounts} account{missingFxAccounts === 1 ? "" : "s"} have balances without USD conversion and are excluded from converted liquidity.
             </Notice>
           ) : null}
@@ -645,66 +638,67 @@ export default function DashboardPage() {
             ) : (
               <>
                 <KpiCard
-                  label="Total liquidity in USD"
+                  label="Bank Balances"
                   value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
-                  detail={`${convertedAccounts.length}/${accountsWithBalances.length} account balances included`}
+                  detail={convertedAccounts.length ? `${convertedAccounts.length} Converted Balances Included` : "Waiting For Converted Balances"}
                   tone={convertedAccounts.length ? "success" : "warning"}
                 />
                 <KpiCard
-                  label="Treasury balance split"
-                  value={convertedAccounts.length ? `${formatMoney("USD", cashBankUsd)} cash/bank` : "Unavailable"}
-                  detail={convertedAccounts.length ? `LP/MP ${formatMoney("USD", lpMpUsd)} · latest ${formatDate(latestBalanceDate)}` : "Waiting for converted balances"}
+                  label="External Float Share"
+                  value={convertedAccounts.length ? formatPercent(externalFloatShare) : "Unavailable"}
+                  detail={convertedAccounts.length ? `${formatMoney("USD", externalFloatUsd)} For Balances In Money Processors And Liquidity Providers` : "Waiting For Converted Balances"}
+                  tone={externalFloatShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
-                  label="Concentration"
-                  value={topExposure ? concentrationTone(topShare) : "Unavailable"}
-                  detail={topExposure ? `${topExposure.label} holds ${formatPercent(topShare)} of USD liquidity` : "No USD balances yet"}
+                  label="Largest Relationship"
+                  value={topExposure ? formatPercent(topShare) : "Unavailable"}
+                  detail={topExposure ? `${topExposure.label} Exposure` : "No USD Balances Yet"}
                   tone={topShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
-                  label="Data freshness"
-                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not synced"}
-                  detail={ledgerData ? `Source connection ${xeroStatus?.connected ? "ready" : "needs review"}` : "Loading finance data"}
+                  label="Data Freshness"
+                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not Synced"}
+                  detail={ledgerData ? (xeroStatus?.connected ? "Ledger Source Ready" : "Ledger Source Needs Review") : "Loading Finance Data"}
                 />
               </>
             )}
           </section>
 
           {ledgerData?.dataQualityIssues.length ? (
-            <Notice tone="warning" title="Data quality review">
+            <Notice tone="warning" title="Data Quality Review">
               {ledgerData.dataQualityIssues.slice(0, 2).map((issue) => issue.message).join(" ")}
               {ledgerData.dataQualityIssues.length > 2 ? ` ${ledgerData.dataQualityIssues.length - 2} more issue${ledgerData.dataQualityIssues.length - 2 === 1 ? "" : "s"} need review.` : ""}
             </Notice>
           ) : null}
 
           {ledgerData && !ledgerData.entities.length ? (
-            <Notice tone="info" title="No entity access">
+            <Notice tone="info" title="No Entity Access">
               Create or request access to an entity before ledger balances can appear here.
             </Notice>
           ) : null}
 
           {ledgerData && ledgerData.entities.length > 0 && !ledgerData.accounts.length ? (
-            <Notice tone="info" title="No accounts yet">
+            <Notice tone="info" title="No Accounts Yet">
               Add a statement account or connect an accounting source to start building treasury visibility.
             </Notice>
           ) : null}
 
           <section className="grid gap-4 xl:grid-cols-3">
-            <Panel title="Liquidity mix" subtitle="USD view across own funds, client funds, money processors, and liquidity providers.">
+            <Panel title="Liquidity Mix" subtitle="USD view across Own Funds, Client Funds, Money Processors, and Liquidity Providers.">
               <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No USD category balances yet." />
             </Panel>
 
-            <Panel title="Liquidity by entity" subtitle="USD balances grouped by entity, limited to accounts with available USD conversion.">
+            <Panel title="Liquidity by Entity" subtitle="USD balances grouped by entity, limited to accounts with available USD conversion.">
               <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
             </Panel>
 
-            <Panel title="Exposure by account" subtitle="Largest account relationships by USD balance.">
+            <Panel title="Exposure by Account" subtitle="Largest account relationships by USD balance.">
               <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No USD account balances yet." maxRows={6} />
             </Panel>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-            <Panel title="Action needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
+            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
               {actionItems.length ? (
                 <div className="space-y-3">
                   {actionItems.map((item) => (
@@ -714,13 +708,13 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <Notice tone="success" title="No immediate actions">
+                <Notice tone="success" title="No Immediate Actions">
                   USD balances are available and no account-level data issues are currently reported.
                 </Notice>
               )}
             </Panel>
 
-            <Panel title="Recent movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
+            <Panel title="Recent Movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
               <div className="overflow-x-auto">
                 <table className="min-w-[560px] divide-y divide-zinc-100 text-sm sm:min-w-full">
                   <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500">
@@ -759,7 +753,7 @@ export default function DashboardPage() {
             </Panel>
           </section>
 
-          <Panel title="Account detail" subtitle="Latest balances with local amounts, USD value, source, and account status.">
+          <Panel title="Account Detail" subtitle="Latest balances with local amounts, USD value, source, and account status.">
             <div className="overflow-x-auto">
               <table className="min-w-[860px] divide-y divide-zinc-100 text-sm">
                 <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500">
