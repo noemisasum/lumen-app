@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 type SessionInfo = {
-  userId: string;
-  email: string | null;
   accessToken: string;
 };
 
@@ -21,26 +20,10 @@ type XeroStatus = {
 type XeroErrorBody = {
   error?: string;
   expectedCallbackUri?: string;
-  configuredRedirectUri?: string;
 };
 
 type LedgerSource = "manual" | "xero" | "bank_feed";
-type AccountType = "all" | "bank" | "money_processor";
-
-type MoneyGroup = {
-  currency: string;
-  amount: number;
-  accountCount: number;
-};
-
-type SourceMoneyGroup = MoneyGroup & {
-  source: LedgerSource;
-};
-
-type EntityMoneyGroup = MoneyGroup & {
-  entityId: string;
-  entityName: string;
-};
+type AccountType = "bank" | "money_processor";
 
 type LedgerAccount = {
   id: string;
@@ -49,7 +32,7 @@ type LedgerAccount = {
   currency: string | null;
   status: string;
   source: LedgerSource;
-  accountType: Exclude<AccountType, "all">;
+  accountType: AccountType;
   canAdmin: boolean;
   latestBalance: {
     amount: number;
@@ -69,22 +52,13 @@ type LedgerAccount = {
   } | null;
 };
 
-type LedgerTransactionBreakdown = {
-  currency: string;
-  source: LedgerSource;
-  inflow: number;
-  outflow: number;
-  net: number;
-  transactionCount: number;
-};
-
 type LedgerRecentTransaction = {
   id: string;
   bankAccountId: string;
   entityName: string;
   accountName: string;
   source: LedgerSource;
-  accountType: Exclude<AccountType, "all">;
+  accountType: AccountType;
   transactionDate: string;
   description: string;
   signedAmount: number;
@@ -98,10 +72,6 @@ type LedgerDashboardData = {
   windowDays: number;
   entities: Array<{ id: string; name: string; code: string | null; orgId: string }>;
   accounts: LedgerAccount[];
-  totalsByCurrency: MoneyGroup[];
-  totalsBySource: SourceMoneyGroup[];
-  balancesByEntity: EntityMoneyGroup[];
-  transactionBreakdowns: LedgerTransactionBreakdown[];
   recentTransactions: LedgerRecentTransaction[];
   dataQualityIssues: Array<{
     code: "invalid_balance_currency" | "missing_usd_rate";
@@ -120,52 +90,19 @@ type LedgerDashboardData = {
   };
 };
 
-type CleanupCandidate = {
-  accountId: string;
-  entityId: string;
-  accountName: string;
-  currency: string | null;
-  status: string;
-  source: LedgerSource;
-  transactionCount: number;
-  balanceCount: number;
-  importCount: number;
-  latestBalanceAmount: number | null;
-  latestBalanceCurrency: string | null;
-  reason: string;
-  protected: boolean;
+type ExposureRow = {
+  id: string;
+  label: string;
+  detail: string;
+  amountUsd: number;
+  accountCount: number;
 };
 
-type CleanupSummary = {
-  generatedAt: string;
-  dryRun: boolean;
-  counts: {
-    emptyManualAccounts: number;
-    emptyXeroAccounts: number;
-    zeroBalanceNoActivityAccounts: number;
-    duplicateNameGroups: number;
-    invalidBalanceCurrencies: number;
-    archivedAccounts: number;
-  };
-  candidates: {
-    emptyManualAccounts: CleanupCandidate[];
-    emptyXeroAccounts: CleanupCandidate[];
-    zeroBalanceNoActivityAccounts: CleanupCandidate[];
-    duplicateNameGroups: Array<{ entityId: string; normalizedName: string; accounts: CleanupCandidate[] }>;
-    invalidBalanceCurrencies: Array<{ currency: string; balanceCount: number; accountCount: number; exampleAccountName: string | null }>;
-  };
-  archived?: Array<{ id: string; entityId: string; accountName: string; status: string }>;
-  error?: string;
-};
-
-type AccountUpdateResponse = {
-  account?: {
-    id: string;
-    entityId: string;
-    accountName: string;
-    accountType: Exclude<AccountType, "all">;
-  };
-  error?: string;
+type ActionItem = {
+  id: string;
+  title: string;
+  detail: string;
+  tone: "warning" | "info";
 };
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -175,24 +112,23 @@ function getErrorMessage(err: unknown, fallback: string) {
 function getXeroErrorMessage(body: XeroErrorBody, fallback: string) {
   const message = body.error || fallback;
   if (!body.expectedCallbackUri) return message;
-
-  return `${message} Add ${body.expectedCallbackUri} in Xero, then set XERO_REDIRECT_URI to the same value in Vercel.`;
+  return `${message} Add ${body.expectedCallbackUri} in Xero, then update the matching redirect URI in deployment settings.`;
 }
 
 function xeroStatusMessage(status: string | null) {
   switch (status) {
     case "connected":
-      return { tone: "success" as const, title: "Xero Connected", message: "Your Xero organisation is ready for future sync work." };
+      return { tone: "success" as const, title: "Connection Ready", message: "The ledger connection is ready for balance sync." };
     case "denied":
-      return { tone: "warning" as const, title: "Xero Connection Cancelled", message: "Xero did not grant access." };
+      return { tone: "warning" as const, title: "Connection Cancelled", message: "Access was not granted. Start the connection again when ready." };
     case "configuration_error":
-      return { tone: "error" as const, title: "Xero Needs Configuration", message: "The deployment is missing required Xero or server Supabase env vars." };
+      return { tone: "error" as const, title: "Connection Needs Configuration", message: "Required integration or server settings are missing." };
     case "invalid_state":
     case "expired_state":
     case "invalid_callback":
-      return { tone: "error" as const, title: "Xero Connection Expired", message: "Please start the Xero connection again." };
+      return { tone: "error" as const, title: "Connection Expired", message: "Start the connection again to refresh authorization." };
     case "connect_failed":
-      return { tone: "error" as const, title: "Xero Connection Failed", message: "Xero returned to Lumen, but the token exchange or storage step failed." };
+      return { tone: "error" as const, title: "Connection Failed", message: "Authorization returned, but token storage did not complete." };
     default:
       return null;
   }
@@ -205,28 +141,24 @@ function sourceLabel(source: LedgerSource) {
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  if (accountType === "money_processor") return "Money Processor";
-  if (accountType === "bank") return "Bank";
-  return "All Accounts";
+  return accountType === "money_processor" ? "Processor" : "Bank";
 }
 
-function accountTypePluralLabel(accountType: AccountType) {
-  if (accountType === "money_processor") return "Money Processors";
-  if (accountType === "bank") return "Banks";
-  return "All Accounts";
-}
-
-function currencyLabel(currency: string) {
-  return currency === "Unspecified" ? "Unspecified" : currency;
-}
-
-function formatMoney(currency: string, amount: number) {
-  const fractionDigits = Math.abs(amount) >= 1000 ? 0 : 2;
-  const formatted = new Intl.NumberFormat("en", {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
+function formatMoney(currency: string, amount: number, compact = false) {
+  return new Intl.NumberFormat("en", {
+    style: currency === "USD" ? "currency" : "decimal",
+    currency: "USD",
+    notation: compact ? "compact" : "standard",
+    maximumFractionDigits: compact ? 1 : 0,
   }).format(amount);
-  return currency === "Unspecified" ? formatted : `${currency} ${formatted}`;
+}
+
+function formatLocalMoney(currency: string, amount: number) {
+  const formatted = new Intl.NumberFormat("en", {
+    minimumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
+    maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
+  }).format(amount);
+  return `${currency || "Unspecified"} ${formatted}`;
 }
 
 function formatDate(value: string | null | undefined) {
@@ -239,29 +171,102 @@ function formatDateTime(value: string | null | undefined) {
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }
 
-function fxSourceLabel(source: string) {
-  if (source === "frankfurter") return "Frankfurter";
-  if (source === "xe") return "XE";
-  if (source === "identity") return "Identity";
-  if (source === "manual") return "Manual";
-  return "Cache";
+function formatPercent(value: number) {
+  return new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 1 }).format(value);
 }
 
-function fxStatusLabel(fx: LedgerDashboardData["fx"]) {
-  const provider = fxSourceLabel(fx.source);
-  if (fx.status === "available") return `${provider} rates cached`;
-  if (fx.status === "missing_credentials") return `${provider} credentials missing`;
-  if (fx.status === "schema_missing") return "FX cache table missing";
-  return "FX refresh failed";
+function balanceUsd(account: LedgerAccount) {
+  if (!account.latestBalance) return null;
+  if (account.latestBalance.usdConversion) return account.latestBalance.usdConversion.amount;
+  return account.latestBalance.currency === "USD" ? account.latestBalance.amount : null;
 }
 
-function formatRate(value: number) {
-  return new Intl.NumberFormat("en", { maximumFractionDigits: 8 }).format(value);
+function latestIso(values: Array<string | null | undefined>) {
+  return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
+}
+
+function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, string>, groupBy: "entity" | "account"): ExposureRow[] {
+  const groups = new Map<string, ExposureRow>();
+
+  for (const account of accounts) {
+    const amountUsd = balanceUsd(account);
+    if (amountUsd === null) continue;
+
+    const key = groupBy === "entity" ? account.entityId : account.accountName;
+    const current =
+      groups.get(key) ??
+      ({
+        id: key,
+        label: groupBy === "entity" ? entityNameById.get(account.entityId) ?? "Unassigned Entity" : account.accountName,
+        detail: groupBy === "entity" ? "Converted account balances" : `${entityNameById.get(account.entityId) ?? "Unassigned Entity"} · ${accountTypeLabel(account.accountType)}`,
+        amountUsd: 0,
+        accountCount: 0,
+      } satisfies ExposureRow);
+    current.amountUsd += amountUsd;
+    current.accountCount += 1;
+    groups.set(key, current);
+  }
+
+  return Array.from(groups.values()).sort((left, right) => Math.abs(right.amountUsd) - Math.abs(left.amountUsd));
+}
+
+function concentrationTone(share: number) {
+  if (share >= 0.35) return "High";
+  if (share >= 0.2) return "Elevated";
+  return "Balanced";
+}
+
+function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null): ActionItem[] {
+  if (!data) return [];
+
+  const missingFxAccounts = data.accounts.filter((account) => account.latestBalance && balanceUsd(account) === null);
+  const missingBalanceAccounts = data.accounts.filter((account) => !account.latestBalance);
+  const inactiveAccounts = data.accounts.filter((account) => account.status !== "active");
+  const items: ActionItem[] = [];
+
+  if (missingFxAccounts.length) {
+    const currencies = Array.from(new Set(missingFxAccounts.map((account) => account.latestBalance?.currency ?? account.currency ?? "Unspecified"))).join(", ");
+    items.push({
+      id: "missing-fx",
+      title: "Add exchange rates",
+      detail: `${missingFxAccounts.length} account${missingFxAccounts.length === 1 ? "" : "s"} excluded from USD liquidity because ${currencies} conversion is unavailable.`,
+      tone: "warning",
+    });
+  }
+
+  if (missingBalanceAccounts.length) {
+    items.push({
+      id: "missing-balances",
+      title: "Sync account balances",
+      detail: `${missingBalanceAccounts.length} account${missingBalanceAccounts.length === 1 ? "" : "s"} have no latest balance yet.`,
+      tone: "info",
+    });
+  }
+
+  if (inactiveAccounts.length) {
+    items.push({
+      id: "inactive-accounts",
+      title: "Review inactive accounts",
+      detail: `${inactiveAccounts.length} inactive account${inactiveAccounts.length === 1 ? "" : "s"} remain in the ledger feed.`,
+      tone: "info",
+    });
+  }
+
+  if (!xeroStatus?.connected) {
+    items.push({
+      id: "connection",
+      title: "Connect a ledger source",
+      detail: "Connect an accounting source or continue with manual statement uploads to keep balances fresh.",
+      tone: "info",
+    });
+  }
+
+  return items.slice(0, 4);
 }
 
 function StatSkeleton() {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <SkeletonBlock className="h-4 w-24" />
       <SkeletonBlock className="mt-4 h-8 w-32" />
       <SkeletonBlock className="mt-4 h-3 w-full" />
@@ -269,74 +274,59 @@ function StatSkeleton() {
   );
 }
 
-function CompactMoneyList({ rows, emptyLabel, className = "" }: { rows: MoneyGroup[]; emptyLabel: string; className?: string }) {
-  if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
+function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: "neutral" | "warning" | "success" }) {
+  const toneClass = tone === "warning" ? "text-amber-800" : tone === "success" ? "text-emerald-800" : "text-zinc-950";
 
   return (
-    <div className={`space-y-2 ${className}`}>
-      {rows.map((row) => (
-        <div key={row.currency} className="flex items-baseline justify-between gap-3 text-sm">
-          <span className="font-medium text-zinc-700">{currencyLabel(row.currency)}</span>
-          <span className="tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.amount)}</span>
-        </div>
-      ))}
+    <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase text-zinc-500">{label}</div>
+      <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
+      <div className="mt-2 text-xs leading-5 text-zinc-500">{detail}</div>
     </div>
   );
 }
 
-function groupBalances(accounts: LedgerAccount[]) {
-  const groups = new Map<string, MoneyGroup>();
-  for (const account of accounts) {
-    if (!account.latestBalance) continue;
-    const currency = account.latestBalance.currency;
-    const existing = groups.get(currency) ?? { currency, amount: 0, accountCount: 0 };
-    existing.amount += account.latestBalance.amount;
-    existing.accountCount += 1;
-    groups.set(currency, existing);
-  }
-  return Array.from(groups.values()).sort((left, right) => left.currency.localeCompare(right.currency));
+function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="border-b border-zinc-100 px-4 py-3 sm:px-5">
+        <h2 className="text-sm font-semibold text-zinc-950">{title}</h2>
+        {subtitle ? <p className="mt-1 text-xs leading-5 text-zinc-500">{subtitle}</p> : null}
+      </div>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
+  );
 }
 
-function accountHasVisibleBalance(account: LedgerAccount, hideZeroBalances: boolean) {
-  if (!hideZeroBalances) return true;
-  return !account.latestBalance || account.latestBalance.amount !== 0;
-}
+function ExposureList({ rows, totalUsd, emptyLabel }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string }) {
+  if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
 
-function groupBalancesByEntity(accounts: LedgerAccount[], entityNameById: Map<string, string>) {
-  const groups = new Map<string, EntityMoneyGroup>();
-  for (const account of accounts) {
-    if (!account.latestBalance) continue;
-    const key = `${account.entityId}:${account.latestBalance.currency}`;
-    const existing =
-      groups.get(key) ??
-      ({
-        entityId: account.entityId,
-        entityName: entityNameById.get(account.entityId) ?? "Unknown Entity",
-        currency: account.latestBalance.currency,
-        amount: 0,
-        accountCount: 0,
-      } satisfies EntityMoneyGroup);
-    existing.amount += account.latestBalance.amount;
-    existing.accountCount += 1;
-    groups.set(key, existing);
-  }
-  return Array.from(groups.values()).sort((left, right) => left.entityName.localeCompare(right.entityName) || left.currency.localeCompare(right.currency));
-}
-
-function topAccounts(accounts: LedgerAccount[], entityNameById: Map<string, string>) {
-  return accounts
-    .filter((account) => account.latestBalance)
-    .sort((left, right) => Math.abs(right.latestBalance?.amount ?? 0) - Math.abs(left.latestBalance?.amount ?? 0))
-    .slice(0, 8)
-    .map((account) => ({
-      ...account,
-      entityName: entityNameById.get(account.entityId) ?? "Unknown Entity",
-    }));
-}
-
-function balanceShare(amount: number, total: number) {
-  if (!total) return 0;
-  return Math.max(3, Math.round((Math.abs(amount) / total) * 100));
+  return (
+    <div className="space-y-4">
+      {rows.slice(0, 6).map((row) => {
+        const share = totalUsd ? Math.abs(row.amountUsd / totalUsd) : 0;
+        return (
+          <div key={row.id}>
+            <div className="flex items-start justify-between gap-3 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-zinc-950">{row.label}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {row.detail} · {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="tabular-nums font-semibold text-zinc-950">{formatMoney("USD", row.amountUsd, true)}</div>
+                <div className="mt-1 text-xs text-zinc-500">{formatPercent(share)}</div>
+              </div>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
+              <div className="h-full rounded-full bg-sky-700" style={{ width: `${Math.max(3, Math.min(100, share * 100))}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -346,58 +336,29 @@ export default function DashboardPage() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
   const [xeroStatus, setXeroStatus] = useState<XeroStatus | null>(null);
   const [xeroLoading, setXeroLoading] = useState(false);
   const [xeroConnecting, setXeroConnecting] = useState(false);
   const [xeroError, setXeroError] = useState<string | null>(null);
   const [xeroNotice, setXeroNotice] = useState<ReturnType<typeof xeroStatusMessage>>(null);
-  const [recoveringAccess, setRecoveringAccess] = useState(false);
-  const [accessRecoveryNotice, setAccessRecoveryNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerError, setLedgerError] = useState<string | null>(null);
-  const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
-  const [selectedAccountType, setSelectedAccountType] = useState<AccountType>("bank");
-  const [hideZeroBalances, setHideZeroBalances] = useState(true);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
-  const [cleanupApplying, setCleanupApplying] = useState(false);
-  const [cleanupSummary, setCleanupSummary] = useState<CleanupSummary | null>(null);
-  const [cleanupNotice, setCleanupNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
-  const [updatingAccountIds, setUpdatingAccountIds] = useState<Set<string>>(() => new Set());
-  const [classificationNotice, setClassificationNotice] = useState<{ tone: "success" | "warning"; title: string; message: string } | null>(null);
 
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
-  const allVisibleAccounts = useMemo(() => accounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [accounts, hideZeroBalances]);
-  const accountTypeFilteredAccounts = useMemo(() => (selectedAccountType === "all" ? accounts : accounts.filter((account) => account.accountType === selectedAccountType)), [accounts, selectedAccountType]);
-  const visibleAccounts = useMemo(() => accountTypeFilteredAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [accountTypeFilteredAccounts, hideZeroBalances]);
-  const accountsWithBalances = visibleAccounts.filter((account) => account.latestBalance);
-  const filteredTotalsByCurrency = useMemo(() => groupBalances(visibleAccounts), [visibleAccounts]);
-  const bankAccounts = useMemo(() => accounts.filter((account) => account.accountType === "bank"), [accounts]);
-  const mpAccounts = useMemo(() => accounts.filter((account) => account.accountType === "money_processor"), [accounts]);
-  const visibleBankAccounts = useMemo(() => bankAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [bankAccounts, hideZeroBalances]);
-  const visibleMpAccounts = useMemo(() => mpAccounts.filter((account) => accountHasVisibleBalance(account, hideZeroBalances)), [mpAccounts, hideZeroBalances]);
-  const bankTotals = useMemo(() => groupBalances(visibleBankAccounts), [visibleBankAccounts]);
-  const mpTotals = useMemo(() => groupBalances(visibleMpAccounts), [visibleMpAccounts]);
-  const visibleTransactions = (ledgerData?.recentTransactions ?? []).filter((transaction) => {
-    if (selectedAccountType === "all") return true;
-    return transaction.accountType === selectedAccountType;
-  }).slice(0, 10);
-  const visibleTopAccounts = useMemo(() => topAccounts(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
-  const visibleBalancesByEntity = useMemo(() => groupBalancesByEntity(visibleAccounts, entityNameById), [entityNameById, visibleAccounts]);
-  const currencyCount = new Set(filteredTotalsByCurrency.map((row) => row.currency)).size;
-  const hiddenZeroAccountCount = accountTypeFilteredAccounts.length - visibleAccounts.length;
-  const totalUsdBalance = visibleAccounts.reduce((total, account) => total + (account.latestBalance?.usdConversion?.amount ?? 0), 0);
-  const convertedBalanceCount = visibleAccounts.filter((account) => account.latestBalance?.usdConversion).length;
-  const accountTypeOptions = [
-    { type: "bank" as const, label: "Banks", accounts: visibleBankAccounts.length, rows: bankTotals },
-    { type: "money_processor" as const, label: "Money Processors", accounts: visibleMpAccounts.length, rows: mpTotals },
-    { type: "all" as const, label: "All Accounts", accounts: allVisibleAccounts.length, rows: groupBalances(allVisibleAccounts) },
-  ];
-  const accountTypeChartRows = [
-    { label: "Banks", amount: bankTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: visibleBankAccounts.length },
-    { label: "Money Processors", amount: mpTotals.reduce((total, row) => total + Math.abs(row.amount), 0), count: visibleMpAccounts.length },
-  ];
-  const accountTypeChartTotal = accountTypeChartRows.reduce((total, row) => total + row.amount, 0);
+  const accountsWithBalances = accounts.filter((account) => account.latestBalance);
+  const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
+  const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
+  const totalUsd = convertedAccounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
+  const latestBalanceDate = latestIso(accountsWithBalances.map((account) => account.latestBalance?.balanceDate));
+  const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
+  const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
+  const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
+  const topExposure = accountExposure[0] ?? null;
+  const topShare = topExposure && totalUsd ? Math.abs(topExposure.amountUsd / totalUsd) : 0;
+  const actionItems = useMemo(() => buildActionItems(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
+  const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -407,11 +368,11 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const body = (await response.json()) as XeroStatus | { error?: string };
-      if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load Xero status.");
+      if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load connection status.");
       setXeroStatus(body as XeroStatus);
-    } catch (e: unknown) {
+    } catch (err: unknown) {
       setXeroStatus(null);
-      setXeroError(getErrorMessage(e, "Failed to load Xero status."));
+      setXeroError(getErrorMessage(err, "Failed to load connection status."));
     } finally {
       setXeroLoading(false);
     }
@@ -427,32 +388,11 @@ export default function DashboardPage() {
       const body = (await response.json()) as LedgerDashboardData | { error?: string };
       if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load ledger dashboard.");
       setLedgerData(body as LedgerDashboardData);
-    } catch (e: unknown) {
+    } catch (err: unknown) {
       setLedgerData(null);
-      setLedgerError(getErrorMessage(e, "Failed to load ledger dashboard."));
+      setLedgerError(getErrorMessage(err, "Failed to load ledger dashboard."));
     } finally {
       setLedgerLoading(false);
-    }
-  }, []);
-
-  const loadCleanupSummary = useCallback(async (accessToken: string) => {
-    setCleanupLoading(true);
-    setCleanupNotice(null);
-    try {
-      const response = await fetch("/api/entity-bank-accounts/cleanup", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const body = (await response.json()) as CleanupSummary;
-      if (!response.ok) throw new Error(body.error || "Failed to load cleanup candidates.");
-      setCleanupSummary(body);
-    } catch (e: unknown) {
-      setCleanupNotice({
-        tone: "warning",
-        title: "Cleanup Scan Unavailable",
-        message: getErrorMessage(e, "Failed to load cleanup candidates."),
-      });
-    } finally {
-      setCleanupLoading(false);
     }
   }, []);
 
@@ -476,30 +416,26 @@ export default function DashboardPage() {
         }
 
         const currentSession = {
-          userId: data.session.user.id,
-          email: data.session.user.email ?? null,
           accessToken: data.session.access_token,
         };
         setSession(currentSession);
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
         void loadLedgerDashboard(currentSession.accessToken);
-        void loadCleanupSummary(currentSession.accessToken);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
             window.location.replace("/login");
             return;
           }
-          const nextSession = { userId: sess.user.id, email: sess.user.email ?? null, accessToken: sess.access_token };
+          const nextSession = { accessToken: sess.access_token };
           setSession(nextSession);
           void loadXeroStatus(nextSession.accessToken);
           void loadLedgerDashboard(nextSession.accessToken);
-          void loadCleanupSummary(nextSession.accessToken);
         });
         unsub = sub.subscription;
-      } catch (e: unknown) {
-        setError(getErrorMessage(e, "Failed to load your session."));
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, "Failed to load your session."));
       } finally {
         setLoading(false);
       }
@@ -508,7 +444,7 @@ export default function DashboardPage() {
     return () => {
       unsub?.unsubscribe();
     };
-  }, [loadCleanupSummary, loadLedgerDashboard, loadXeroStatus, supabase]);
+  }, [loadLedgerDashboard, loadXeroStatus, supabase]);
 
   async function connectXero() {
     if (!session) return;
@@ -520,10 +456,10 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${session.accessToken}` },
       });
       const body = (await response.json()) as { authorizationUrl?: string } & XeroErrorBody;
-      if (!response.ok || !body.authorizationUrl) throw new Error(getXeroErrorMessage(body, "Failed to start Xero connection."));
+      if (!response.ok || !body.authorizationUrl) throw new Error(getXeroErrorMessage(body, "Failed to start ledger connection."));
       window.location.assign(body.authorizationUrl);
-    } catch (e: unknown) {
-      setXeroError(getErrorMessage(e, "Failed to start Xero connection."));
+    } catch (err: unknown) {
+      setXeroError(getErrorMessage(err, "Failed to start ledger connection."));
       setXeroConnecting(false);
     }
   }
@@ -535,143 +471,28 @@ export default function DashboardPage() {
     window.location.replace("/login");
   }
 
-  async function recoverAccountAccess() {
-    if (!session) return;
-    setRecoveringAccess(true);
-    setAccessRecoveryNotice(null);
-    try {
-      const response = await fetch("/api/account/recovery", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.accessToken}` },
-      });
-      const body = (await response.json()) as { error?: string; orgRole?: string; entityRole?: string };
-      if (!response.ok) throw new Error(body.error || "Failed to recover account access.");
-      setAccessRecoveryNotice({
-        tone: "success",
-        title: "Access Recovered",
-        message: `Your Lumen workspace access is active as ${body.orgRole ?? "owner"} and entity ${body.entityRole ?? "admin"}.`,
-      });
-    } catch (e: unknown) {
-      setAccessRecoveryNotice({
-        tone: "warning",
-        title: "Access Recovery Needs Admin",
-        message: getErrorMessage(e, "Ask an existing owner to invite or promote this account."),
-      });
-    } finally {
-      setRecoveringAccess(false);
-    }
-  }
-
-  async function updateAccountClassification(account: LedgerAccount, accountType: Exclude<AccountType, "all">) {
-    if (!session || !account.canAdmin || account.accountType === accountType || updatingAccountIds.has(account.id)) return;
-
-    setUpdatingAccountIds((current) => new Set(current).add(account.id));
-    setClassificationNotice(null);
-    try {
-      const response = await fetch("/api/entity-bank-accounts", {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          entityId: account.entityId,
-          accountId: account.id,
-          accountType,
-        }),
-      });
-      const body = (await response.json()) as AccountUpdateResponse;
-      if (!response.ok || !body.account) throw new Error(body.error || "Failed to update account classification.");
-
-      setLedgerData((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          accounts: current.accounts.map((item) => (item.id === body.account?.id ? { ...item, accountType: body.account.accountType } : item)),
-          recentTransactions: current.recentTransactions.map((transaction) =>
-            transaction.bankAccountId === body.account?.id ? { ...transaction, accountType: body.account.accountType } : transaction,
-          ),
-        };
-      });
-      setClassificationNotice({
-        tone: "success",
-        title: "Classification Updated",
-        message: `${account.accountName} is now classified as ${accountTypeLabel(accountType)}.`,
-      });
-    } catch (e: unknown) {
-      setClassificationNotice({
-        tone: "warning",
-        title: "Classification Not Saved",
-        message: getErrorMessage(e, "Failed to update account classification."),
-      });
-    } finally {
-      setUpdatingAccountIds((current) => {
-        const next = new Set(current);
-        next.delete(account.id);
-        return next;
-      });
-    }
-  }
-
-  async function archiveEmptyManualAccounts() {
-    if (!session || cleanupApplying) return;
-    setCleanupApplying(true);
-    setCleanupNotice(null);
-    try {
-      const response = await fetch("/api/entity-bank-accounts/cleanup", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ action: "archive_empty_manual_accounts", confirm: true }),
-      });
-      const body = (await response.json()) as CleanupSummary;
-      if (!response.ok) throw new Error(body.error || "Failed to archive empty manual accounts.");
-      setCleanupSummary(body);
-      await loadLedgerDashboard(session.accessToken);
-      setCleanupNotice({
-        tone: "success",
-        title: "Empty Accounts Archived",
-        message: `${body.archived?.length ?? 0} manual empty account${body.archived?.length === 1 ? "" : "s"} archived. Xero-backed accounts were left untouched.`,
-      });
-    } catch (e: unknown) {
-      setCleanupNotice({
-        tone: "warning",
-        title: "Cleanup Not Applied",
-        message: getErrorMessage(e, "Failed to archive empty manual accounts."),
-      });
-    } finally {
-      setCleanupApplying(false);
-    }
-  }
-
   if (loading || !session) {
     return (
       <div className="min-h-screen bg-[#f7f6f2] text-zinc-950">
         <div className="mx-auto min-w-0 max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
-          <header className="flex min-h-11 flex-wrap items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-4">
-              <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
-                <BrandLogo className="h-8 sm:h-9" />
-              </Link>
-              <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-              <div className="text-sm font-medium text-zinc-700">Dashboard</div>
-            </div>
+          <header className="flex min-h-11 items-center gap-4">
+            <Link href="/" className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-zinc-950">
+              <BrandLogo className="h-8 sm:h-9" />
+            </Link>
+            <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
+            <div className="text-sm font-medium text-zinc-700">Dashboard</div>
           </header>
 
           <main className="mt-8">
-            <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="min-h-6 text-sm leading-6 text-zinc-600">
-                {error ? (
-                  <Notice tone="error" title="Authentication Needs Configuration">
-                    {error}
-                  </Notice>
-                ) : (
-                  <Spinner label="Checking Session" />
-                )}
-              </div>
-            </section>
+            {error ? (
+              <Notice tone="error" title="Authentication Needs Configuration">
+                {error}
+              </Notice>
+            ) : (
+              <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <Spinner label="Checking session" />
+              </section>
+            )}
           </main>
         </div>
       </div>
@@ -689,95 +510,85 @@ export default function DashboardPage() {
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
             <div className="text-sm font-medium text-zinc-700">Dashboard</div>
           </div>
-          <button
-            type="button"
-            onClick={signOut}
-            disabled={signingOut || !supabase}
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-          >
-            {signingOut ? "Signing Out" : "Sign Out"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
+              Entities
+            </Link>
+            <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
+              Statement Intake
+            </Link>
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={signingOut || !supabase}
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:px-4"
+            >
+              {signingOut ? "Signing Out" : "Sign Out"}
+            </button>
+          </div>
         </header>
 
         <main className="mt-7 space-y-5">
           <section className="border-b border-zinc-200 pb-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase text-zinc-500">Lumen Ledger</p>
-                <h1 className="mt-2 text-2xl font-semibold text-zinc-950 sm:text-3xl">Ledger Operations</h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-600">Monitor cash positions, processor balances, and recent statement activity across entities.</p>
+                <p className="text-xs font-semibold uppercase text-zinc-500">Finance Workspace</p>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Dashboard</h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
+                  Track converted liquidity, account coverage, exposure concentration, and recent ledger movement from authenticated finance data.
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     void loadLedgerDashboard(session.accessToken);
-                    void loadCleanupSummary(session.accessToken);
+                    void loadXeroStatus(session.accessToken);
                   }}
-                  disabled={ledgerLoading || cleanupLoading}
+                  disabled={ledgerLoading || xeroLoading}
                   className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                 >
-                  {ledgerLoading || cleanupLoading ? "Refreshing" : "Refresh"}
+                  {ledgerLoading || xeroLoading ? "Refreshing" : "Refresh"}
                 </button>
-                <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
-                  Entities
-                </Link>
-                <Link href="/dashboard/bank-balances" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
-                  Bank Balance Tracker
-                </Link>
-                <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950">
-                  Statement Intake
-                </Link>
-                <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-800 shadow-sm">
-                  <input
-                    type="checkbox"
-                    checked={hideZeroBalances}
-                    onChange={(event) => setHideZeroBalances(event.target.checked)}
-                    className="h-4 w-4 accent-zinc-950"
-                  />
-                  Hide zero balances
-                </label>
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div className="grid gap-2 sm:grid-cols-3">
-                {accountTypeOptions.map((option) => (
-                  <button
-                    key={option.type}
-                    type="button"
-                    onClick={() => setSelectedAccountType(option.type)}
-                    className={`min-h-24 rounded-lg border px-4 py-3 text-left transition ${
-                      selectedAccountType === option.type ? "border-zinc-950 bg-white shadow-sm" : "border-zinc-200 bg-white/70 hover:border-zinc-300 hover:bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-semibold text-zinc-950">{option.label}</span>
-                      <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-600">{option.accounts}</span>
-                    </div>
-                    <div className="mt-3">
-                      <CompactMoneyList rows={option.rows.slice(0, 2)} emptyLabel="No balances" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="rounded-lg border border-zinc-200 bg-white/70 px-4 py-3 text-sm text-zinc-600">
-                <div className="text-xs font-semibold uppercase text-zinc-500">Updated</div>
-                <div className="mt-1 whitespace-nowrap font-medium text-zinc-900">{ledgerData ? formatDateTime(ledgerData.asOf) : "Loading"}</div>
+                <button
+                  type="button"
+                  onClick={connectXero}
+                  disabled={xeroConnecting || xeroLoading}
+                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                >
+                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect Source" : "Connect Source"}
+                </button>
               </div>
             </div>
           </section>
 
+          {xeroNotice ? (
+            <Notice tone={xeroNotice.tone} title={xeroNotice.title}>
+              {xeroNotice.message}
+            </Notice>
+          ) : null}
+
+          {xeroError ? (
+            <Notice tone="warning" title="Connection Status Unavailable">
+              {xeroError}
+            </Notice>
+          ) : null}
+
           {ledgerError ? (
-            <Notice tone="error" title="Ledger Dashboard Unavailable">
+            <Notice tone="error" title="Dashboard Unavailable">
               {ledgerError}
             </Notice>
           ) : null}
 
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {missingFxAccounts ? (
+            <Notice tone="warning" title="Missing FX Conversion">
+              {missingFxAccounts} account{missingFxAccounts === 1 ? "" : "s"} have balances without USD conversion and are excluded from converted liquidity.
+            </Notice>
+          ) : null}
+
+          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {ledgerLoading && !ledgerData ? (
               <>
-                <StatSkeleton />
                 <StatSkeleton />
                 <StatSkeleton />
                 <StatSkeleton />
@@ -785,459 +596,177 @@ export default function DashboardPage() {
               </>
             ) : (
               <>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">Total Balance</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">
-                    {filteredTotalsByCurrency.length === 1 ? formatMoney(filteredTotalsByCurrency[0].currency, filteredTotalsByCurrency[0].amount) : `${filteredTotalsByCurrency.length} currency totals`}
-                  </div>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">USD Converted</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{convertedBalanceCount ? formatMoney("USD", totalUsdBalance) : "No rates"}</div>
-                  <div className="mt-2 text-xs text-zinc-500">{ledgerData ? fxStatusLabel(ledgerData.fx) : "Loading rates"}</div>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">All Currencies</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{currencyCount}</div>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">Accounts</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{visibleAccounts.length}</div>
-                </div>
-                <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-                  <div className="text-xs font-semibold uppercase text-zinc-500">With Balances</div>
-                  <div className="mt-2 text-xl font-semibold tabular-nums text-zinc-950">{accountsWithBalances.length}</div>
-                </div>
+                <KpiCard
+                  label="Converted Liquidity"
+                  value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
+                  detail={`${convertedAccounts.length}/${accountsWithBalances.length} account balances included`}
+                  tone={convertedAccounts.length ? "success" : "warning"}
+                />
+                <KpiCard
+                  label="Coverage"
+                  value={accounts.length ? `${accountsWithBalances.length}/${accounts.length}` : "No accounts"}
+                  detail={latestBalanceDate ? `Latest balance date ${formatDate(latestBalanceDate)}` : "Waiting for first balance sync"}
+                />
+                <KpiCard
+                  label="Concentration"
+                  value={topExposure ? concentrationTone(topShare) : "Unavailable"}
+                  detail={topExposure ? `${topExposure.label} holds ${formatPercent(topShare)} of converted liquidity` : "No converted balances yet"}
+                  tone={topShare >= 0.35 ? "warning" : "neutral"}
+                />
+                <KpiCard
+                  label="Data Freshness"
+                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not synced"}
+                  detail={ledgerData ? `Source connection ${xeroStatus?.connected ? "ready" : "needs review"}` : "Loading finance data"}
+                />
               </>
             )}
           </section>
 
           {ledgerData?.dataQualityIssues.length ? (
-            <Notice tone="warning" title="Ledger Data Quality">
-              {ledgerData.dataQualityIssues.slice(0, 3).map((issue) => issue.message).join(" ")}
-              {ledgerData.dataQualityIssues.length > 3 ? ` ${ledgerData.dataQualityIssues.length - 3} more issue${ledgerData.dataQualityIssues.length - 3 === 1 ? "" : "s"} found.` : ""}
+            <Notice tone="warning" title="Data Quality Review">
+              {ledgerData.dataQualityIssues.slice(0, 2).map((issue) => issue.message).join(" ")}
+              {ledgerData.dataQualityIssues.length > 2 ? ` ${ledgerData.dataQualityIssues.length - 2} more issue${ledgerData.dataQualityIssues.length - 2 === 1 ? "" : "s"} need review.` : ""}
             </Notice>
           ) : null}
 
           {ledgerData && !ledgerData.entities.length ? (
             <Notice tone="info" title="No Entity Access">
-              Create or request access to a Lumen entity before bank ledger balances can appear here.
+              Create or request access to an entity before ledger balances can appear here.
             </Notice>
           ) : null}
 
           {ledgerData && ledgerData.entities.length > 0 && !ledgerData.accounts.length ? (
-            <Notice tone="info" title="No Bank Accounts Yet">
-              Add a manual statement account or sync Xero bank accounts from Statement Intake.
+            <Notice tone="info" title="No Accounts Yet">
+              Add a statement account or connect an accounting source to start building the dashboard.
             </Notice>
           ) : null}
 
-          <section className="grid gap-4 xl:grid-cols-[1.45fr_0.55fr]">
-            <div className="space-y-4">
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-zinc-100 px-5 py-3">
-                    <h2 className="text-sm font-semibold text-zinc-950">Account Type Totals</h2>
-                  </div>
-                  <div className="divide-y divide-zinc-100">
-                    {[
-                      { type: "bank" as const, rows: bankTotals, accounts: visibleBankAccounts.length },
-                      { type: "money_processor" as const, rows: mpTotals, accounts: visibleMpAccounts.length },
-                    ].map((row) => (
-                      <button
-                        key={row.type}
-                        type="button"
-                        onClick={() => setSelectedAccountType(row.type)}
-                        className={`flex w-full flex-col gap-3 px-5 py-4 text-left text-sm transition hover:bg-zinc-50 sm:flex-row sm:items-start sm:justify-between sm:gap-4 ${selectedAccountType === row.type ? "bg-zinc-50" : ""}`}
-                      >
-                        <div className="min-w-0">
-                          <div className="font-medium text-zinc-950">{accountTypePluralLabel(row.type)}</div>
-                          <div className="mt-1 text-xs text-zinc-500">{row.accounts} account{row.accounts === 1 ? "" : "s"}</div>
-                        </div>
-                        <div className="min-w-0 sm:min-w-32 sm:text-right">
-                          <CompactMoneyList rows={row.rows} emptyLabel="No balances" />
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+          <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+            <Panel title="Liquidity by Entity" subtitle="Converted balances grouped by entity, limited to accounts with available USD conversion.">
+              <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No converted entity balances yet." />
+            </Panel>
 
-                <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                  <div className="border-b border-zinc-100 px-5 py-3">
-                    <h2 className="text-sm font-semibold text-zinc-950">Entity Balances</h2>
-                  </div>
-                  <div className="divide-y divide-zinc-100">
-                    {visibleBalancesByEntity.length ? (
-                      visibleBalancesByEntity.slice(0, 7).map((row) => (
-                        <div key={`${row.entityId}:${row.currency}`} className="flex items-start justify-between gap-4 px-5 py-3 text-sm">
-                          <div>
-                            <div className="font-medium text-zinc-950">{row.entityName}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{row.accountCount} account{row.accountCount === 1 ? "" : "s"}</div>
-                          </div>
-                          <div className="text-right tabular-nums font-semibold text-zinc-950">{formatMoney(row.currency, row.amount)}</div>
-                        </div>
+            <Panel title="Exposure by Account" subtitle="Largest account relationships by converted balance.">
+              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." />
+            </Panel>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
+              {actionItems.length ? (
+                <div className="space-y-3">
+                  {actionItems.map((item) => (
+                    <Notice key={item.id} tone={item.tone} title={item.title}>
+                      {item.detail}
+                    </Notice>
+                  ))}
+                </div>
+              ) : (
+                <Notice tone="success" title="No Immediate Actions">
+                  Converted balances are available and no account-level data issues are currently reported.
+                </Notice>
+              )}
+            </Panel>
+
+            <Panel title="Recent Movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
+              <div className="overflow-x-auto">
+                <table className="min-w-[560px] divide-y divide-zinc-100 text-sm sm:min-w-full">
+                  <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+                    <tr>
+                      <th scope="col" className="px-3 py-2">Date</th>
+                      <th scope="col" className="px-3 py-2">Account</th>
+                      <th scope="col" className="px-3 py-2">Description</th>
+                      <th scope="col" className="px-3 py-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {recentTransactions.length ? (
+                      recentTransactions.map((transaction) => (
+                        <tr key={transaction.id} className="align-top">
+                          <td className="whitespace-nowrap px-3 py-3 text-zinc-700">{formatDate(transaction.transactionDate)}</td>
+                          <td className="max-w-44 px-3 py-3">
+                            <div className="truncate font-medium text-zinc-950">{transaction.accountName}</div>
+                            <div className="mt-1 truncate text-xs text-zinc-500">{transaction.entityName} · {sourceLabel(transaction.source)}</div>
+                          </td>
+                          <td className="max-w-64 px-3 py-3 text-zinc-700">{transaction.description || "No description"}</td>
+                          <td className={`whitespace-nowrap px-3 py-3 text-right tabular-nums font-semibold ${transaction.signedAmount < 0 ? "text-red-800" : transaction.signedAmount > 0 ? "text-emerald-800" : "text-zinc-950"}`}>
+                            {formatLocalMoney(transaction.currency, transaction.signedAmount)}
+                          </td>
+                        </tr>
                       ))
                     ) : (
-                      <div className="px-5 py-8 text-sm text-zinc-500">No entity balance data yet.</div>
+                      <tr>
+                        <td className="px-3 py-8 text-center text-sm text-zinc-500" colSpan={4}>
+                          No recent ledger movements are available yet.
+                        </td>
+                      </tr>
                     )}
-                  </div>
-                </div>
+                  </tbody>
+                </table>
               </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">{accountTypePluralLabel(selectedAccountType)} Drilldown</h2>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      {hideZeroBalances ? "Zero-balance accounts hidden; totals shown are unchanged by hidden zeroes." : "Showing all ledger accounts for this view."}
-                    </div>
-                  </div>
-                  <div className="text-xs text-zinc-500">{accountsWithBalances.length} accounts with balances</div>
-                </div>
-                {classificationNotice ? (
-                  <div className="border-b border-zinc-100 px-5 py-3">
-                    <Notice tone={classificationNotice.tone} title={classificationNotice.title}>
-                      {classificationNotice.message}
-                    </Notice>
-                  </div>
-                ) : null}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-zinc-100 text-sm">
-                    <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
-                      <tr>
-                        <th scope="col" className="px-5 py-3">Entity</th>
-                        <th scope="col" className="px-5 py-3">Account</th>
-                        <th scope="col" className="px-5 py-3">Type</th>
-                        <th scope="col" className="px-5 py-3">Source</th>
-                        <th scope="col" className="px-5 py-3 text-right">Latest Balance</th>
-                        <th scope="col" className="px-5 py-3 text-right">USD</th>
-                        <th scope="col" className="px-5 py-3">Balance Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {ledgerLoading && !ledgerData ? (
-                        [0, 1, 2].map((item) => (
-                          <tr key={item}>
-                            <td className="px-5 py-4" colSpan={7}>
-                              <SkeletonBlock className="h-4 w-full" />
-                            </td>
-                          </tr>
-                        ))
-                      ) : visibleAccounts.length ? (
-                        visibleAccounts.map((account) => (
-                          <tr key={account.id} className="align-top">
-                            <td className="px-5 py-4 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unknown Entity"}</td>
-                            <td className="px-5 py-4">
-                              <div className="font-medium text-zinc-900">{account.accountName}</div>
-                              <div className="mt-1 text-xs text-zinc-500">{currencyLabel(account.currency ?? account.latestBalance?.currency ?? "Unspecified")}</div>
-                            </td>
-                            <td className="px-5 py-4">
-                              <label className="sr-only" htmlFor={`account-type-${account.id}`}>
-                                Classification for {account.accountName}
-                              </label>
-                              <select
-                                id={`account-type-${account.id}`}
-                                value={account.accountType}
-                                onChange={(event) => void updateAccountClassification(account, event.target.value as Exclude<AccountType, "all">)}
-                                disabled={!account.canAdmin || updatingAccountIds.has(account.id)}
-                                title={account.canAdmin ? "Update account classification" : "Manage account classification from Entity Setup"}
-                                className="h-9 min-w-36 rounded-md border border-zinc-300 bg-white px-2 text-sm font-medium text-zinc-800 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                              >
-                                <option value="bank">Bank</option>
-                                <option value="money_processor">Money Processor</option>
-                              </select>
-                              {!account.canAdmin ? <div className="mt-1 text-xs text-zinc-500">Admin only</div> : null}
-                            </td>
-                            <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">
-                              {account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
-                            </td>
-                            <td className="px-5 py-4 text-right">
-                              {account.latestBalance?.usdConversion ? (
-                                <div>
-                                  <div className="tabular-nums font-semibold text-zinc-950">{formatMoney("USD", account.latestBalance.usdConversion.amount)}</div>
-                                  <div className="mt-1 text-xs text-zinc-500">
-                                    {fxSourceLabel(account.latestBalance.usdConversion.source)} {formatRate(account.latestBalance.usdConversion.rate)} as of {formatDateTime(account.latestBalance.usdConversion.asOf)}
-                                  </div>
-                                </div>
-                              ) : account.latestBalance ? (
-                                <span className="text-sm text-zinc-500">No rate</span>
-                              ) : (
-                                <span className="text-sm text-zinc-500">-</span>
-                              )}
-                            </td>
-                            <td className="px-5 py-4 text-zinc-700">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "Not available"}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={7}>
-                            No ledger accounts to show.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="border-b border-zinc-100 px-5 py-4">
-                  <h2 className="text-sm font-semibold text-zinc-950">Top Accounts by Balance</h2>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-zinc-100 text-sm">
-                    <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
-                      <tr>
-                        <th scope="col" className="px-5 py-3">Account</th>
-                        <th scope="col" className="px-5 py-3">Entity</th>
-                        <th scope="col" className="px-5 py-3">Source</th>
-                        <th scope="col" className="px-5 py-3 text-right">Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {visibleTopAccounts.length ? (
-                        visibleTopAccounts.map((account) => (
-                          <tr key={account.id}>
-                            <td className="px-5 py-4 font-medium text-zinc-950">{account.accountName}</td>
-                            <td className="px-5 py-4 text-zinc-700">{account.entityName}</td>
-                            <td className="px-5 py-4 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
-                            <td className="px-5 py-4 text-right tabular-nums font-semibold text-zinc-950">{account.latestBalance ? formatMoney(account.latestBalance.currency, account.latestBalance.amount) : "No balance"}</td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td className="px-5 py-8 text-center text-sm text-zinc-500" colSpan={4}>
-                            No ranked accounts for this view.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="rounded-lg border border-zinc-200 bg-white shadow-sm">
-                <div className="border-b border-zinc-100 px-5 py-3">
-                  <h2 className="text-sm font-semibold text-zinc-950">Account Mix</h2>
-                </div>
-                <div className="space-y-5 p-5">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-950">Balance by Account Type</div>
-                    <div className="mt-4 space-y-3">
-                      {accountTypeChartRows.map((row) => (
-                        <div key={row.label}>
-                          <div className="flex items-center justify-between gap-3 text-xs text-zinc-600">
-                            <span>{row.label}</span>
-                            <span>{row.count} account{row.count === 1 ? "" : "s"}</span>
-                          </div>
-                          <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-100">
-                            <div className={`h-full rounded-full ${row.label === "Banks" ? "bg-sky-700" : "bg-emerald-700"}`} style={{ width: `${balanceShare(row.amount, accountTypeChartTotal)}%` }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-zinc-950">Currency Totals</div>
-                      <div className="text-xs text-zinc-500">{filteredTotalsByCurrency.length} total{filteredTotalsByCurrency.length === 1 ? "" : "s"}</div>
-                    </div>
-                    <div className="mt-3 max-h-80 overflow-y-auto pr-1 [scrollbar-gutter:stable]" tabIndex={0} aria-label="Currency totals list">
-                      <CompactMoneyList rows={filteredTotalsByCurrency} emptyLabel="No balances in this view." className="pb-1" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Xero Connection</h2>
-                    <div className="mt-2 text-sm leading-6 text-zinc-600">
-                      {xeroLoading ? (
-                        <Spinner label="Checking Xero" />
-                      ) : xeroStatus?.connected ? (
-                        <span className="font-medium text-emerald-800">Connected</span>
-                      ) : (
-                        "Not connected"
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={connectXero}
-                    disabled={xeroConnecting || xeroLoading}
-                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                  >
-                    {xeroConnecting ? "Opening Xero" : xeroStatus?.connected ? "Reconnect" : "Connect"}
-                  </button>
-                </div>
-
-                {xeroNotice ? (
-                  <div className="mt-4">
-                    <Notice tone={xeroNotice.tone} title={xeroNotice.title}>
-                      {xeroNotice.message}
-                    </Notice>
-                  </div>
-                ) : null}
-
-                {xeroError ? (
-                  <div className="mt-4">
-                    <Notice tone="warning" title="Xero Status Unavailable">
-                      {xeroError}
-                    </Notice>
-                  </div>
-                ) : null}
-
-                {xeroStatus?.connected && xeroStatus.tenants.length ? (
-                  <div className="mt-4 border-t border-zinc-100 pt-4">
-                    <div className="text-xs font-semibold uppercase text-zinc-500">Tenants</div>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-700">
-                      {xeroStatus.tenants.map((tenant) => (
-                        <li key={tenant.id} className="truncate">
-                          {tenant.name}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Bank Balance Tracker</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Review the bank balance dashboard with country, license, concentration, mapping, and FX views.</p>
-                  </div>
-                  <Link
-                    href="/dashboard/bank-balances"
-                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
-                  >
-                    Open
-                  </Link>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Entity Setup</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Manage Lumen orgs, entities, and Xero tenant mapping for ledger sync.</p>
-                  </div>
-                  <Link
-                    href="/dashboard/entities"
-                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950"
-                  >
-                    Manage
-                  </Link>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Account Cleanup</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">
-                      {cleanupLoading ? "Scanning ledger accounts." : cleanupSummary ? `${cleanupSummary.counts.emptyManualAccounts} empty manual, ${cleanupSummary.counts.emptyXeroAccounts} protected Xero, ${cleanupSummary.counts.invalidBalanceCurrencies} currency issue${cleanupSummary.counts.invalidBalanceCurrencies === 1 ? "" : "s"}.` : "Run a dry scan for noisy accounts."}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void loadCleanupSummary(session.accessToken)}
-                    disabled={cleanupLoading}
-                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                  >
-                    {cleanupLoading ? "Scanning" : "Scan"}
-                  </button>
-                </div>
-                {hiddenZeroAccountCount > 0 ? <div className="mt-3 text-xs text-zinc-500">{hiddenZeroAccountCount} zero-balance account{hiddenZeroAccountCount === 1 ? "" : "s"} hidden in this view.</div> : null}
-                {cleanupNotice ? (
-                  <div className="mt-4">
-                    <Notice tone={cleanupNotice.tone} title={cleanupNotice.title}>
-                      {cleanupNotice.message}
-                    </Notice>
-                  </div>
-                ) : null}
-                {cleanupSummary?.candidates.emptyManualAccounts.length ? (
-                  <div className="mt-4 border-t border-zinc-100 pt-4">
-                    <div className="text-xs font-semibold uppercase text-zinc-500">Empty Manual Candidates</div>
-                    <ul className="mt-3 space-y-2 text-sm text-zinc-700">
-                      {cleanupSummary.candidates.emptyManualAccounts.slice(0, 5).map((candidate) => (
-                        <li key={candidate.accountId} className="truncate">
-                          {candidate.accountName}
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      onClick={archiveEmptyManualAccounts}
-                      disabled={cleanupApplying}
-                      className="mt-4 inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                    >
-                      {cleanupApplying ? "Archiving" : "Archive Empty Manual"}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Recent Transactions</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Latest posted ledger rows from the last {ledgerData?.windowDays ?? 30} days.</p>
-                  </div>
-                </div>
-                <div className="mt-4 divide-y divide-zinc-100 border-t border-zinc-100">
-                  {visibleTransactions.length ? (
-                    visibleTransactions.map((transaction) => (
-                      <div key={transaction.id} className="py-3 text-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-medium text-zinc-950">{transaction.description || "Bank transaction"}</div>
-                            <div className="mt-1 truncate text-xs text-zinc-500">
-                              {transaction.entityName} - {transaction.accountName} - {sourceLabel(transaction.source)}
-                            </div>
-                          </div>
-                          <div className={`shrink-0 tabular-nums font-semibold ${transaction.signedAmount < 0 ? "text-red-800" : "text-emerald-800"}`}>
-                            {formatMoney(transaction.currency, transaction.signedAmount)}
-                          </div>
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">{formatDate(transaction.transactionDate)}</div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="py-4 text-sm text-zinc-500">No recent posted transactions.</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-sm font-semibold text-zinc-950">Account Recovery</h2>
-                    <p className="mt-2 text-sm leading-6 text-zinc-600">Repair default workspace access if your account exists but admin membership is missing.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={recoverAccountAccess}
-                    disabled={recoveringAccess}
-                    className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                  >
-                    {recoveringAccess ? "Recovering" : "Repair"}
-                  </button>
-                </div>
-                {accessRecoveryNotice ? (
-                  <div className="mt-4">
-                    <Notice tone={accessRecoveryNotice.tone} title={accessRecoveryNotice.title}>
-                      {accessRecoveryNotice.message}
-                    </Notice>
-                  </div>
-                ) : null}
-              </div>
-            </div>
+            </Panel>
           </section>
+
+          <Panel title="Account Detail" subtitle="Latest balances with local amounts, converted USD, source, and account status.">
+            <div className="overflow-x-auto">
+              <table className="min-w-[860px] divide-y divide-zinc-100 text-sm">
+                <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+                  <tr>
+                    <th scope="col" className="px-4 py-3">Entity</th>
+                    <th scope="col" className="px-4 py-3">Account</th>
+                    <th scope="col" className="px-4 py-3">Type</th>
+                    <th scope="col" className="px-4 py-3">Source</th>
+                    <th scope="col" className="px-4 py-3 text-right">Local Balance</th>
+                    <th scope="col" className="px-4 py-3 text-right">USD Balance</th>
+                    <th scope="col" className="px-4 py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {ledgerLoading && !ledgerData ? (
+                    [0, 1, 2].map((item) => (
+                      <tr key={item}>
+                        <td className="px-4 py-4" colSpan={7}>
+                          <SkeletonBlock className="h-4 w-full" />
+                        </td>
+                      </tr>
+                    ))
+                  ) : accounts.length ? (
+                    accounts.slice(0, 12).map((account) => {
+                      const usdAmount = balanceUsd(account);
+                      return (
+                        <tr key={account.id} className="align-top">
+                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned Entity"}</td>
+                          <td className="max-w-64 px-4 py-3">
+                            <div className="truncate font-medium text-zinc-900">{account.accountName}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "No balance date"}</div>
+                          </td>
+                          <td className="px-4 py-3 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
+                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
+                          <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
+                            {account.latestBalance ? formatLocalMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
+                            {usdAmount !== null ? formatMoney("USD", usdAmount) : <span className="font-normal text-zinc-500">Missing rate</span>}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`rounded-md px-2 py-1 text-xs font-medium ${account.status === "active" ? "bg-emerald-50 text-emerald-800" : "bg-zinc-100 text-zinc-600"}`}>
+                              {account.status === "active" ? "Active" : "Review"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-sm text-zinc-500" colSpan={7}>
+                        No ledger accounts are available yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
         </main>
       </div>
     </div>

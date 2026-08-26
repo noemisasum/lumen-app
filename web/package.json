@@ -10,7 +10,7 @@
     "smoke:statement-parser": "node scripts/statement-csv-parser-smoke.mjs",
     "smoke:bank-account-cleanup": "node --experimental-strip-types scripts/bank-account-cleanup-smoke.mjs",
     "smoke:ledger-dashboard": "node --experimental-strip-types scripts/ledger-dashboard-smoke.mjs",
-    "smoke:bank-balance-tracker": "node scripts/bank-balance-tracker-smoke.mjs"
+    "smoke:xero-ledger-cron": "node --experimental-strip-types scripts/xero-ledger-cron-smoke.mjs"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3",

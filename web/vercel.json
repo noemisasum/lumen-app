@@ -4,6 +4,10 @@
     {
       "path": "/api/bank-statement-imports/reprocess/hourly",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/xero/bank-ledger-sync/daily",
+      "schedule": "0 2 * * *"
     }
   ]
 }
