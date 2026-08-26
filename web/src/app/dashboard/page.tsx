@@ -182,6 +182,10 @@ function formatMoney(currency: string, amount: number, compact = false) {
   }).format(amount);
 }
 
+function formatUsdCompact(amount: number) {
+  return formatMoney("USD", amount, true).replace("$", "US$");
+}
+
 function formatLocalMoney(currency: string, amount: number) {
   const formatted = new Intl.NumberFormat("en", {
     minimumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
@@ -424,8 +428,6 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
   const mixRows = liquidityMixRows(rows);
   const displayRows = sortMixRowsByExposure(mixRows);
   const mixTotal = absoluteMixTotal(mixRows);
-  const externalFloatExposure = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
-  const externalFloatShare = mixTotal ? externalFloatExposure / mixTotal : 0;
   const hasConvertedBalances = convertedCount > 0;
   const chartStyle = { background: pieBackground(mixRows) } satisfies CSSProperties;
   const chartLabel = hasConvertedBalances
@@ -436,40 +438,35 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-zinc-950">Liquidity Mix</div>
-          <div className="mt-2 break-words text-2xl font-semibold tabular-nums text-zinc-950">
-            {hasConvertedBalances ? formatMoney("USD", mixTotal) : "Unavailable"}
-          </div>
-          <div className="mt-1 break-words text-xs leading-5 text-zinc-500">
-            {hasConvertedBalances ? `Total USD exposure; external float is ${formatPercent(externalFloatShare)}` : "Waiting for converted balances"}
+          <div className="mt-1 text-xs leading-5 text-zinc-500">
+            USD balance distribution by treasury account type
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-600">
-            Categories <span className="ml-1 font-medium tabular-nums text-zinc-900">{mixRows.filter((row) => Math.abs(row.amountUsd) > 0).length}</span>
-          </div>
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-600">
-            Accounts <span className="ml-1 font-medium tabular-nums text-zinc-900">{convertedCount}</span>
+        <div className="text-left lg:shrink-0 lg:text-right">
+          <div className="text-[11px] font-semibold uppercase text-zinc-500">Total</div>
+          <div className="mt-1 break-words text-xl font-semibold tabular-nums text-zinc-950 sm:text-2xl">
+            {hasConvertedBalances ? formatUsdCompact(mixTotal) : "Unavailable"}
           </div>
         </div>
       </div>
 
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(13rem,15rem)_1fr] lg:items-center">
+      <div className="grid gap-6 p-4 sm:p-5 lg:grid-cols-[minmax(15rem,18rem)_1fr] lg:items-center xl:gap-8">
         <div className="flex min-w-0 justify-center lg:justify-start">
-          <div className="relative aspect-square w-full max-w-[15rem] rounded-full border border-zinc-200 shadow-inner" style={chartStyle} role="img" aria-label={chartLabel}>
-            <div className="absolute inset-[27%] flex flex-col items-center justify-center rounded-full border border-zinc-100 bg-white text-center shadow-sm">
-              <div className="text-[11px] font-semibold text-zinc-500">USD exposure</div>
+          <div className="relative aspect-square w-full max-w-[18rem] rounded-full border border-zinc-200 shadow-inner" style={chartStyle} role="img" aria-label={chartLabel}>
+            <div className="absolute inset-[28%] flex flex-col items-center justify-center rounded-full border border-zinc-100 bg-white text-center shadow-sm">
+              <div className="text-[11px] font-semibold text-zinc-500">Total</div>
               <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">{hasConvertedBalances ? formatMoney("USD", mixTotal, true) : "--"}</div>
             </div>
           </div>
         </div>
-        <div className="min-w-0 divide-y divide-zinc-100 rounded-md border border-zinc-200 bg-[#fbfbf8]">
+        <div className="min-w-0 divide-y divide-zinc-100">
           {displayRows.map((row) => {
             const share = mixTotal ? Math.abs(row.amountUsd / mixTotal) : 0;
             return (
-              <div key={row.accountType} className="grid min-w-0 gap-3 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_8rem] sm:items-center">
+              <div key={row.accountType} className="grid min-w-0 gap-3 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_8rem] sm:items-center">
                 <div className="flex min-w-0 items-start gap-2.5">
                   <span className="mt-1 size-2.5 shrink-0 rounded-full ring-2 ring-white" style={{ backgroundColor: row.color }} aria-hidden="true" />
                   <div className="min-w-0">
@@ -704,7 +701,7 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
-                <p className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs leading-5 text-zinc-500 shadow-sm">
+                <p className="text-xs leading-5 text-zinc-500 sm:text-right">
                   Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
                 </p>
                 <div className="flex flex-wrap gap-2 sm:justify-end">
