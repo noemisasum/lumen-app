@@ -106,7 +106,6 @@ with normalized_accounts as (
 update public.entity_bank_accounts as account
 set account_type = case
   when normalized_accounts.normalized_name like 'mp:%'
-    or normalized_accounts.normalized_name ~ '\m(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat pay)\M'
     then 'money_processor'
   when normalized_accounts.normalized_name like 'lp:%'
     then 'liquidity_provider'

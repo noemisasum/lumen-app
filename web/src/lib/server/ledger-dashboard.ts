@@ -144,8 +144,6 @@ type GroupValue = {
   accountIds: Set<string>;
 };
 
-const moneyProcessorAccountNamePattern =
-  /\b(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat\s+pay)\b/;
 const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial))\b/;
 
 const balanceTypeRank: Record<string, number> = {
@@ -187,7 +185,6 @@ export function classifyLedgerAccountType(input: { accountType?: LedgerAccountTy
   const normalized = normalizeAccountNameForRules(input.accountName);
   if (normalized.startsWith("mp:")) return "money_processor";
   if (normalized.startsWith("lp:")) return "liquidity_provider";
-  if (moneyProcessorAccountNamePattern.test(normalized)) return "money_processor";
   if (clientMoneyAccountNamePattern.test(normalized)) return "client_money";
   return "operating_bank";
 }

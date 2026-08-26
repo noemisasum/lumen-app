@@ -43,7 +43,7 @@ const payload = buildLedgerDashboardPayload({
   accounts: [
     { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "operating_bank", canAdmin: true },
     { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "operating_bank", canAdmin: true },
-    { id: "account-paypal", entityId: "entity-b", accountName: "PayPal Clearing", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "PayPal Clearing", accountType: null }), canAdmin: true },
+    { id: "account-paypal", entityId: "entity-b", accountName: "MP: PayPal USD", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "MP: PayPal USD", accountType: null }), canAdmin: true },
   ],
   balances: [
     {
