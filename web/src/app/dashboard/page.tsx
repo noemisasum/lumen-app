@@ -160,10 +160,10 @@ function accountTypeLabel(accountType: AccountType) {
 const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
 
 const categoryColors: Record<AccountType, string> = {
-  operating_bank: "#2563eb",
-  client_money: "#059669",
-  money_processor: "#d97706",
-  liquidity_provider: "#7c3aed",
+  operating_bank: "#0f766e",
+  client_money: "#65a30d",
+  money_processor: "#b45309",
+  liquidity_provider: "#4f46e5",
 };
 
 const categoryChartLabels: Record<AccountType, string> = {
@@ -367,18 +367,6 @@ function StatSkeleton() {
   );
 }
 
-function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: "neutral" | "warning" | "success" }) {
-  const toneClass = tone === "warning" ? "text-amber-800" : tone === "success" ? "text-emerald-800" : "text-zinc-950";
-
-  return (
-    <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-semibold text-zinc-500">{label}</div>
-      <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
-      <div className="mt-2 break-words text-xs leading-5 text-zinc-500">{detail}</div>
-    </div>
-  );
-}
-
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
@@ -433,11 +421,11 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
   const chartStyle = { background: pieBackground(mixRows) } satisfies CSSProperties;
 
   return (
-    <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:col-span-2">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="text-xs font-semibold text-zinc-500">Liquidity Mix</div>
-          <div className="mt-2 break-words text-xl font-semibold tabular-nums text-zinc-950">
+          <div className="mt-2 break-words text-2xl font-semibold tabular-nums text-zinc-950">
             {hasConvertedBalances ? formatMoney("USD", mixTotal) : "Unavailable"}
           </div>
           <div className="mt-2 break-words text-xs leading-5 text-zinc-500">
@@ -446,21 +434,26 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
         </div>
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-[9.5rem_1fr] sm:items-center">
-        <div className="mx-auto aspect-square w-36 rounded-full border border-zinc-200 shadow-inner sm:mx-0 sm:w-full" style={chartStyle} role="img" aria-label="Pie chart of USD liquidity across Own Funds, Client Funds, MP, and LP." />
-        <div className="grid gap-2">
+      <div className="mt-5 grid gap-6 lg:grid-cols-[18rem_1fr] lg:items-center">
+        <div className="relative mx-auto aspect-square w-56 rounded-full border border-zinc-200 shadow-inner sm:w-64 lg:w-full" style={chartStyle} role="img" aria-label="Donut chart of USD liquidity across Own Funds, Client Funds, MP, and LP.">
+          <div className="absolute inset-[24%] flex flex-col items-center justify-center rounded-full border border-zinc-100 bg-white text-center shadow-sm">
+            <div className="text-[11px] font-semibold uppercase text-zinc-500">USD Exposure</div>
+            <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-950">{hasConvertedBalances ? formatMoney("USD", mixTotal, true) : "--"}</div>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
           {mixRows.map((row) => {
             const share = mixTotal ? Math.abs(row.amountUsd / mixTotal) : 0;
             return (
-              <div key={row.accountType} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border border-zinc-100 px-2.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                <span className="size-2.5 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
+              <div key={row.accountType} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-md border border-zinc-100 bg-zinc-50/60 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+                <span className="size-3 rounded-full ring-2 ring-white" style={{ backgroundColor: row.color }} aria-hidden="true" />
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-zinc-950">{row.label}</div>
                   <div className="truncate text-xs text-zinc-500">
                     {row.detail} · {row.accountCount} account{row.accountCount === 1 ? "" : "s"} · {formatPercent(share)}
                   </div>
                 </div>
-                <div className="col-start-2 shrink-0 text-left text-sm font-semibold tabular-nums text-zinc-950 sm:col-start-auto sm:text-right">{formatMoney("USD", row.amountUsd, true)}</div>
+                <div className="col-start-2 shrink-0 text-left text-sm font-semibold tabular-nums text-zinc-950 sm:col-start-auto sm:text-right">{formatMoney("USD", row.amountUsd)}</div>
               </div>
             );
           })}
@@ -497,8 +490,6 @@ export default function DashboardPage() {
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
-  const topExposure = accountExposure[0] ?? null;
-  const topShare = topExposure && totalUsd ? Math.abs(topExposure.amountUsd / totalUsd) : 0;
   const actionItems = useMemo(() => buildActionItems(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
 
@@ -679,6 +670,9 @@ export default function DashboardPage() {
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
                   Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data.
                 </p>
+                <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  Data last updated: <span className="font-medium text-zinc-700">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
+                </p>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -728,29 +722,11 @@ export default function DashboardPage() {
             </Notice>
           ) : null}
 
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <section>
             {ledgerLoading && !ledgerData ? (
-              <>
-                <StatSkeleton />
-                <StatSkeleton />
-                <StatSkeleton />
-                <StatSkeleton />
-              </>
+              <StatSkeleton />
             ) : (
-              <>
-                <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
-                <KpiCard
-                  label="Largest Relationship"
-                  value={topExposure ? formatPercent(topShare) : "Unavailable"}
-                  detail={topExposure ? `${topExposure.label} Exposure` : "No USD Balances Yet"}
-                  tone={topShare >= 0.35 ? "warning" : "neutral"}
-                />
-                <KpiCard
-                  label="Data Freshness"
-                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not Synced"}
-                  detail={ledgerData ? (xeroStatus?.connected ? "Ledger Source Ready" : "Ledger Source Needs Review") : "Loading Finance Data"}
-                />
-              </>
+              <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
           </section>
 
