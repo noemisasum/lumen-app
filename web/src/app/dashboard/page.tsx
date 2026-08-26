@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
@@ -99,6 +99,15 @@ type ExposureRow = {
   accountCount: number;
 };
 
+type LiquidityMixRow = {
+  accountType: AccountType;
+  label: string;
+  detail: string;
+  amountUsd: number;
+  accountCount: number;
+  color: string;
+};
+
 type ActionItem = {
   id: string;
   title: string;
@@ -148,6 +157,22 @@ function accountTypeLabel(accountType: AccountType) {
   return "Own Funds";
 }
 
+const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
+
+const categoryColors: Record<AccountType, string> = {
+  operating_bank: "#2563eb",
+  client_money: "#059669",
+  money_processor: "#d97706",
+  liquidity_provider: "#7c3aed",
+};
+
+const categoryChartLabels: Record<AccountType, string> = {
+  operating_bank: "Own Funds",
+  client_money: "Client Funds",
+  money_processor: "MP",
+  liquidity_provider: "LP",
+};
+
 function formatMoney(currency: string, amount: number, compact = false) {
   return new Intl.NumberFormat("en", {
     style: currency === "USD" ? "currency" : "decimal",
@@ -187,10 +212,6 @@ function balanceUsd(account: LedgerAccount) {
 
 function hasNonZeroBalance(account: LedgerAccount) {
   return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
-}
-
-function isExternalFloatAccount(account: LedgerAccount) {
-  return account.accountType === "money_processor" || account.accountType === "liquidity_provider";
 }
 
 function sumUsd(accounts: LedgerAccount[]) {
@@ -250,6 +271,42 @@ function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
     accountCount: remainingRows.reduce((total, row) => total + row.accountCount, 0),
   });
   return visibleRows;
+}
+
+function liquidityMixRows(rows: ExposureRow[]): LiquidityMixRow[] {
+  const rowsByType = new Map(rows.map((row) => [row.id, row]));
+
+  return categoryOrder.map((accountType) => {
+    const row = rowsByType.get(accountType);
+    return {
+      accountType,
+      label: categoryChartLabels[accountType],
+      detail: accountTypeLabel(accountType),
+      amountUsd: row?.amountUsd ?? 0,
+      accountCount: row?.accountCount ?? 0,
+      color: categoryColors[accountType],
+    };
+  });
+}
+
+function pieBackground(rows: LiquidityMixRow[]) {
+  const positiveRows = rows.filter((row) => Math.abs(row.amountUsd) > 0);
+  const total = positiveRows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
+  if (!total) return "#f4f4f5";
+
+  let cursor = 0;
+  const segments = positiveRows.map((row, index) => {
+    const start = cursor;
+    const end = index === positiveRows.length - 1 ? 360 : cursor + (Math.abs(row.amountUsd) / total) * 360;
+    cursor = end;
+    return `${row.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`;
+  });
+
+  return `conic-gradient(${segments.join(", ")})`;
+}
+
+function absoluteMixTotal(rows: LiquidityMixRow[]) {
+  return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
 function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null): ActionItem[] {
@@ -367,6 +424,52 @@ function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureR
   );
 }
 
+function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; convertedCount: number }) {
+  const mixRows = liquidityMixRows(rows);
+  const mixTotal = absoluteMixTotal(mixRows);
+  const externalFloatExposure = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
+  const externalFloatShare = mixTotal ? externalFloatExposure / mixTotal : 0;
+  const hasConvertedBalances = convertedCount > 0;
+  const chartStyle = { background: pieBackground(mixRows) } satisfies CSSProperties;
+
+  return (
+    <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:col-span-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-zinc-500">Liquidity Mix</div>
+          <div className="mt-2 break-words text-xl font-semibold tabular-nums text-zinc-950">
+            {hasConvertedBalances ? formatMoney("USD", mixTotal) : "Unavailable"}
+          </div>
+          <div className="mt-2 break-words text-xs leading-5 text-zinc-500">
+            {hasConvertedBalances ? `Total USD exposure; external float is ${formatPercent(externalFloatShare)}` : "Waiting for converted balances"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-[9.5rem_1fr] sm:items-center">
+        <div className="mx-auto aspect-square w-36 rounded-full border border-zinc-200 shadow-inner sm:mx-0 sm:w-full" style={chartStyle} role="img" aria-label="Pie chart of USD liquidity across Own Funds, Client Funds, MP, and LP." />
+        <div className="grid gap-2">
+          {mixRows.map((row) => {
+            const share = mixTotal ? Math.abs(row.amountUsd / mixTotal) : 0;
+            return (
+              <div key={row.accountType} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border border-zinc-100 px-2.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+                <span className="size-2.5 rounded-full" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-zinc-950">{row.label}</div>
+                  <div className="truncate text-xs text-zinc-500">
+                    {row.detail} · {row.accountCount} account{row.accountCount === 1 ? "" : "s"} · {formatPercent(share)}
+                  </div>
+                </div>
+                <div className="col-start-2 shrink-0 text-left text-sm font-semibold tabular-nums text-zinc-950 sm:col-start-auto sm:text-right">{formatMoney("USD", row.amountUsd, true)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
 
@@ -390,8 +493,6 @@ export default function DashboardPage() {
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
-  const externalFloatUsd = sumUsd(convertedAccounts.filter(isExternalFloatAccount));
-  const externalFloatShare = totalUsd ? externalFloatUsd / totalUsd : 0;
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
@@ -637,18 +738,7 @@ export default function DashboardPage() {
               </>
             ) : (
               <>
-                <KpiCard
-                  label="Bank Balances"
-                  value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
-                  detail={convertedAccounts.length ? `${convertedAccounts.length} Converted Balances Included` : "Waiting For Converted Balances"}
-                  tone={convertedAccounts.length ? "success" : "warning"}
-                />
-                <KpiCard
-                  label="External Float Share"
-                  value={convertedAccounts.length ? formatPercent(externalFloatShare) : "Unavailable"}
-                  detail={convertedAccounts.length ? `${formatMoney("USD", externalFloatUsd)} For Balances In Money Processors And Liquidity Providers` : "Waiting For Converted Balances"}
-                  tone={externalFloatShare >= 0.35 ? "warning" : "neutral"}
-                />
+                <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
                 <KpiCard
                   label="Largest Relationship"
                   value={topExposure ? formatPercent(topShare) : "Unavailable"}
@@ -683,11 +773,7 @@ export default function DashboardPage() {
             </Notice>
           ) : null}
 
-          <section className="grid gap-4 xl:grid-cols-3">
-            <Panel title="Liquidity Mix" subtitle="USD view across Own Funds, Client Funds, Money Processors, and Liquidity Providers.">
-              <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No USD category balances yet." />
-            </Panel>
-
+          <section className="grid gap-4 xl:grid-cols-2">
             <Panel title="Liquidity by Entity" subtitle="USD balances grouped by entity, limited to accounts with available USD conversion.">
               <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
             </Panel>
