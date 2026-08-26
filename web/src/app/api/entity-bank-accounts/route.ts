@@ -3,7 +3,7 @@ import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { requireEntityAccess, requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
-import { classifyLedgerAccountType } from "@/lib/server/ledger-dashboard";
+import { classifyLedgerAccountType, shouldExcludeLedgerAccount } from "@/lib/server/ledger-dashboard";
 import type { TokenSet } from "xero-node";
 
 export const runtime = "nodejs";
@@ -168,7 +168,8 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
     xero_bank_account_id: account.accountID,
     account_name: account.name,
     currency: account.currencyCode ?? null,
-    status: account.status === "ARCHIVED" ? "archived" : "active",
+    account_type: classifyLedgerAccountType({ accountName: account.name ?? "", accountType: null }),
+    status: account.status === "ARCHIVED" || shouldExcludeLedgerAccount({ accountName: account.name ?? "" }) ? "archived" : "active",
     updated_at: now,
   }));
 

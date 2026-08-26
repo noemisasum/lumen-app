@@ -431,6 +431,8 @@ try {
 }
 
 const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
+const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledger.ts", import.meta.url), "utf8");
+const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
 assert.match(dashboardSource, /Treasury Categories/);
 assert.match(dashboardSource, /Other\/remaining/);
@@ -445,5 +447,9 @@ assert.match(dashboardSource, /Operating bank accounts/);
 assert.match(dashboardSource, /Client money accounts/);
 assert.match(dashboardSource, /Money processors/);
 assert.match(dashboardSource, /Liquidity providers/);
+assert.match(xeroLedgerSource, /shouldExcludeLedgerAccount/);
+assert.match(xeroLedgerSource, /account_type: classifyLedgerAccountType/);
+assert.match(entityAccountRouteSource, /shouldExcludeLedgerAccount/);
+assert.match(entityAccountRouteSource, /account_type: classifyLedgerAccountType/);
 
 console.log("ledger-dashboard smoke ok");
