@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError } from "../src/lib/server/ledger-dashboard.ts";
+import { readFileSync } from "node:fs";
+import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
@@ -40,8 +41,8 @@ const payload = buildLedgerDashboardPayload({
     { id: "entity-b", orgId: "org-1", name: "Lumen US", code: "US" },
   ],
   accounts: [
-    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "bank", canAdmin: true },
-    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "bank", canAdmin: true },
+    { id: "account-hkd", entityId: "entity-a", accountName: "HSBC Current", currency: "HKD", status: "active", source: "manual", accountType: "operating_bank", canAdmin: true },
+    { id: "account-usd", entityId: "entity-b", accountName: "Mercury USD", currency: "USD", status: "active", source: "xero", accountType: "operating_bank", canAdmin: true },
     { id: "account-paypal", entityId: "entity-b", accountName: "PayPal Clearing", currency: "USD", status: "active", source: "manual", accountType: classifyLedgerAccountType({ accountName: "PayPal Clearing", accountType: null }), canAdmin: true },
   ],
   balances: [
@@ -154,7 +155,14 @@ const payload = buildLedgerDashboardPayload({
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.amount, 250.5);
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.usdConversion?.amount, 32.064);
 assert.equal(payload.accounts.find((account) => account.id === "account-paypal")?.accountType, "money_processor");
-assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "bank");
+assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "operating_bank");
+assert.equal(classifyLedgerAccountType({ accountName: "Client Money Account", accountType: null }), "client_money");
+assert.equal(classifyLedgerAccountType({ accountName: "MP: Stripe USD", accountType: null }), "money_processor");
+assert.equal(classifyLedgerAccountType({ accountName: "LP: Prime Broker USD", accountType: null }), "liquidity_provider");
+assert.equal(classifyLedgerAccountType({ accountName: "Legacy Bank", accountType: "bank" }), "operating_bank");
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liability" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "PayPal Clearing" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Money Account" }), false);
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "42501", message: "permission denied for table entity_bank_accounts" }), false);
 assert.deepEqual(payload.totalsByCurrency, [
@@ -165,6 +173,11 @@ assert.deepEqual(payload.totalsBySource, [
   { source: "manual", currency: "HKD", amount: 250.5, accountCount: 1 },
   { source: "manual", currency: "USD", amount: 300, accountCount: 1 },
   { source: "xero", currency: "USD", amount: 40, accountCount: 1 },
+]);
+assert.deepEqual(payload.totalsByAccountType, [
+  { accountType: "money_processor", currency: "USD", amount: 300, accountCount: 1 },
+  { accountType: "operating_bank", currency: "HKD", amount: 250.5, accountCount: 1 },
+  { accountType: "operating_bank", currency: "USD", amount: 40, accountCount: 1 },
 ]);
 assert.deepEqual(payload.transactionBreakdowns, [
   { source: "manual", currency: "HKD", inflow: 75.25, outflow: 25, net: 50.25, transactionCount: 2 },
@@ -179,7 +192,7 @@ const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   currency: index % 2 === 0 ? "HKD" : "USD",
   status: "active",
   source: "manual",
-  accountType: "bank",
+  accountType: "operating_bank",
   canAdmin: true,
 }));
 
@@ -249,7 +262,7 @@ const invalidCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,
   entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
-  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "operating_bank", canAdmin: true }],
   balances: [
     {
       id: "bad-month-currency",
@@ -279,7 +292,7 @@ const olderInvalidCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,
   entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
-  accounts: [{ id: "account-older-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
+  accounts: [{ id: "account-older-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "EUR", status: "active", source: "manual", accountType: "operating_bank", canAdmin: true }],
   balances: [
     {
       id: "latest-valid-currency",
@@ -330,7 +343,7 @@ const invalidAccountCurrencyPayload = buildLedgerDashboardPayload({
   asOf: "2026-08-22T00:00:00.000Z",
   windowDays: 30,
   entities: [{ id: "entity-a", orgId: "org-1", name: "Lumen HK", code: "HK" }],
-  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "AUG", status: "active", source: "manual", accountType: "bank", canAdmin: true }],
+  accounts: [{ id: "account-invalid", entityId: "entity-a", accountName: "Statement Account", currency: "AUG", status: "active", source: "manual", accountType: "operating_bank", canAdmin: true }],
   balances: [
     {
       id: "bad-account-currency",
@@ -408,5 +421,16 @@ try {
   if (originalXeApiKey === undefined) delete process.env.XE_API_KEY;
   else process.env.XE_API_KEY = originalXeApiKey;
 }
+
+const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
+assert.match(dashboardSource, /Treasury Dashboard/);
+assert.match(dashboardSource, /Treasury Categories/);
+assert.match(dashboardSource, /Other\/remaining/);
+assert.match(dashboardSource, /rowsWithRemaining\(rows\)/);
+assert.doesNotMatch(dashboardSource, /accounts\.slice\(0,\s*12\)/);
+assert.match(dashboardSource, /Operating bank accounts/);
+assert.match(dashboardSource, /Client money accounts/);
+assert.match(dashboardSource, /Money processors/);
+assert.match(dashboardSource, /Liquidity providers/);
 
 console.log("ledger-dashboard smoke ok");

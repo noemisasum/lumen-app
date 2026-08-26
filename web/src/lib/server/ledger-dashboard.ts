@@ -18,7 +18,7 @@ export type LedgerDashboardAccount = {
   canAdmin: boolean;
 };
 
-export type LedgerAccountType = "bank" | "money_processor";
+export type LedgerAccountType = "operating_bank" | "client_money" | "money_processor" | "liquidity_provider";
 
 export type LedgerDashboardBalance = {
   id: string;
@@ -74,6 +74,10 @@ export type LedgerSourceMoneyGroup = LedgerMoneyGroup & {
   source: LedgerSource;
 };
 
+export type LedgerAccountTypeMoneyGroup = LedgerMoneyGroup & {
+  accountType: LedgerAccountType;
+};
+
 export type LedgerEntityMoneyGroup = LedgerMoneyGroup & {
   entityId: string;
   entityName: string;
@@ -122,6 +126,7 @@ export type LedgerDashboardPayload = {
   accounts: Array<LedgerDashboardAccount & { latestBalance: LedgerDashboardLatestBalance | null }>;
   totalsByCurrency: LedgerMoneyGroup[];
   totalsBySource: LedgerSourceMoneyGroup[];
+  totalsByAccountType: LedgerAccountTypeMoneyGroup[];
   balancesByEntity: LedgerEntityMoneyGroup[];
   transactionBreakdowns: LedgerTransactionBreakdown[];
   recentTransactions: LedgerDashboardRecentTransaction[];
@@ -141,6 +146,7 @@ type GroupValue = {
 
 const moneyProcessorAccountNamePattern =
   /\b(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat\s+pay)\b/;
+const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial))\b/;
 
 const balanceTypeRank: Record<string, number> = {
   closing: 6,
@@ -162,9 +168,26 @@ function normalizeDashboardCurrency(value: string | null | undefined) {
   return /^[A-Z]{3}$/.test(normalized) && Intl.supportedValuesOf("currency").includes(normalized) ? normalized : null;
 }
 
-export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | null; accountName: string }): LedgerAccountType {
-  if (input.accountType === "money_processor" || input.accountType === "bank") return input.accountType;
-  return moneyProcessorAccountNamePattern.test(input.accountName.toLowerCase()) ? "money_processor" : "bank";
+function normalizeAccountNameForRules(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+export function shouldExcludeLedgerAccount(input: { accountName: string }) {
+  const normalized = normalizeAccountNameForRules(input.accountName);
+  return normalized === "ex client liability" || /\bclearing\b/.test(normalized);
+}
+
+export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {
+  if (input.accountType === "operating_bank" || input.accountType === "client_money" || input.accountType === "money_processor" || input.accountType === "liquidity_provider") {
+    return input.accountType;
+  }
+
+  const normalized = normalizeAccountNameForRules(input.accountName);
+  if (normalized.startsWith("mp:")) return "money_processor";
+  if (normalized.startsWith("lp:")) return "liquidity_provider";
+  if (moneyProcessorAccountNamePattern.test(normalized)) return "money_processor";
+  if (clientMoneyAccountNamePattern.test(normalized)) return "client_money";
+  return "operating_bank";
 }
 
 export function isMissingLedgerAccountTypeColumnError(error: unknown) {
@@ -302,6 +325,7 @@ export function buildLedgerDashboardPayload(input: {
 
   const totalsByCurrency = new Map<string, GroupValue>();
   const totalsBySource = new Map<string, GroupValue>();
+  const totalsByAccountType = new Map<string, GroupValue>();
   const balancesByEntity = new Map<string, GroupValue>();
 
   for (const account of input.accounts) {
@@ -310,6 +334,7 @@ export function buildLedgerDashboardPayload(input: {
 
     addMoneyGroup(totalsByCurrency, latestBalance.currency, latestBalance.amount, account.id);
     addMoneyGroup(totalsBySource, `${latestBalance.source}:${latestBalance.currency}`, latestBalance.amount, account.id);
+    addMoneyGroup(totalsByAccountType, `${account.accountType}:${latestBalance.currency}`, latestBalance.amount, account.id);
     addMoneyGroup(balancesByEntity, `${account.entityId}:${latestBalance.currency}`, latestBalance.amount, account.id);
   }
 
@@ -374,6 +399,18 @@ export function buildLedgerDashboardPayload(input: {
     })
     .sort((left, right) => left.source.localeCompare(right.source) || left.currency.localeCompare(right.currency));
 
+  const totalsByAccountTypeRows = Array.from(totalsByAccountType.entries())
+    .map(([key, value]) => {
+      const [accountType, currency] = key.split(":") as [LedgerAccountType, string];
+      return {
+        accountType,
+        currency,
+        amount: value.amount,
+        accountCount: value.accountIds.size,
+      };
+    })
+    .sort((left, right) => left.accountType.localeCompare(right.accountType) || left.currency.localeCompare(right.currency));
+
   const recentTransactions = [...input.transactions]
     .sort((left, right) => compareIsoDesc(left.transactionDate, right.transactionDate))
     .map((transaction) => {
@@ -386,7 +423,7 @@ export function buildLedgerDashboardPayload(input: {
         accountName: account?.accountName ?? "Unknown Account",
         entityName: entity?.name ?? "Unknown Entity",
         source: transaction.source,
-        accountType: account?.accountType ?? "bank",
+        accountType: account?.accountType ?? "operating_bank",
         transactionDate: transaction.transactionDate,
         description: transaction.description,
         signedAmount: numberValue(transaction.signedAmount),
@@ -403,6 +440,7 @@ export function buildLedgerDashboardPayload(input: {
     accounts,
     totalsByCurrency: sortedMoneyGroups(totalsByCurrency),
     totalsBySource: totalsBySourceRows,
+    totalsByAccountType: totalsByAccountTypeRows,
     balancesByEntity: balancesByEntityRows,
     transactionBreakdowns: Array.from(transactionBreakdowns.values()).sort(
       (left, right) => left.source.localeCompare(right.source) || left.currency.localeCompare(right.currency),

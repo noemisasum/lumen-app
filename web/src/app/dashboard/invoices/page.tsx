@@ -19,7 +19,7 @@ type BankAccountRow = {
   xeroBankAccountId: string | null;
   accountName: string;
   currency: string | null;
-  accountType: "bank" | "money_processor";
+  accountType: "bank" | "operating_bank" | "client_money" | "money_processor" | "liquidity_provider";
   status: string;
   source: "xero" | "manual";
   createdAt: string;
@@ -188,7 +188,10 @@ function formatFileSize(sizeBytes: number) {
 }
 
 function accountTypeLabel(accountType: BankAccountRow["accountType"]) {
-  return accountType === "money_processor" ? "MP" : "Bank";
+  if (accountType === "client_money") return "Client";
+  if (accountType === "money_processor") return "MP";
+  if (accountType === "liquidity_provider") return "LP";
+  return "Bank";
 }
 
 export default function InvoicesPage() {
