@@ -439,12 +439,15 @@ const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-ban
 assert.match(dashboardSource, /Treasury Dashboard/);
 assert.match(dashboardSource, /Monitor Operating Cash, Client Money, Processor Balances, Liquidity-Provider Balances, And Recent Ledger Movement From Authenticated Treasury Data\./);
 assert.match(dashboardSource, /mt-2 break-words text-xs leading-5 text-zinc-500/);
-assert.match(dashboardSource, /USD Liquidity/);
+assert.match(dashboardSource, /Bank Balances/);
 assert.match(dashboardSource, /External Float Share/);
+assert.match(dashboardSource, /For Balances In Money Processors And Liquidity Providers/);
 assert.match(dashboardSource, /Largest Relationship/);
 assert.match(dashboardSource, /isExternalFloatAccount/);
 assert.match(dashboardSource, /formatPercent\(externalFloatShare\)/);
 assert.match(dashboardSource, /value=\{convertedAccounts\.length \? formatPercent\(externalFloatShare\) : "Unavailable"\}/);
+assert.doesNotMatch(dashboardSource, /Total Liquidity in USD/);
+assert.doesNotMatch(dashboardSource, /USD Liquidity/);
 assert.doesNotMatch(dashboardSource, /Cash\/Bank/);
 assert.doesNotMatch(dashboardSource, /LP\/MP/);
 assert.doesNotMatch(dashboardSource, /Balance completeness/);

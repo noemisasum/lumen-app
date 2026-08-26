@@ -638,7 +638,7 @@ export default function DashboardPage() {
             ) : (
               <>
                 <KpiCard
-                  label="USD Liquidity"
+                  label="Bank Balances"
                   value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
                   detail={convertedAccounts.length ? `${convertedAccounts.length} Converted Balances Included` : "Waiting For Converted Balances"}
                   tone={convertedAccounts.length ? "success" : "warning"}
@@ -646,7 +646,7 @@ export default function DashboardPage() {
                 <KpiCard
                   label="External Float Share"
                   value={convertedAccounts.length ? formatPercent(externalFloatShare) : "Unavailable"}
-                  detail={convertedAccounts.length ? `${formatMoney("USD", externalFloatUsd)} In Processors And Liquidity Providers` : "Waiting For Converted Balances"}
+                  detail={convertedAccounts.length ? `${formatMoney("USD", externalFloatUsd)} For Balances In Money Processors And Liquidity Providers` : "Waiting For Converted Balances"}
                   tone={externalFloatShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
