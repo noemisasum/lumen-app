@@ -184,7 +184,9 @@ export function shouldExcludeLedgerAccount(input: { accountName: string }) {
   const hasLiabilityMarker = /\b(?:liability|liabiltiy)\b/.test(normalized);
   const hasClientLedgerMarker = /\b(client|trust|ex)\b/.test(normalized);
   const hasOpenPositionMarker = /\bopen[-\s]?positions?\b/.test(normalized);
-  return /\bclearing\b/.test(normalized) || hasOpenPositionMarker || (hasLiabilityMarker && hasClientLedgerMarker);
+  const isBankGuarantee = /\bbank guarantee\b/.test(normalized);
+  const isIntercompanyMitradeGroup = /\bintercompany - mitrade group\b/.test(normalized);
+  return /\bclearing\b/.test(normalized) || hasOpenPositionMarker || isBankGuarantee || isIntercompanyMitradeGroup || (hasLiabilityMarker && hasClientLedgerMarker);
 }
 
 export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {

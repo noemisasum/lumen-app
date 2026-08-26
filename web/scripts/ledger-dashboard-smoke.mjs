@@ -174,6 +174,8 @@ assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liabiltiy" }),
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Open Position AUD" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Open Positions USD" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "PayPal Clearing" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "Bank Guarantee" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "Intercompany - Mitrade Group" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Money Account" }), false);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Operating Liability Insurance" }), false);
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
