@@ -173,6 +173,36 @@ function accountTypeLabel(accountType: AccountType) {
   return "Own Funds";
 }
 
+const bankNameRules: Array<[RegExp, string]> = [
+  [/\b(hsbc|hongkong and shanghai)\b/i, "HSBC"],
+  [/\bhang\s*seng\b/i, "Hang Seng Bank"],
+  [/\bbank\s+of\s+china\b|\bboc\b/i, "Bank of China"],
+  [/\bstandard\s+chartered\b|\bscb\b/i, "Standard Chartered"],
+  [/\buob\b|\bunited\s+overseas\s+bank\b/i, "UOB"],
+  [/\bdbs\b/i, "DBS"],
+  [/\bocbc\b/i, "OCBC"],
+  [/\bwestpac\b/i, "Westpac"],
+  [/\bnab\b|\bnational\s+australia\s+bank\b/i, "NAB"],
+  [/\banz\b/i, "ANZ"],
+  [/\bcommonwealth\s+bank\b|\bcba\b/i, "Commonwealth Bank"],
+  [/\bciti(?:bank)?\b/i, "Citi"],
+  [/\bjp\s*morgan\b|\bjpmorgan\b|\bchase\b/i, "JPMorgan Chase"],
+  [/\bmercury\b/i, "Mercury"],
+  [/\bwise\b/i, "Wise"],
+  [/\bairwallex\b/i, "Airwallex"],
+  [/\bpaypal\b/i, "PayPal"],
+  [/\bstripe\b/i, "Stripe"],
+  [/\binteractive\s+brokers\b|\bibkr\b/i, "Interactive Brokers"],
+];
+
+function inferBankName(accountName: string) {
+  const normalized = accountName.trim().replace(/^(MP|LP)\s*:\s*/i, "");
+  for (const [pattern, bankName] of bankNameRules) {
+    if (pattern.test(normalized)) return bankName;
+  }
+  return "Unclassified Bank";
+}
+
 const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
 
 const categoryColors: Record<AccountType, string> = {
@@ -242,14 +272,26 @@ function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
 
-function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, string>, groupBy: "entity" | "account" | "accountType"): ExposureRow[] {
+function bankExposureDetail(accountTypes: Set<AccountType>) {
+  const labels = categoryOrder.filter((accountType) => accountTypes.has(accountType)).map(accountTypeLabel);
+  return labels.length ? labels.join(", ") : "USD account balances";
+}
+
+function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, string>, groupBy: "entity" | "account" | "accountType" | "bank"): ExposureRow[] {
   const groups = new Map<string, ExposureRow>();
+  const bankAccountTypes = new Map<string, Set<AccountType>>();
 
   for (const account of accounts) {
     const amountUsd = balanceUsd(account);
     if (amountUsd === null) continue;
 
-    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : account.accountName;
+    const key =
+      groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : groupBy === "bank" ? inferBankName(account.accountName) : account.accountName;
+    if (groupBy === "bank") {
+      const accountTypes = bankAccountTypes.get(key) ?? new Set<AccountType>();
+      accountTypes.add(account.accountType);
+      bankAccountTypes.set(key, accountTypes);
+    }
     const current =
       groups.get(key) ??
       ({
@@ -259,12 +301,16 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
             ? entityNameById.get(account.entityId) ?? "Unassigned entity"
             : groupBy === "accountType"
               ? accountTypeLabel(account.accountType)
+              : groupBy === "bank"
+                ? key
               : account.accountName,
         detail:
           groupBy === "entity"
             ? "USD account balances"
             : groupBy === "accountType"
               ? "USD balance by treasury category"
+              : groupBy === "bank"
+                ? accountTypeLabel(account.accountType)
               : `${entityNameById.get(account.entityId) ?? "Unassigned entity"} · ${accountTypeLabel(account.accountType)}`,
         amountUsd: 0,
         accountCount: 0,
@@ -274,7 +320,12 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
     groups.set(key, current);
   }
 
-  return Array.from(groups.values()).sort((left, right) => Math.abs(right.amountUsd) - Math.abs(left.amountUsd));
+  return Array.from(groups.values())
+    .map((row) => ({
+      ...row,
+      detail: groupBy === "bank" ? bankExposureDetail(bankAccountTypes.get(row.id) ?? new Set<AccountType>()) : row.detail,
+    }))
+    .sort((left, right) => Math.abs(right.amountUsd) - Math.abs(left.amountUsd));
 }
 
 function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
@@ -569,7 +620,7 @@ export default function DashboardPage() {
   const totalUsd = sumUsd(convertedAccounts);
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
-  const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
+  const bankExposure = useMemo(() => groupExposure(accounts, entityNameById, "bank"), [accounts, entityNameById]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
@@ -862,8 +913,8 @@ export default function DashboardPage() {
               <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
             </Panel>
 
-            <Panel title="Exposure by Account" subtitle="Largest account relationships by USD balance.">
-              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No USD account balances yet." maxRows={6} />
+            <Panel title="Exposure by Bank" subtitle="Largest banking relationships by USD balance.">
+              <ExposureList rows={bankExposure} totalUsd={totalUsd} emptyLabel="No USD bank balances yet." maxRows={6} />
             </Panel>
           </section>
 
