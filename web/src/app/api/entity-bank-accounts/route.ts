@@ -3,6 +3,7 @@ import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { requireEntityAccess, requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import { classifyLedgerAccountType } from "@/lib/server/ledger-dashboard";
 import type { TokenSet } from "xero-node";
 
 export const runtime = "nodejs";
@@ -77,7 +78,7 @@ function serializeAccount(account: BankAccountRow) {
     xeroBankAccountId: account.xero_bank_account_id,
     accountName: account.account_name,
     currency: account.currency,
-    accountType: account.account_type,
+    accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
     status: account.status,
     source: accountSource(account),
     createdAt: account.created_at,

@@ -178,13 +178,11 @@ export function shouldExcludeLedgerAccount(input: { accountName: string }) {
 }
 
 export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {
-  if (input.accountType === "operating_bank" || input.accountType === "client_money" || input.accountType === "money_processor" || input.accountType === "liquidity_provider") {
-    return input.accountType;
-  }
-
   const normalized = normalizeAccountNameForRules(input.accountName);
   if (normalized.startsWith("mp:")) return "money_processor";
   if (normalized.startsWith("lp:")) return "liquidity_provider";
+  if (input.accountType === "money_processor" || input.accountType === "liquidity_provider") return input.accountType;
+  if (input.accountType === "client_money") return input.accountType;
   if (clientMoneyAccountNamePattern.test(normalized)) return "client_money";
   return "operating_bank";
 }

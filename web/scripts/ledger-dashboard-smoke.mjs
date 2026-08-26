@@ -159,6 +159,9 @@ assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accou
 assert.equal(classifyLedgerAccountType({ accountName: "Client Money Account", accountType: null }), "client_money");
 assert.equal(classifyLedgerAccountType({ accountName: "MP: Stripe USD", accountType: null }), "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "LP: Prime Broker USD", accountType: null }), "liquidity_provider");
+assert.equal(classifyLedgerAccountType({ accountName: "MP: Legacy Processor", accountType: "operating_bank" }), "money_processor");
+assert.equal(classifyLedgerAccountType({ accountName: "LP: Legacy Provider", accountType: "operating_bank" }), "liquidity_provider");
+assert.equal(classifyLedgerAccountType({ accountName: "UOB USD Bank Account (Client funds)", accountType: "operating_bank" }), "client_money");
 assert.equal(classifyLedgerAccountType({ accountName: "Legacy Bank", accountType: "bank" }), "operating_bank");
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liability" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability AUD" }), true);

@@ -44,7 +44,7 @@ type BankAccountRow = {
   xeroBankAccountId: string | null;
   accountName: string;
   currency: string | null;
-  accountType: "bank" | "money_processor";
+  accountType: "bank" | "operating_bank" | "client_money" | "money_processor" | "liquidity_provider";
   status: string;
   source: "xero" | "manual";
   createdAt: string;
@@ -111,11 +111,14 @@ function sortBankAccounts(accounts: BankAccountRow[]) {
 }
 
 function accountTypeLabel(accountType: BankAccountRow["accountType"]) {
-  return accountType === "money_processor" ? "MP" : "Bank";
+  if (accountType === "client_money") return "Client money";
+  if (accountType === "money_processor") return "Money processor";
+  if (accountType === "liquidity_provider") return "Liquidity provider";
+  return "Operating bank";
 }
 
 function defaultBankAccountDraft(): BankAccountDraft {
-  return { accountName: "", currency: "", accountType: "bank" };
+  return { accountName: "", currency: "", accountType: "operating_bank" };
 }
 
 function normalizeCurrency(value: string) {
@@ -167,7 +170,7 @@ export default function EntityManagementPage() {
   const [accountDraftsByEntityId, setAccountDraftsByEntityId] = useState<Record<string, BankAccountDraft>>({});
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editingAccountName, setEditingAccountName] = useState("");
-  const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("bank");
+  const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("operating_bank");
   const [accountAction, setAccountAction] = useState<string | null>(null);
   const [selectedAccountIdsByEntityId, setSelectedAccountIdsByEntityId] = useState<Record<string, string[]>>({});
 
@@ -353,7 +356,7 @@ export default function EntityManagementPage() {
   function cancelEditBankAccount() {
     setEditingAccountId(null);
     setEditingAccountName("");
-    setEditingAccountType("bank");
+    setEditingAccountType("operating_bank");
   }
 
   async function updateBankAccount(account: BankAccountRow) {
@@ -1129,7 +1132,7 @@ export default function EntityManagementPage() {
                             </div>
 
                             {entity.canAdmin ? (
-                              <form onSubmit={(event) => void createBankAccount(event, entity)} className="mt-3 grid gap-2 lg:grid-cols-[minmax(160px,1fr)_92px_116px_auto] lg:items-end">
+                              <form onSubmit={(event) => void createBankAccount(event, entity)} className="mt-3 grid gap-2 lg:grid-cols-[minmax(160px,1fr)_92px_170px_auto] lg:items-end">
                                 <label className="block text-xs font-medium text-zinc-700">
                                   Name
                                   <input
@@ -1160,8 +1163,10 @@ export default function EntityManagementPage() {
                                     disabled={creatingAccount}
                                     className="mt-1"
                                   >
-                                    <option value="bank">Bank</option>
-                                    <option value="money_processor">MP</option>
+                                    <option value="operating_bank">Operating bank</option>
+                                    <option value="client_money">Client money</option>
+                                    <option value="money_processor">Money processor</option>
+                                    <option value="liquidity_provider">Liquidity provider</option>
                                   </SelectControl>
                                 </label>
                                 <button type="submit" disabled={creatingAccount || !accountDraft.accountName.trim()} className={saveButtonClassName}>
@@ -1201,12 +1206,14 @@ export default function EntityManagementPage() {
                                           event.target.value = "";
                                         }}
                                         disabled={!selectedAccounts.length || bulkAccountBusy}
-                                        className="mt-0 w-36"
+                                        className="mt-0 w-44"
                                         aria-label="Bulk classify selected accounts"
                                       >
-                                        <option value="">{bulkUpdatingAccounts ? "Saving" : "Set Type"}</option>
-                                        <option value="bank">Bank</option>
-                                        <option value="money_processor">MP</option>
+                                        <option value="">{bulkUpdatingAccounts ? "Saving" : "Set category"}</option>
+                                        <option value="operating_bank">Operating bank</option>
+                                        <option value="client_money">Client money</option>
+                                        <option value="money_processor">Money processor</option>
+                                        <option value="liquidity_provider">Liquidity provider</option>
                                       </SelectControl>
                                       <button
                                         type="button"
@@ -1255,7 +1262,7 @@ export default function EntityManagementPage() {
                                           ) : null}
                                           <div className="min-w-0 flex-1">
                                           {isEditingAccount ? (
-                                            <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_120px] sm:items-end">
+                                            <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_170px] sm:items-end">
                                               <label className="block min-w-0 text-xs font-medium text-zinc-700">
                                                 Name
                                                 <input
@@ -1274,8 +1281,10 @@ export default function EntityManagementPage() {
                                                   disabled={savingAccount}
                                                   className="mt-1"
                                                 >
-                                                  <option value="bank">Bank</option>
-                                                  <option value="money_processor">MP</option>
+                                                  <option value="operating_bank">Operating bank</option>
+                                                  <option value="client_money">Client money</option>
+                                                  <option value="money_processor">Money processor</option>
+                                                  <option value="liquidity_provider">Liquidity provider</option>
                                                 </SelectControl>
                                               </label>
                                             </div>
