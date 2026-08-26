@@ -174,6 +174,7 @@ function accountTypeLabel(accountType: AccountType) {
 }
 
 const bankNameRules: Array<[RegExp, string]> = [
+  [/\balph(?:a)?\b/i, "Alpha Bank"],
   [/\b(hsbc|hongkong and shanghai)\b/i, "HSBC"],
   [/\bhang\s*seng\b/i, "Hang Seng Bank"],
   [/\bbank\s+of\s+china\b|\bboc\b/i, "Bank of China"],
@@ -212,12 +213,18 @@ const bankNameRules: Array<[RegExp, string]> = [
   [/\bzand\b/i, "Zand"],
 ];
 
+const excludedBankExposureAccountNameRules = [/\bbank\s+guarantee\b/i, /\bintercompany\s*-\s*mitrade\s+group\b/i];
+
 function inferBankName(accountName: string) {
   const normalized = accountName.trim().replace(/^(MP|LP)\s*:\s*/i, "");
   for (const [pattern, bankName] of bankNameRules) {
     if (pattern.test(normalized)) return bankName;
   }
   return null;
+}
+
+function isExcludedBankExposureAccount(accountName: string) {
+  return excludedBankExposureAccountNameRules.some((pattern) => pattern.test(accountName));
 }
 
 const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
@@ -282,6 +289,7 @@ function hasNonZeroBalance(account: LedgerAccount) {
 }
 
 function isBankExposureAccount(account: LedgerAccount) {
+  if (isExcludedBankExposureAccount(account.accountName)) return false;
   return account.accountType === "operating_bank" || account.accountType === "client_money";
 }
 
