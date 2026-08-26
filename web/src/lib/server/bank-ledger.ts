@@ -203,3 +203,36 @@ export async function upsertBankBalances(supabase: SupabaseClient, inputs: BankB
 
   return { count: rows.length };
 }
+
+export async function upsertXeroBankSummaryBalancesByExternalId(supabase: SupabaseClient, inputs: BankBalanceInput[]) {
+  if (!inputs.length) return { count: 0 };
+
+  const rows = inputs.map((input) => {
+    if (input.source !== "xero" || input.sourceRecordType !== "xero_bank_summary_report") {
+      throw new Error("Xero Bank Summary balance overwrite is only available for Xero Bank Summary report rows.");
+    }
+    if (!input.externalId?.trim()) {
+      throw new Error("Xero Bank Summary balances require externalId for stable overwrite identity.");
+    }
+    return normalizeBankBalance(input);
+  });
+
+  for (const row of rows) {
+    const { data: updated, error: updateError } = await supabase
+      .from("bank_account_balances")
+      .update(row)
+      .eq("bank_account_id", row.bank_account_id)
+      .eq("source", row.source)
+      .eq("external_id", row.external_id)
+      .select("id")
+      .maybeSingle();
+    if (updateError) throw updateError;
+
+    if (!updated) {
+      const { error: insertError } = await supabase.from("bank_account_balances").insert(row);
+      if (insertError) throw insertError;
+    }
+  }
+
+  return { count: rows.length };
+}

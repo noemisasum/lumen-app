@@ -1,7 +1,8 @@
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
-import { upsertBankBalances, upsertBankTransactions, type BankBalanceInput, type BankTransactionInput } from "@/lib/server/bank-ledger";
+import { upsertBankTransactions, upsertXeroBankSummaryBalancesByExternalId, type BankTransactionInput } from "@/lib/server/bank-ledger";
 import { classifyLedgerAccountType, shouldExcludeLedgerAccount } from "@/lib/server/ledger-dashboard";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import { xeroOrganisationBaseCurrency, xeroReportBalances } from "@/lib/server/xero-bank-summary-report";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BankTransaction, TokenSet } from "xero-node";
 
@@ -191,64 +192,6 @@ async function loadSyncedBankAccounts(supabase: SupabaseClient, entityId: string
   return (data ?? []) as EntityBankAccountRow[];
 }
 
-function parseReportNumber(value: string | number | null | undefined) {
-  if (value === null || value === undefined) return null;
-  const normalized = String(value).replace(/,/g, "").trim();
-  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function collectReportRows(value: unknown, rows: unknown[] = []) {
-  if (!value || typeof value !== "object") return rows;
-  const objectValue = value as { rows?: unknown; cells?: unknown };
-  if (Array.isArray(objectValue.cells)) rows.push(value);
-  if (Array.isArray(objectValue.rows)) {
-    objectValue.rows.forEach((row) => collectReportRows(row, rows));
-  }
-  if ("reports" in objectValue && Array.isArray((objectValue as { reports?: unknown }).reports)) {
-    (objectValue as { reports: unknown[] }).reports.forEach((report) => collectReportRows(report, rows));
-  }
-  return rows;
-}
-
-function xeroReportBalances(
-  reportBody: unknown,
-  accountsByXeroId: Map<string, EntityBankAccountRow>,
-  accountsByName: Map<string, EntityBankAccountRow>,
-  entityId: string,
-  mappingId: string,
-  balanceDate: string,
-) {
-  const balances: BankBalanceInput[] = [];
-  for (const row of collectReportRows(reportBody)) {
-    const cells = (row as { cells?: Array<{ value?: string | number | null; attributes?: Array<{ id?: string; value?: string }> }> }).cells ?? [];
-    const firstValue = cells[0]?.value === null || cells[0]?.value === undefined ? undefined : String(cells[0].value).trim();
-    const accountId = cells.flatMap((cell) => cell.attributes ?? []).find((attribute) => accountsByXeroId.has(attribute.value ?? ""))?.value;
-    const account = (accountId ? accountsByXeroId.get(accountId) : null) ?? (firstValue ? accountsByName.get(firstValue.toLowerCase()) : null);
-    if (!account) continue;
-
-    const numericValues = cells.map((cell) => parseReportNumber(cell.value)).filter((value): value is number => value !== null);
-    const amount = numericValues.at(-1);
-    if (amount === undefined || !account.currency) continue;
-
-    balances.push({
-      entityId,
-      bankAccountId: account.id,
-      source: "xero",
-      sourceRecordType: "xero_bank_summary_report",
-      entityXeroMappingId: mappingId,
-      balanceDate,
-      balanceType: "reported",
-      amount,
-      currency: account.currency,
-      externalId: `xero-bank-summary:${account.xero_bank_account_id}:${balanceDate}`,
-      rawPayload: row,
-    });
-  }
-  return balances;
-}
-
 function isMissingReportsScopeError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const response = (error as { response?: { statusCode?: number; status?: number; body?: unknown }; body?: unknown; message?: string }).response;
@@ -329,10 +272,16 @@ export async function syncXeroBankLedger(
   let balanceResult = { count: 0 };
   let warning: string | undefined;
   try {
-    const reportResponse = await context.xero.accountingApi.getReportBankSummary(context.mapping.xero_tenant_id, fromDate, toDate);
-    const balances = xeroReportBalances(reportResponse.body, accountsByXeroId, accountsByName, entityId, context.mapping.id, toDate);
-    balanceResult = await upsertBankBalances(supabase, balances);
-    if (!balances.length) warning = "Xero Bank Summary did not expose account balance rows that could be tied to synced bank accounts.";
+    const organisationResponse = await context.xero.accountingApi.getOrganisations(context.mapping.xero_tenant_id);
+    const reportCurrency = xeroOrganisationBaseCurrency(organisationResponse.body);
+    if (!reportCurrency) {
+      warning = "Xero Bank Summary balances were skipped because the Xero organisation base currency was unavailable.";
+    } else {
+      const reportResponse = await context.xero.accountingApi.getReportBankSummary(context.mapping.xero_tenant_id, fromDate, toDate);
+      const balances = xeroReportBalances(reportResponse.body, accountsByXeroId, accountsByName, entityId, context.mapping.id, toDate, reportCurrency);
+      balanceResult = await upsertXeroBankSummaryBalancesByExternalId(supabase, balances);
+      if (!balances.length) warning = "Xero Bank Summary did not expose account balance rows that could be tied to synced bank accounts.";
+    }
   } catch (error) {
     warning = isMissingReportsScopeError(error)
       ? "Xero Bank Summary balances require the accounting.reports.read scope. Reconnect Xero, then sync again to import balance snapshots."
