@@ -437,7 +437,7 @@ const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", im
 const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledger.ts", import.meta.url), "utf8");
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
-assert.match(dashboardSource, /Monitor Operating Cash, Client Money, Processor Balances, Liquidity-Provider Balances, And Recent Ledger Movement From Authenticated Treasury Data\./);
+assert.match(dashboardSource, /Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data\./);
 assert.match(dashboardSource, /mt-2 break-words text-xs leading-5 text-zinc-500/);
 assert.match(dashboardSource, /Bank Balances/);
 assert.match(dashboardSource, /External Float Share/);

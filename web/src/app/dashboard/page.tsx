@@ -576,7 +576,7 @@ export default function DashboardPage() {
                 <p className="text-xs font-semibold text-zinc-500">Treasury Workspace</p>
                 <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury Dashboard</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Monitor Operating Cash, Client Money, Processor Balances, Liquidity-Provider Balances, And Recent Ledger Movement From Authenticated Treasury Data.
+                  Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
