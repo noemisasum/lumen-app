@@ -160,17 +160,17 @@ function accountTypeLabel(accountType: AccountType) {
 const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
 
 const categoryColors: Record<AccountType, string> = {
-  operating_bank: "#0f766e",
-  client_money: "#65a30d",
-  money_processor: "#b45309",
-  liquidity_provider: "#4f46e5",
+  operating_bank: "#2f6f68",
+  client_money: "#8aa05d",
+  money_processor: "#bf7a3a",
+  liquidity_provider: "#5967c5",
 };
 
 const categoryChartLabels: Record<AccountType, string> = {
   operating_bank: "Own Funds",
   client_money: "Client Funds",
-  money_processor: "MP",
-  liquidity_provider: "LP",
+  money_processor: "Money Processors",
+  liquidity_provider: "Liquidity Providers",
 };
 
 function formatMoney(currency: string, amount: number, compact = false) {
@@ -305,6 +305,14 @@ function pieBackground(rows: LiquidityMixRow[]) {
   return `conic-gradient(${segments.join(", ")})`;
 }
 
+function sortMixRowsByExposure(rows: LiquidityMixRow[]) {
+  return [...rows].sort((left, right) => {
+    const amountDifference = Math.abs(right.amountUsd) - Math.abs(left.amountUsd);
+    if (amountDifference !== 0) return amountDifference;
+    return categoryOrder.indexOf(left.accountType) - categoryOrder.indexOf(right.accountType);
+  });
+}
+
 function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
@@ -414,46 +422,70 @@ function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureR
 
 function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; convertedCount: number }) {
   const mixRows = liquidityMixRows(rows);
+  const displayRows = sortMixRowsByExposure(mixRows);
   const mixTotal = absoluteMixTotal(mixRows);
   const externalFloatExposure = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
   const externalFloatShare = mixTotal ? externalFloatExposure / mixTotal : 0;
   const hasConvertedBalances = convertedCount > 0;
   const chartStyle = { background: pieBackground(mixRows) } satisfies CSSProperties;
+  const chartLabel = hasConvertedBalances
+    ? `Donut chart of USD liquidity. ${displayRows
+        .map((row) => `${row.label}: ${formatPercent(mixTotal ? Math.abs(row.amountUsd / mixTotal) : 0)}, ${formatMoney("USD", row.amountUsd)}`)
+        .join("; ")}.`
+    : "Donut chart of USD liquidity. No converted balances available yet.";
 
   return (
-    <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-zinc-500">Liquidity Mix</div>
+          <div className="text-sm font-semibold text-zinc-950">Liquidity Mix</div>
           <div className="mt-2 break-words text-2xl font-semibold tabular-nums text-zinc-950">
             {hasConvertedBalances ? formatMoney("USD", mixTotal) : "Unavailable"}
           </div>
-          <div className="mt-2 break-words text-xs leading-5 text-zinc-500">
+          <div className="mt-1 break-words text-xs leading-5 text-zinc-500">
             {hasConvertedBalances ? `Total USD exposure; external float is ${formatPercent(externalFloatShare)}` : "Waiting for converted balances"}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-600">
+            Categories <span className="ml-1 font-medium tabular-nums text-zinc-900">{mixRows.filter((row) => Math.abs(row.amountUsd) > 0).length}</span>
+          </div>
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-zinc-600">
+            Accounts <span className="ml-1 font-medium tabular-nums text-zinc-900">{convertedCount}</span>
           </div>
         </div>
       </div>
 
-      <div className="mt-5 grid gap-6 lg:grid-cols-[18rem_1fr] lg:items-center">
-        <div className="relative mx-auto aspect-square w-56 rounded-full border border-zinc-200 shadow-inner sm:w-64 lg:w-full" style={chartStyle} role="img" aria-label="Donut chart of USD liquidity across Own Funds, Client Funds, MP, and LP.">
-          <div className="absolute inset-[24%] flex flex-col items-center justify-center rounded-full border border-zinc-100 bg-white text-center shadow-sm">
-            <div className="text-[11px] font-semibold uppercase text-zinc-500">USD Exposure</div>
-            <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-950">{hasConvertedBalances ? formatMoney("USD", mixTotal, true) : "--"}</div>
+      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(13rem,15rem)_1fr] lg:items-center">
+        <div className="flex min-w-0 justify-center lg:justify-start">
+          <div className="relative aspect-square w-full max-w-[15rem] rounded-full border border-zinc-200 shadow-inner" style={chartStyle} role="img" aria-label={chartLabel}>
+            <div className="absolute inset-[27%] flex flex-col items-center justify-center rounded-full border border-zinc-100 bg-white text-center shadow-sm">
+              <div className="text-[11px] font-semibold text-zinc-500">USD exposure</div>
+              <div className="mt-1 text-xl font-semibold tabular-nums text-zinc-950">{hasConvertedBalances ? formatMoney("USD", mixTotal, true) : "--"}</div>
+            </div>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {mixRows.map((row) => {
+        <div className="min-w-0 divide-y divide-zinc-100 rounded-md border border-zinc-200 bg-[#fbfbf8]">
+          {displayRows.map((row) => {
             const share = mixTotal ? Math.abs(row.amountUsd / mixTotal) : 0;
             return (
-              <div key={row.accountType} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-md border border-zinc-100 bg-zinc-50/60 px-3 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                <span className="size-3 rounded-full ring-2 ring-white" style={{ backgroundColor: row.color }} aria-hidden="true" />
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-zinc-950">{row.label}</div>
-                  <div className="truncate text-xs text-zinc-500">
-                    {row.detail} · {row.accountCount} account{row.accountCount === 1 ? "" : "s"} · {formatPercent(share)}
+              <div key={row.accountType} className="grid min-w-0 gap-3 px-3.5 py-3 sm:grid-cols-[minmax(0,1fr)_5rem_8rem] sm:items-center">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="mt-1 size-2.5 shrink-0 rounded-full ring-2 ring-white" style={{ backgroundColor: row.color }} aria-hidden="true" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-950">{row.label}</div>
+                    <div className="mt-0.5 truncate text-xs text-zinc-500">
+                      {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
+                    </div>
                   </div>
                 </div>
-                <div className="col-start-2 shrink-0 text-left text-sm font-semibold tabular-nums text-zinc-950 sm:col-start-auto sm:text-right">{formatMoney("USD", row.amountUsd)}</div>
+                <div className="text-left text-xs font-medium tabular-nums text-zinc-500 sm:text-right">{formatPercent(share)}</div>
+                <div className="text-left text-sm font-semibold tabular-nums text-zinc-950 sm:text-right">{formatMoney("USD", row.amountUsd)}</div>
+                <div className="sm:col-span-3">
+                  <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200/70">
+                    <div className="h-full rounded-full" style={{ width: `${Math.max(3, Math.min(100, share * 100))}%`, backgroundColor: row.color }} />
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -670,30 +702,32 @@ export default function DashboardPage() {
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
                   Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data.
                 </p>
-                <p className="mt-2 text-xs leading-5 text-zinc-500">
-                  Data last updated: <span className="font-medium text-zinc-700">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
-                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void loadLedgerDashboard(session.accessToken);
-                    void loadXeroStatus(session.accessToken);
-                  }}
-                  disabled={ledgerLoading || xeroLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
-                >
-                  {ledgerLoading || xeroLoading ? "Refreshing" : "Refresh"}
-                </button>
-                <button
-                  type="button"
-                  onClick={connectXero}
-                  disabled={xeroConnecting || xeroLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                >
-                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect Source" : "Connect Source"}
-                </button>
+              <div className="flex flex-col items-start gap-2 sm:items-end">
+                <p className="rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-xs leading-5 text-zinc-500 shadow-sm">
+                  Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
+                </p>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void loadLedgerDashboard(session.accessToken);
+                      void loadXeroStatus(session.accessToken);
+                    }}
+                    disabled={ledgerLoading || xeroLoading}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    {ledgerLoading || xeroLoading ? "Refreshing" : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={connectXero}
+                    disabled={xeroConnecting || xeroLoading}
+                    className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  >
+                    {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect Source" : "Connect Source"}
+                  </button>
+                </div>
               </div>
             </div>
           </section>
@@ -722,12 +756,27 @@ export default function DashboardPage() {
             </Notice>
           ) : null}
 
-          <section>
+          <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
             {ledgerLoading && !ledgerData ? (
               <StatSkeleton />
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
+            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
+              {actionItems.length ? (
+                <div className="space-y-3">
+                  {actionItems.map((item) => (
+                    <Notice key={item.id} tone={item.tone} title={item.title}>
+                      {item.detail}
+                    </Notice>
+                  ))}
+                </div>
+              ) : (
+                <Notice tone="success" title="No Immediate Actions">
+                  USD balances are available and no account-level data issues are currently reported.
+                </Notice>
+              )}
+            </Panel>
           </section>
 
           {ledgerData?.dataQualityIssues.length ? (
@@ -759,23 +808,7 @@ export default function DashboardPage() {
             </Panel>
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
-              {actionItems.length ? (
-                <div className="space-y-3">
-                  {actionItems.map((item) => (
-                    <Notice key={item.id} tone={item.tone} title={item.title}>
-                      {item.detail}
-                    </Notice>
-                  ))}
-                </div>
-              ) : (
-                <Notice tone="success" title="No Immediate Actions">
-                  USD balances are available and no account-level data issues are currently reported.
-                </Notice>
-              )}
-            </Panel>
-
+          <section>
             <Panel title="Recent Movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
               <div className="overflow-x-auto">
                 <table className="min-w-[560px] divide-y divide-zinc-100 text-sm sm:min-w-full">
