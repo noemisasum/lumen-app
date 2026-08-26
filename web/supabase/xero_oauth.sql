@@ -405,7 +405,7 @@ begin
       having count(*) > 1
     ) then
       raise exception using
-        message = 'Cannot create bank_account_balances_account_source_hash_uidx because duplicate bank balance hashes exist.',
+        message = 'Cannot create bank_account_balances_account_source_hash_uidx because duplicate account balance hashes exist.',
         hint = 'Resolve duplicate bank_account_balances rows for the same bank_account_id, source, and external_hash before applying this schema.';
     end if;
 
@@ -422,7 +422,7 @@ begin
       having count(*) > 1
     ) then
       raise exception using
-        message = 'Cannot create bank_account_balances_external_id_uidx because duplicate bank balance external IDs exist.',
+        message = 'Cannot create bank_account_balances_external_id_uidx because duplicate account balance external IDs exist.',
         hint = 'Resolve duplicate bank_account_balances rows for the same bank_account_id, source, and external_id before applying this schema.';
     end if;
 
