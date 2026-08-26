@@ -189,6 +189,14 @@ function hasNonZeroBalance(account: LedgerAccount) {
   return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
 }
 
+function isCashBankAccount(account: LedgerAccount) {
+  return account.accountType === "operating_bank" || account.accountType === "client_money";
+}
+
+function sumUsd(accounts: LedgerAccount[]) {
+  return accounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
+}
+
 function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
@@ -387,7 +395,9 @@ export default function DashboardPage() {
   const accountDetailRows = accounts.filter(hasNonZeroBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
-  const totalUsd = convertedAccounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
+  const totalUsd = sumUsd(convertedAccounts);
+  const cashBankUsd = sumUsd(convertedAccounts.filter(isCashBankAccount));
+  const lpMpUsd = totalUsd - cashBankUsd;
   const latestBalanceDate = latestIso(accountsWithBalances.map((account) => account.latestBalance?.balanceDate));
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
@@ -641,9 +651,9 @@ export default function DashboardPage() {
                   tone={convertedAccounts.length ? "success" : "warning"}
                 />
                 <KpiCard
-                  label="Balance completeness"
-                  value={accounts.length ? `${accountsWithBalances.length}/${accounts.length}` : "No accounts"}
-                  detail={latestBalanceDate ? `Accounts with current balances · latest ${formatDate(latestBalanceDate)}` : "Accounts with current balances · waiting for first sync"}
+                  label="Treasury balance split"
+                  value={convertedAccounts.length ? `${formatMoney("USD", cashBankUsd)} cash/bank` : "Unavailable"}
+                  detail={convertedAccounts.length ? `LP/MP ${formatMoney("USD", lpMpUsd)} · latest ${formatDate(latestBalanceDate)}` : "Waiting for converted balances"}
                 />
                 <KpiCard
                   label="Concentration"

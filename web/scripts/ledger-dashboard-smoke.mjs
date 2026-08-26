@@ -438,8 +438,10 @@ const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledge
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury dashboard/);
 assert.match(dashboardSource, /Total liquidity in USD/);
-assert.match(dashboardSource, /Balance completeness/);
-assert.match(dashboardSource, /Accounts with current balances/);
+assert.match(dashboardSource, /Treasury balance split/);
+assert.match(dashboardSource, /\$\{formatMoney\("USD", cashBankUsd\)\} cash\/bank/);
+assert.match(dashboardSource, /LP\/MP \$\{formatMoney\("USD", lpMpUsd\)\}/);
+assert.doesNotMatch(dashboardSource, /Balance completeness/);
 assert.match(dashboardSource, /const accountDetailRows = accounts\.filter\(hasNonZeroBalance\);/);
 assert.match(dashboardSource, /No non-zero account balances are available yet\./);
 assert.doesNotMatch(dashboardSource, /No balance date/);
