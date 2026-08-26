@@ -67,7 +67,7 @@ export default function Home() {
                 <div className="mt-2 text-xl font-semibold">$4.82M</div>
               </div>
               <div className="rounded-lg border border-zinc-200 p-3.5">
-                <div className="text-xs text-zinc-500">Bank Balance</div>
+                <div className="text-xs text-zinc-500">Ledger Balance</div>
                 <div className="mt-2 text-xl font-semibold">$4.79M</div>
               </div>
             </div>

@@ -27,10 +27,16 @@ for (const [name, sourcePath] of sources) {
   writeFileSync(path.join(outputDir, `${name}.mjs`), transpiled.outputText);
 }
 
-const pageSource = readFileSync(path.join(appDir, "src/app/dashboard/bank-balances/page.tsx"), "utf8");
-assert.equal(pageSource.includes("sampleBankBalanceWorkbook"), false);
-assert.equal(pageSource.includes("Cached baseline"), false);
-assert.equal(pageSource.includes("Full reference sheet extracted"), false);
+const dashboardSource = readFileSync(path.join(appDir, "src/app/dashboard/page.tsx"), "utf8");
+const compatibilitySource = readFileSync(path.join(appDir, "src/app/dashboard/bank-balances/page.tsx"), "utf8");
+assert.equal(dashboardSource.includes("Bank Balance Tracker"), false);
+assert.equal(dashboardSource.includes("Mitrade Group"), false);
+assert.equal(dashboardSource.includes("License Client"), false);
+assert.equal(dashboardSource.includes("Fund Type Split"), false);
+assert.equal(dashboardSource.includes("Upload Readiness"), false);
+assert.equal(dashboardSource.includes("Statement Columns"), false);
+assert.equal(compatibilitySource.includes('redirect("/dashboard")'), true);
+assert.equal(compatibilitySource.includes("Bank Balance Tracker"), false);
 
 const transforms = await import(`${pathToFileURL(path.join(outputDir, "transforms.mjs")).href}?${Date.now()}`);
 const { adaptLedgerDashboardToBankBalanceData } = await import(`${pathToFileURL(path.join(outputDir, "ledger-adapter.mjs")).href}?${Date.now()}`);
@@ -38,7 +44,7 @@ const { adaptLedgerDashboardToBankBalanceData } = await import(`${pathToFileURL(
 const ledgerDashboard = adaptLedgerDashboardToBankBalanceData(
   {
     asOf: "2026-08-26T09:00:00.000Z",
-    entities: [{ id: "entity-1", name: "Mitrade AU", code: "AU", orgId: "org-1" }],
+    entities: [{ id: "entity-1", name: "Operating Entity", code: "OPS", orgId: "org-1" }],
     accounts: [
       {
         id: "account-xero-1",
@@ -89,7 +95,7 @@ const ledgerDashboard = adaptLedgerDashboardToBankBalanceData(
   [],
 );
 
-assert.equal(ledgerDashboard.metadata.source.includes("Xero-backed"), true);
+assert.equal(ledgerDashboard.metadata.source.includes("Authenticated ledger API"), true);
 assert.equal(ledgerDashboard.metadata.workbookSheets.length, 0);
 assert.equal(ledgerDashboard.kpis.totalUsd, 975);
 assert.equal(ledgerDashboard.kpis.priorMonthUsd, null);
@@ -109,7 +115,7 @@ assert.equal(ledgerDashboard.dataQualityIssues[0]?.code, "missing_usd_rate");
 assert.equal(adaptLedgerDashboardToBankBalanceData({ asOf: "2026-08-26T09:00:00.000Z", entities: [], accounts: [], totalsBySource: [] }, []), null);
 
 const filtered = transforms.filterBalances(ledgerDashboard.monthlyBalances, {
-  country: "Mitrade AU",
+  country: "Operating Entity",
   fundType: "Xero",
   currency: "",
   search: "",

@@ -173,12 +173,12 @@ export function adaptLedgerDashboardToBankBalanceData(payload: LedgerDashboardDa
 
   return {
     metadata: {
-      title: "Mitrade Group Bank Balance Dashboard",
+      title: "Finance Dashboard",
       selectedMonth: selectedMonth ?? payload.asOf.slice(0, 10),
       lastRefreshed: payload.asOf,
-      dashboardView: "Bank balances",
+      dashboardView: "Dashboard",
       workbookSheets: [],
-      source: "Authenticated ledger API with Xero-backed bank balances when connected.",
+      source: "Authenticated ledger API with connected accounting balances when available.",
     },
     kpis: {
       totalUsd,
