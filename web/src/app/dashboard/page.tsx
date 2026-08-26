@@ -335,6 +335,12 @@ function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
+function capWords(text: string, maxWords = 28) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text;
+  return `${words.slice(0, maxWords).join(" ")}...`;
+}
+
 function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null) {
   if (!data) {
     return {
@@ -350,7 +356,6 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const externalFloat = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
   const totalExposure = absoluteMixTotal(mixRows);
   const ownFundsShare = totalExposure ? ownFunds / totalExposure : 0;
-  const externalFloatShare = totalExposure ? externalFloat / totalExposure : 0;
   const recentMovements = data.recentTransactions;
   const inflowCount = recentMovements.filter((transaction) => transaction.direction === "inflow" || transaction.signedAmount > 0).length;
   const outflowCount = recentMovements.filter((transaction) => transaction.direction === "outflow" || transaction.signedAmount < 0).length;
@@ -379,28 +384,26 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const eliminatedTransferLabel = formatUsdCompact(transferEliminations.eliminatedUsd);
   const concentrationNote =
     ownFundsShare >= 0.65
-      ? "Own funds dominate visible liquidity, keeping operating cash clear while external float remains a secondary exposure."
-      : externalFloatShare >= 0.2
-        ? "Processor/provider float is material enough to watch for settlement timing and counterparty exposure."
+      ? "Own Funds dominate visible liquidity, keeping operating cash clear."
+      : externalFloat >= totalExposure * 0.2
+        ? "Processor and provider balances are material enough to watch for settlement timing."
         : "Liquidity is relatively diversified across treasury categories.";
   const movementPoint = recentMovements.length
     ? transferEliminations.eliminatedUsd > 0
-      ? `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} estimated external inflows, ${outflowValueLabel} estimated external outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`
-      : `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net with no likely internal-transfer pairs detected.`
+      ? `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} external inflows, ${outflowValueLabel} external outflows, ${netMovementLabel} net after removing ${eliminatedTransferLabel} likely internal transfers.`
+      : `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net with no likely internal-transfer pairs detected.`
     : `No posted movements in the last ${data.windowDays} days.`;
   const concentrationPoint = largestCategory ? `${largestCategory.label} is the largest bucket at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
-  const watchPoint = externalFloatShare > 0.08 ? `External float is ${formatPercent(externalFloatShare)} of visible exposure, worth tracking for settlement timing and liquidity availability.` : `External float is ${formatPercent(externalFloatShare)} of visible exposure, so operating liquidity is the main executive signal.`;
 
   return {
     headline: `Executive Read: ${movementBias}`,
-    points: [movementPoint, concentrationPoint, watchPoint],
+    points: [movementPoint, concentrationPoint].map((point) => capWords(point)),
     connectionNote,
     metrics: [
       { label: "Net Cash Movement", value: netMovementLabel },
       { label: "External Inflows", value: inflowValueLabel },
       { label: "External Outflows", value: outflowValueLabel },
       { label: "Est. Internal Transfers", value: eliminatedTransferLabel },
-      { label: "External Float", value: formatPercent(externalFloatShare) },
     ],
   };
 }
@@ -415,13 +418,15 @@ function StatSkeleton() {
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+function Panel({ title, subtitle, children }: { title?: string; subtitle?: string; children: ReactNode }) {
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <div className="border-b border-zinc-100 px-4 py-3 sm:px-5">
-        <h2 className="text-sm font-semibold text-zinc-950">{title}</h2>
-        {subtitle ? <p className="mt-1 text-xs leading-5 text-zinc-500">{subtitle}</p> : null}
-      </div>
+      {title || subtitle ? (
+        <div className="border-b border-zinc-100 px-4 py-3 sm:px-5">
+          {title ? <h2 className="text-sm font-semibold text-zinc-950">{title}</h2> : null}
+          {subtitle ? <p className="mt-1 text-xs leading-5 text-zinc-500">{subtitle}</p> : null}
+        </div>
+      ) : null}
       <div className="p-4 sm:p-5">{children}</div>
     </section>
   );
@@ -795,13 +800,13 @@ export default function DashboardPage() {
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
-            <Panel title="Treasury Intelligence" subtitle="Liquidity, movement, and concentration in USD.">
+            <Panel>
               <div className="space-y-4">
                 <div>
                   <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
                   <div className="mt-3 space-y-2">
                     {treasuryCommentary.points.map((point) => (
-                      <p key={point} className="text-sm leading-6 text-zinc-600">
+                      <p key={point} className="line-clamp-2 text-sm leading-6 text-zinc-600">
                         {point}
                       </p>
                     ))}
