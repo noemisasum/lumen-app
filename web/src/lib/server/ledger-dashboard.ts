@@ -173,8 +173,9 @@ function normalizeAccountNameForRules(value: string) {
 export function shouldExcludeLedgerAccount(input: { accountName: string }) {
   const normalized = normalizeAccountNameForRules(input.accountName);
   const hasLiabilityMarker = /\b(?:liability|liabiltiy)\b/.test(normalized);
-  const hasClientLedgerMarker = /\b(client|trust|open[-\s]?position|ex)\b/.test(normalized);
-  return /\bclearing\b/.test(normalized) || (hasLiabilityMarker && hasClientLedgerMarker);
+  const hasClientLedgerMarker = /\b(client|trust|ex)\b/.test(normalized);
+  const hasOpenPositionMarker = /\bopen[-\s]?positions?\b/.test(normalized);
+  return /\bclearing\b/.test(normalized) || hasOpenPositionMarker || (hasLiabilityMarker && hasClientLedgerMarker);
 }
 
 export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {
@@ -376,7 +377,7 @@ export function buildLedgerDashboardPayload(input: {
       const [entityId, currency] = key.split(":");
       return {
         entityId,
-        entityName: entityById.get(entityId)?.name ?? "Unknown Entity",
+        entityName: entityById.get(entityId)?.name ?? "Unknown entity",
         currency,
         amount: value.amount,
         accountCount: value.accountIds.size,
@@ -417,8 +418,8 @@ export function buildLedgerDashboardPayload(input: {
         id: transaction.id,
         entityId: transaction.entityId,
         bankAccountId: transaction.bankAccountId,
-        accountName: account?.accountName ?? "Unknown Account",
-        entityName: entity?.name ?? "Unknown Entity",
+        accountName: account?.accountName ?? "Unknown account",
+        entityName: entity?.name ?? "Unknown entity",
         source: transaction.source,
         accountType: account?.accountType ?? "operating_bank",
         transactionDate: transaction.transactionDate,

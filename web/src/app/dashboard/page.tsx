@@ -119,17 +119,17 @@ function getXeroErrorMessage(body: XeroErrorBody, fallback: string) {
 function xeroStatusMessage(status: string | null) {
   switch (status) {
     case "connected":
-      return { tone: "success" as const, title: "Connection Ready", message: "The ledger connection is ready for balance sync." };
+      return { tone: "success" as const, title: "Connection ready", message: "The ledger connection is ready for balance sync." };
     case "denied":
-      return { tone: "warning" as const, title: "Connection Cancelled", message: "Access was not granted. Start the connection again when ready." };
+      return { tone: "warning" as const, title: "Connection cancelled", message: "Access was not granted. Start the connection again when ready." };
     case "configuration_error":
-      return { tone: "error" as const, title: "Connection Needs Configuration", message: "Required integration or server settings are missing." };
+      return { tone: "error" as const, title: "Connection needs configuration", message: "Required integration or server settings are missing." };
     case "invalid_state":
     case "expired_state":
     case "invalid_callback":
-      return { tone: "error" as const, title: "Connection Expired", message: "Start the connection again to refresh authorization." };
+      return { tone: "error" as const, title: "Connection expired", message: "Start the connection again to refresh authorization." };
     case "connect_failed":
-      return { tone: "error" as const, title: "Connection Failed", message: "Authorization returned, but token storage did not complete." };
+      return { tone: "error" as const, title: "Connection failed", message: "Authorization returned, but token storage did not complete." };
     default:
       return null;
   }
@@ -137,15 +137,15 @@ function xeroStatusMessage(status: string | null) {
 
 function sourceLabel(source: LedgerSource) {
   if (source === "xero") return "Xero";
-  if (source === "bank_feed") return "Bank Feed";
+  if (source === "bank_feed") return "Bank feed";
   return "Manual";
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  if (accountType === "client_money") return "Client money accounts";
+  if (accountType === "client_money") return "Client funds";
   if (accountType === "money_processor") return "Money processors";
   if (accountType === "liquidity_provider") return "Liquidity providers";
-  return "Operating bank accounts";
+  return "Own funds";
 }
 
 function formatMoney(currency: string, amount: number, compact = false) {
@@ -185,6 +185,18 @@ function balanceUsd(account: LedgerAccount) {
   return account.latestBalance.currency === "USD" ? account.latestBalance.amount : null;
 }
 
+function hasNonZeroBalance(account: LedgerAccount) {
+  return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
+}
+
+function isCashBankAccount(account: LedgerAccount) {
+  return account.accountType === "operating_bank" || account.accountType === "client_money";
+}
+
+function sumUsd(accounts: LedgerAccount[]) {
+  return accounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
+}
+
 function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
@@ -203,16 +215,16 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
         id: key,
         label:
           groupBy === "entity"
-            ? entityNameById.get(account.entityId) ?? "Unassigned Entity"
+            ? entityNameById.get(account.entityId) ?? "Unassigned entity"
             : groupBy === "accountType"
               ? accountTypeLabel(account.accountType)
               : account.accountName,
         detail:
           groupBy === "entity"
-            ? "Converted account balances"
+            ? "USD account balances"
             : groupBy === "accountType"
-              ? "Converted balances by treasury category"
-              : `${entityNameById.get(account.entityId) ?? "Unassigned Entity"} · ${accountTypeLabel(account.accountType)}`,
+              ? "USD balance by treasury category"
+              : `${entityNameById.get(account.entityId) ?? "Unassigned entity"} · ${accountTypeLabel(account.accountType)}`,
         amountUsd: 0,
         accountCount: 0,
       } satisfies ExposureRow);
@@ -309,7 +321,7 @@ function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; va
 
   return (
     <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-semibold uppercase text-zinc-500">{label}</div>
+      <div className="text-xs font-semibold text-zinc-500">{label}</div>
       <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
       <div className="mt-2 text-xs leading-5 text-zinc-500">{detail}</div>
     </div>
@@ -380,9 +392,12 @@ export default function DashboardPage() {
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
   const accountsWithBalances = accounts.filter((account) => account.latestBalance);
+  const accountDetailRows = accounts.filter(hasNonZeroBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
-  const totalUsd = convertedAccounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
+  const totalUsd = sumUsd(convertedAccounts);
+  const cashBankUsd = sumUsd(convertedAccounts.filter(isCashBankAccount));
+  const lpMpUsd = totalUsd - cashBankUsd;
   const latestBalanceDate = latestIso(accountsWithBalances.map((account) => account.latestBalance?.balanceDate));
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
@@ -513,12 +528,12 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury dashboard</div>
           </header>
 
           <main className="mt-8">
             {error ? (
-              <Notice tone="error" title="Authentication Needs Configuration">
+              <Notice tone="error" title="Authentication needs configuration">
                 {error}
               </Notice>
             ) : (
@@ -541,14 +556,14 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury dashboard</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
               Entities
             </Link>
             <Link href="/dashboard/invoices" className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-3 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
-              Statement Intake
+              Statement intake
             </Link>
             <button
               type="button"
@@ -556,7 +571,7 @@ export default function DashboardPage() {
               disabled={signingOut || !supabase}
               className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500 sm:px-4"
             >
-              {signingOut ? "Signing Out" : "Sign Out"}
+              {signingOut ? "Signing out" : "Sign out"}
             </button>
           </div>
         </header>
@@ -565,8 +580,8 @@ export default function DashboardPage() {
           <section className="border-b border-zinc-200 pb-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase text-zinc-500">Treasury Workspace</p>
-                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury Dashboard</h1>
+                <p className="text-xs font-semibold text-zinc-500">Treasury workspace</p>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury dashboard</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
                   Monitor operating cash, client money, processor balances, liquidity-provider balances, and recent ledger movement from authenticated treasury data.
                 </p>
@@ -589,7 +604,7 @@ export default function DashboardPage() {
                   disabled={xeroConnecting || xeroLoading}
                   className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
-                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect Source" : "Connect Source"}
+                  {xeroConnecting ? "Opening" : xeroStatus?.connected ? "Reconnect source" : "Connect source"}
                 </button>
               </div>
             </div>
@@ -602,19 +617,19 @@ export default function DashboardPage() {
           ) : null}
 
           {xeroError ? (
-            <Notice tone="warning" title="Connection Status Unavailable">
+            <Notice tone="warning" title="Connection status unavailable">
               {xeroError}
             </Notice>
           ) : null}
 
           {ledgerError ? (
-            <Notice tone="error" title="Treasury Dashboard Unavailable">
+            <Notice tone="error" title="Treasury dashboard unavailable">
               {ledgerError}
             </Notice>
           ) : null}
 
           {missingFxAccounts ? (
-            <Notice tone="warning" title="Missing FX Conversion">
+            <Notice tone="warning" title="Missing FX conversion">
               {missingFxAccounts} account{missingFxAccounts === 1 ? "" : "s"} have balances without USD conversion and are excluded from converted liquidity.
             </Notice>
           ) : null}
@@ -630,24 +645,24 @@ export default function DashboardPage() {
             ) : (
               <>
                 <KpiCard
-                  label="Converted Liquidity"
+                  label="Total liquidity in USD"
                   value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
                   detail={`${convertedAccounts.length}/${accountsWithBalances.length} account balances included`}
                   tone={convertedAccounts.length ? "success" : "warning"}
                 />
                 <KpiCard
-                  label="Coverage"
-                  value={accounts.length ? `${accountsWithBalances.length}/${accounts.length}` : "No accounts"}
-                  detail={latestBalanceDate ? `Latest balance date ${formatDate(latestBalanceDate)}` : "Waiting for first balance sync"}
+                  label="Treasury balance split"
+                  value={convertedAccounts.length ? `${formatMoney("USD", cashBankUsd)} cash/bank` : "Unavailable"}
+                  detail={convertedAccounts.length ? `LP/MP ${formatMoney("USD", lpMpUsd)} · latest ${formatDate(latestBalanceDate)}` : "Waiting for converted balances"}
                 />
                 <KpiCard
                   label="Concentration"
                   value={topExposure ? concentrationTone(topShare) : "Unavailable"}
-                  detail={topExposure ? `${topExposure.label} holds ${formatPercent(topShare)} of converted liquidity` : "No converted balances yet"}
+                  detail={topExposure ? `${topExposure.label} holds ${formatPercent(topShare)} of USD liquidity` : "No USD balances yet"}
                   tone={topShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
-                  label="Data Freshness"
+                  label="Data freshness"
                   value={latestRefresh ? formatDateTime(latestRefresh) : "Not synced"}
                   detail={ledgerData ? `Source connection ${xeroStatus?.connected ? "ready" : "needs review"}` : "Loading finance data"}
                 />
@@ -656,40 +671,40 @@ export default function DashboardPage() {
           </section>
 
           {ledgerData?.dataQualityIssues.length ? (
-            <Notice tone="warning" title="Data Quality Review">
+            <Notice tone="warning" title="Data quality review">
               {ledgerData.dataQualityIssues.slice(0, 2).map((issue) => issue.message).join(" ")}
               {ledgerData.dataQualityIssues.length > 2 ? ` ${ledgerData.dataQualityIssues.length - 2} more issue${ledgerData.dataQualityIssues.length - 2 === 1 ? "" : "s"} need review.` : ""}
             </Notice>
           ) : null}
 
           {ledgerData && !ledgerData.entities.length ? (
-            <Notice tone="info" title="No Entity Access">
+            <Notice tone="info" title="No entity access">
               Create or request access to an entity before ledger balances can appear here.
             </Notice>
           ) : null}
 
           {ledgerData && ledgerData.entities.length > 0 && !ledgerData.accounts.length ? (
-            <Notice tone="info" title="No Accounts Yet">
+            <Notice tone="info" title="No accounts yet">
               Add a statement account or connect an accounting source to start building treasury visibility.
             </Notice>
           ) : null}
 
           <section className="grid gap-4 xl:grid-cols-3">
-            <Panel title="Treasury Categories" subtitle="Converted balances across operating accounts, client money, processors, and liquidity providers.">
-              <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No converted category balances yet." />
+            <Panel title="Liquidity mix" subtitle="USD view across own funds, client funds, money processors, and liquidity providers.">
+              <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No USD category balances yet." />
             </Panel>
 
-            <Panel title="Liquidity by Entity" subtitle="Converted balances grouped by entity, limited to accounts with available USD conversion.">
-              <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No converted entity balances yet." />
+            <Panel title="Liquidity by entity" subtitle="USD balances grouped by entity, limited to accounts with available USD conversion.">
+              <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
             </Panel>
 
-            <Panel title="Exposure by Account" subtitle="Largest account relationships by converted balance.">
-              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." maxRows={6} />
+            <Panel title="Exposure by account" subtitle="Largest account relationships by USD balance.">
+              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No USD account balances yet." maxRows={6} />
             </Panel>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
-            <Panel title="Action Needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
+            <Panel title="Action needs" subtitle="Items that affect liquidity confidence or dashboard completeness.">
               {actionItems.length ? (
                 <div className="space-y-3">
                   {actionItems.map((item) => (
@@ -699,16 +714,16 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <Notice tone="success" title="No Immediate Actions">
-                  Converted balances are available and no account-level data issues are currently reported.
+                <Notice tone="success" title="No immediate actions">
+                  USD balances are available and no account-level data issues are currently reported.
                 </Notice>
               )}
             </Panel>
 
-            <Panel title="Recent Movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
+            <Panel title="Recent movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
               <div className="overflow-x-auto">
                 <table className="min-w-[560px] divide-y divide-zinc-100 text-sm sm:min-w-full">
-                  <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+                  <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500">
                     <tr>
                       <th scope="col" className="px-3 py-2">Date</th>
                       <th scope="col" className="px-3 py-2">Account</th>
@@ -744,17 +759,17 @@ export default function DashboardPage() {
             </Panel>
           </section>
 
-          <Panel title="Account Detail" subtitle="Latest balances with local amounts, converted USD, source, and account status.">
+          <Panel title="Account detail" subtitle="Latest balances with local amounts, USD value, source, and account status.">
             <div className="overflow-x-auto">
               <table className="min-w-[860px] divide-y divide-zinc-100 text-sm">
-                <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
+                <thead className="bg-zinc-50 text-left text-xs font-medium text-zinc-500">
                   <tr>
                     <th scope="col" className="px-4 py-3">Entity</th>
                     <th scope="col" className="px-4 py-3">Account</th>
                     <th scope="col" className="px-4 py-3">Type</th>
                     <th scope="col" className="px-4 py-3">Source</th>
-                    <th scope="col" className="px-4 py-3 text-right">Local Balance</th>
-                    <th scope="col" className="px-4 py-3 text-right">USD Balance</th>
+                    <th scope="col" className="px-4 py-3 text-right">Local balance</th>
+                    <th scope="col" className="px-4 py-3 text-right">USD balance</th>
                     <th scope="col" className="px-4 py-3">Status</th>
                   </tr>
                 </thead>
@@ -767,20 +782,21 @@ export default function DashboardPage() {
                         </td>
                       </tr>
                     ))
-                  ) : accounts.length ? (
-                    accounts.map((account) => {
+                  ) : accountDetailRows.length ? (
+                    accountDetailRows.map((account) => {
                       const usdAmount = balanceUsd(account);
+                      const latestBalance = account.latestBalance;
                       return (
                         <tr key={account.id} className="align-top">
-                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned Entity"}</td>
+                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned entity"}</td>
                           <td className="max-w-64 px-4 py-3">
                             <div className="truncate font-medium text-zinc-900">{account.accountName}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "No balance date"}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{formatDate(latestBalance?.balanceDate)}</div>
                           </td>
                           <td className="px-4 py-3 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
-                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
+                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(latestBalance?.source ?? account.source)}</td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
-                            {account.latestBalance ? formatLocalMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
+                            {latestBalance ? formatLocalMoney(latestBalance.currency, latestBalance.amount) : "Not available"}
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
                             {usdAmount !== null ? formatMoney("USD", usdAmount) : <span className="font-normal text-zinc-500">Missing rate</span>}
@@ -796,7 +812,7 @@ export default function DashboardPage() {
                   ) : (
                     <tr>
                       <td className="px-4 py-8 text-center text-sm text-zinc-500" colSpan={7}>
-                        No ledger accounts are available yet.
+                        No non-zero account balances are available yet.
                       </td>
                     </tr>
                   )}
