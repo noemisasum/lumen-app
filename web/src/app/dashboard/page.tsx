@@ -142,10 +142,10 @@ function sourceLabel(source: LedgerSource) {
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  if (accountType === "client_money") return "Client money accounts";
-  if (accountType === "money_processor") return "Money processors";
-  if (accountType === "liquidity_provider") return "Liquidity providers";
-  return "Operating bank accounts";
+  if (accountType === "client_money") return "Client Funds";
+  if (accountType === "money_processor") return "Money Processors";
+  if (accountType === "liquidity_provider") return "Liquidity Providers";
+  return "Own Funds";
 }
 
 function formatMoney(currency: string, amount: number, compact = false) {
@@ -630,7 +630,7 @@ export default function DashboardPage() {
             ) : (
               <>
                 <KpiCard
-                  label="Converted Liquidity"
+                  label="Total Liquidity in USD"
                   value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
                   detail={`${convertedAccounts.length}/${accountsWithBalances.length} account balances included`}
                   tone={convertedAccounts.length ? "success" : "warning"}
@@ -675,7 +675,7 @@ export default function DashboardPage() {
           ) : null}
 
           <section className="grid gap-4 xl:grid-cols-3">
-            <Panel title="Treasury Categories" subtitle="Converted balances across operating accounts, client money, processors, and liquidity providers.">
+            <Panel title="Liquidity Mix" subtitle="USD view across own funds, client funds, money processors, and liquidity providers.">
               <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No converted category balances yet." />
             </Panel>
 

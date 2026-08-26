@@ -162,6 +162,7 @@ assert.equal(classifyLedgerAccountType({ accountName: "LP: Prime Broker USD", ac
 assert.equal(classifyLedgerAccountType({ accountName: "MP: Legacy Processor", accountType: "operating_bank" }), "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "LP: Legacy Provider", accountType: "operating_bank" }), "liquidity_provider");
 assert.equal(classifyLedgerAccountType({ accountName: "UOB USD Bank Account (Client funds)", accountType: "operating_bank" }), "client_money");
+assert.equal(classifyLedgerAccountType({ accountName: "EX Open Position AUD", accountType: "operating_bank" }), "client_money");
 assert.equal(classifyLedgerAccountType({ accountName: "Legacy Bank", accountType: "bank" }), "operating_bank");
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liability" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability AUD" }), true);
@@ -434,7 +435,8 @@ const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", im
 const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledger.ts", import.meta.url), "utf8");
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
-assert.match(dashboardSource, /Treasury Categories/);
+assert.match(dashboardSource, /Total Liquidity in USD/);
+assert.match(dashboardSource, /Liquidity Mix/);
 assert.match(dashboardSource, /Other\/remaining/);
 assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemaining\(rows, maxRows\) : rows;/);
 assert.match(dashboardSource, /<ExposureList rows=\{accountExposure\} totalUsd=\{totalUsd\} emptyLabel="No converted account balances yet\." maxRows=\{6\} \/>/);
@@ -443,10 +445,10 @@ assert.match(dashboardSource, /<ExposureList rows={categoryExposure} totalUsd={t
 assert.doesNotMatch(dashboardSource, /<ExposureList rows={entityExposure}[^>]*maxRows=/);
 assert.doesNotMatch(dashboardSource, /<ExposureList rows={categoryExposure}[^>]*maxRows=/);
 assert.doesNotMatch(dashboardSource, /accounts\.slice\(0,\s*12\)/);
-assert.match(dashboardSource, /Operating bank accounts/);
-assert.match(dashboardSource, /Client money accounts/);
-assert.match(dashboardSource, /Money processors/);
-assert.match(dashboardSource, /Liquidity providers/);
+assert.match(dashboardSource, /Own Funds/);
+assert.match(dashboardSource, /Client Funds/);
+assert.match(dashboardSource, /Money Processors/);
+assert.match(dashboardSource, /Liquidity Providers/);
 assert.match(xeroLedgerSource, /shouldExcludeLedgerAccount/);
 assert.match(xeroLedgerSource, /account_type: classifyLedgerAccountType/);
 assert.match(entityAccountRouteSource, /shouldExcludeLedgerAccount/);

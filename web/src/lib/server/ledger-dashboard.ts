@@ -144,7 +144,7 @@ type GroupValue = {
   accountIds: Set<string>;
 };
 
-const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial))\b/;
+const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial)|open[-\s]?positions?)\b/;
 
 const balanceTypeRank: Record<string, number> = {
   closing: 6,
