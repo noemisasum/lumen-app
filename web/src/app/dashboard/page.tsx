@@ -189,8 +189,8 @@ function hasNonZeroBalance(account: LedgerAccount) {
   return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
 }
 
-function isCashBankAccount(account: LedgerAccount) {
-  return account.accountType === "operating_bank" || account.accountType === "client_money";
+function isExternalFloatAccount(account: LedgerAccount) {
+  return account.accountType === "money_processor" || account.accountType === "liquidity_provider";
 }
 
 function sumUsd(accounts: LedgerAccount[]) {
@@ -250,12 +250,6 @@ function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
     accountCount: remainingRows.reduce((total, row) => total + row.accountCount, 0),
   });
   return visibleRows;
-}
-
-function concentrationTone(share: number) {
-  if (share >= 0.35) return "High";
-  if (share >= 0.2) return "Elevated";
-  return "Balanced";
 }
 
 function buildActionItems(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null): ActionItem[] {
@@ -323,7 +317,7 @@ function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; va
     <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="text-xs font-semibold text-zinc-500">{label}</div>
       <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
-      <div className="mt-2 text-xs leading-5 text-zinc-500">{detail}</div>
+      <div className="mt-2 break-words text-xs leading-5 text-zinc-500">{detail}</div>
     </div>
   );
 }
@@ -396,9 +390,8 @@ export default function DashboardPage() {
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
-  const cashBankUsd = sumUsd(convertedAccounts.filter(isCashBankAccount));
-  const lpMpUsd = totalUsd - cashBankUsd;
-  const lpMpShare = totalUsd ? lpMpUsd / totalUsd : 0;
+  const externalFloatUsd = sumUsd(convertedAccounts.filter(isExternalFloatAccount));
+  const externalFloatShare = totalUsd ? externalFloatUsd / totalUsd : 0;
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
@@ -583,7 +576,7 @@ export default function DashboardPage() {
                 <p className="text-xs font-semibold text-zinc-500">Treasury Workspace</p>
                 <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury Dashboard</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Monitor operating cash, client money, processor balances, liquidity-provider balances, and recent ledger movement from authenticated treasury data.
+                  Monitor Operating Cash, Client Money, Processor Balances, Liquidity-Provider Balances, And Recent Ledger Movement From Authenticated Treasury Data.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -645,26 +638,27 @@ export default function DashboardPage() {
             ) : (
               <>
                 <KpiCard
-                  label="Total Liquidity in USD"
+                  label="USD Liquidity"
                   value={convertedAccounts.length ? formatMoney("USD", totalUsd) : "Unavailable"}
-                  detail={`${convertedAccounts.length}/${accountsWithBalances.length} account balances included`}
+                  detail={convertedAccounts.length ? `${convertedAccounts.length} Converted Balances Included` : "Waiting For Converted Balances"}
                   tone={convertedAccounts.length ? "success" : "warning"}
                 />
                 <KpiCard
-                  label="LP/MP Exposure"
-                  value={convertedAccounts.length ? formatMoney("USD", lpMpUsd) : "Unavailable"}
-                  detail={convertedAccounts.length ? `${formatPercent(lpMpShare)} of USD liquidity · Cash/Bank ${formatMoney("USD", cashBankUsd)}` : "Waiting for converted balances"}
+                  label="External Float Share"
+                  value={convertedAccounts.length ? formatPercent(externalFloatShare) : "Unavailable"}
+                  detail={convertedAccounts.length ? `${formatMoney("USD", externalFloatUsd)} In Processors And Liquidity Providers` : "Waiting For Converted Balances"}
+                  tone={externalFloatShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
-                  label="Concentration"
-                  value={topExposure ? concentrationTone(topShare) : "Unavailable"}
-                  detail={topExposure ? `${topExposure.label} holds ${formatPercent(topShare)} of USD liquidity` : "No USD balances yet"}
+                  label="Largest Relationship"
+                  value={topExposure ? formatPercent(topShare) : "Unavailable"}
+                  detail={topExposure ? `${topExposure.label} Exposure` : "No USD Balances Yet"}
                   tone={topShare >= 0.35 ? "warning" : "neutral"}
                 />
                 <KpiCard
                   label="Data Freshness"
-                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not synced"}
-                  detail={ledgerData ? `Source connection ${xeroStatus?.connected ? "ready" : "needs review"}` : "Loading finance data"}
+                  value={latestRefresh ? formatDateTime(latestRefresh) : "Not Synced"}
+                  detail={ledgerData ? (xeroStatus?.connected ? "Ledger Source Ready" : "Ledger Source Needs Review") : "Loading Finance Data"}
                 />
               </>
             )}
