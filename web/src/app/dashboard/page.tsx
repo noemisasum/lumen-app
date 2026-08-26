@@ -185,6 +185,10 @@ function balanceUsd(account: LedgerAccount) {
   return account.latestBalance.currency === "USD" ? account.latestBalance.amount : null;
 }
 
+function hasNonZeroBalance(account: LedgerAccount) {
+  return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
+}
+
 function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
@@ -380,6 +384,7 @@ export default function DashboardPage() {
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
   const accountsWithBalances = accounts.filter((account) => account.latestBalance);
+  const accountDetailRows = accounts.filter(hasNonZeroBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = convertedAccounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
@@ -767,20 +772,21 @@ export default function DashboardPage() {
                         </td>
                       </tr>
                     ))
-                  ) : accounts.length ? (
-                    accounts.map((account) => {
+                  ) : accountDetailRows.length ? (
+                    accountDetailRows.map((account) => {
                       const usdAmount = balanceUsd(account);
+                      const latestBalance = account.latestBalance;
                       return (
                         <tr key={account.id} className="align-top">
                           <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned entity"}</td>
                           <td className="max-w-64 px-4 py-3">
                             <div className="truncate font-medium text-zinc-900">{account.accountName}</div>
-                            <div className="mt-1 text-xs text-zinc-500">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "No balance date"}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{formatDate(latestBalance?.balanceDate)}</div>
                           </td>
                           <td className="px-4 py-3 text-zinc-700">{accountTypeLabel(account.accountType)}</td>
-                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(account.latestBalance?.source ?? account.source)}</td>
+                          <td className="px-4 py-3 text-zinc-700">{sourceLabel(latestBalance?.source ?? account.source)}</td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
-                            {account.latestBalance ? formatLocalMoney(account.latestBalance.currency, account.latestBalance.amount) : <span className="font-normal text-zinc-500">No balance</span>}
+                            {latestBalance ? formatLocalMoney(latestBalance.currency, latestBalance.amount) : "Not available"}
                           </td>
                           <td className="px-4 py-3 text-right tabular-nums font-semibold text-zinc-950">
                             {usdAmount !== null ? formatMoney("USD", usdAmount) : <span className="font-normal text-zinc-500">Missing rate</span>}
@@ -796,7 +802,7 @@ export default function DashboardPage() {
                   ) : (
                     <tr>
                       <td className="px-4 py-8 text-center text-sm text-zinc-500" colSpan={7}>
-                        No ledger accounts are available yet.
+                        No non-zero account balances are available yet.
                       </td>
                     </tr>
                   )}
