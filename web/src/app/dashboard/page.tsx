@@ -787,7 +787,7 @@ export default function DashboardPage() {
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
-            <Panel title="Executive Treasury Read" subtitle="Liquidity, movement, and concentration in USD.">
+            <Panel title="Treasury Intelligence" subtitle="Liquidity, movement, and concentration in USD.">
               <div className="space-y-4">
                 <div>
                   <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
