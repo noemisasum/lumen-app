@@ -335,12 +335,6 @@ function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
-function capWords(text: string, maxWords = 28) {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= maxWords) return text;
-  return `${words.slice(0, maxWords).join(" ")}...`;
-}
-
 function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null) {
   if (!data) {
     return {
@@ -390,14 +384,14 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
         : "Liquidity is relatively diversified across treasury categories.";
   const movementPoint = recentMovements.length
     ? transferEliminations.eliminatedUsd > 0
-      ? `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} external inflows, ${outflowValueLabel} external outflows, ${netMovementLabel} net after removing ${eliminatedTransferLabel} likely internal transfers.`
-      : `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net with no likely internal-transfer pairs detected.`
+      ? `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net after ${eliminatedTransferLabel} internal transfers.`
+      : `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net. No likely internal transfers detected.`
     : `No posted movements in the last ${data.windowDays} days.`;
-  const concentrationPoint = largestCategory ? `${largestCategory.label} is the largest bucket at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
+  const concentrationPoint = largestCategory ? `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
 
   return {
     headline: `Executive Read: ${movementBias}`,
-    points: [movementPoint, concentrationPoint].map((point) => capWords(point)),
+    points: [movementPoint, concentrationPoint],
     connectionNote,
     metrics: [
       { label: "Net Cash Movement", value: netMovementLabel },
@@ -806,7 +800,7 @@ export default function DashboardPage() {
                   <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
                   <div className="mt-3 space-y-2">
                     {treasuryCommentary.points.map((point) => (
-                      <p key={point} className="line-clamp-2 text-sm leading-6 text-zinc-600">
+                      <p key={point} className="text-sm leading-6 text-zinc-600">
                         {point}
                       </p>
                     ))}
