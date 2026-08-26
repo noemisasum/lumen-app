@@ -67,12 +67,22 @@ type LedgerRecentTransaction = {
   status: string;
 };
 
+type LedgerTransactionBreakdown = {
+  currency: string;
+  source: LedgerSource;
+  inflow: number;
+  outflow: number;
+  net: number;
+  transactionCount: number;
+};
+
 type LedgerDashboardData = {
   asOf: string;
   windowDays: number;
   entities: Array<{ id: string; name: string; code: string | null; orgId: string }>;
   accounts: LedgerAccount[];
   totalsByAccountType: Array<{ accountType: AccountType; currency: string; amount: number; accountCount: number }>;
+  transactionBreakdowns: LedgerTransactionBreakdown[];
   recentTransactions: LedgerRecentTransaction[];
   dataQualityIssues: Array<{
     code: "invalid_balance_currency" | "missing_usd_rate";
@@ -190,6 +200,14 @@ function formatLocalMoney(currency: string, amount: number) {
     maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
   }).format(amount);
   return `${currency || "Unspecified"} ${formatted}`;
+}
+
+function formatCurrencySeries(groups: Array<{ currency: string; amount: number }>, limit = 2) {
+  const visibleGroups = groups.filter((group) => Math.abs(group.amount) > 0).sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
+  if (!visibleGroups.length) return "No value";
+  const displayed = visibleGroups.slice(0, limit).map((group) => formatLocalMoney(group.currency, group.amount));
+  const remaining = visibleGroups.length - displayed.length;
+  return remaining > 0 ? `${displayed.join(", ")} +${remaining} more` : displayed.join(", ");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -330,8 +348,6 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
 
   const accountsWithBalances = data.accounts.filter((account) => account.latestBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
-  const missingBalanceCount = data.accounts.length - accountsWithBalances.length;
-  const missingFxCount = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
   const mixRows = liquidityMixRows(groupExposure(data.accounts, new Map(data.entities.map((entity) => [entity.id, entity.name])), "accountType"));
   const ownFunds = Math.abs(mixRows.find((row) => row.accountType === "operating_bank")?.amountUsd ?? 0);
@@ -342,18 +358,49 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const recentMovements = data.recentTransactions;
   const inflowCount = recentMovements.filter((transaction) => transaction.direction === "inflow" || transaction.signedAmount > 0).length;
   const outflowCount = recentMovements.filter((transaction) => transaction.direction === "outflow" || transaction.signedAmount < 0).length;
-  const movementBias = inflowCount > outflowCount ? "inflow-biased" : outflowCount > inflowCount ? "outflow-biased" : "balanced";
+  const inflowValueByCurrency = new Map<string, number>();
+  const outflowValueByCurrency = new Map<string, number>();
+  const netValueByCurrency = new Map<string, number>();
+  for (const breakdown of data.transactionBreakdowns) {
+    inflowValueByCurrency.set(breakdown.currency, (inflowValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.inflow);
+    outflowValueByCurrency.set(breakdown.currency, (outflowValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.outflow);
+    netValueByCurrency.set(breakdown.currency, (netValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.net);
+  }
+  const netMovement = Array.from(netValueByCurrency, ([currency, amount]) => ({ currency, amount }));
+  const inflowValue = Array.from(inflowValueByCurrency, ([currency, amount]) => ({ currency, amount }));
+  const outflowValue = Array.from(outflowValueByCurrency, ([currency, amount]) => ({ currency, amount }));
+  const netPositiveCurrencyCount = netMovement.filter((group) => group.amount > 0).length;
+  const netNegativeCurrencyCount = netMovement.filter((group) => group.amount < 0).length;
+  const movementBias =
+    netPositiveCurrencyCount > netNegativeCurrencyCount
+      ? "cash-building"
+      : netNegativeCurrencyCount > netPositiveCurrencyCount
+        ? "cash-burning"
+        : inflowCount > outflowCount
+          ? "activity-heavy on receipts"
+          : outflowCount > inflowCount
+            ? "activity-heavy on payments"
+            : "balanced";
   const connectionNote = xeroStatus?.connected ? "Xero is connected, so this view can keep tracking new postings." : "Connect a ledger source to keep the movement read current.";
-  const dataGapNote = missingBalanceCount || missingFxCount ? ` ${missingBalanceCount + missingFxCount} account${missingBalanceCount + missingFxCount === 1 ? "" : "s"} still need balance or FX coverage.` : "";
+  const netMovementLabel = formatCurrencySeries(netMovement);
+  const inflowValueLabel = formatCurrencySeries(inflowValue);
+  const outflowValueLabel = formatCurrencySeries(outflowValue);
+  const concentrationNote =
+    ownFundsShare >= 0.65
+      ? "Liquidity is concentrated in own-funds accounts, which keeps operating cash visible but makes external float a smaller secondary signal."
+      : externalFloatShare >= 0.2
+        ? "Processor/provider float is material enough to keep settlement timing and counterparty movement in the executive view."
+        : "Liquidity is relatively diversified across treasury categories.";
 
   return {
-    headline: recentMovements.length ? `Recent ledger activity is ${movementBias}` : "No recent ledger movement yet",
+    headline: recentMovements.length ? `Executive read: ${movementBias}` : "Executive read: waiting for movement data",
     detail: recentMovements.length
-      ? `${recentMovements.length} posted movement${recentMovements.length === 1 ? "" : "s"} in the last ${data.windowDays} days, with ${inflowCount} inflow${inflowCount === 1 ? "" : "s"} and ${outflowCount} outflow${outflowCount === 1 ? "" : "s"}. Own funds represent ${formatPercent(ownFundsShare)} of visible USD exposure, while processor/provider float is ${formatPercent(externalFloatShare)}.${dataGapNote} ${connectionNote}`
-      : `${connectionNote}${dataGapNote}`,
+      ? `${recentMovements.length} posted movement${recentMovements.length === 1 ? "" : "s"} in the last ${data.windowDays} days, with net movement of ${netMovementLabel}. Inflows total ${inflowValueLabel}; outflows total ${outflowValueLabel}. ${concentrationNote} ${connectionNote}`
+      : connectionNote,
     metrics: [
       { label: "Visible liquidity", value: formatUsdCompact(Math.abs(totalUsd)) },
-      { label: "Movements", value: String(recentMovements.length) },
+      { label: "Net movement", value: netMovementLabel },
+      { label: "Inflow / outflow", value: `${inflowCount} / ${outflowCount}` },
       { label: "Own funds", value: formatPercent(ownFundsShare) },
     ],
   };
@@ -749,18 +796,18 @@ export default function DashboardPage() {
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
-            <Panel title="Treasury Commentary" subtitle="Movement momentum and balance concentration from the current ledger view.">
+            <Panel title="Treasury Commentary" subtitle="Executive treasury read from recent movement and liquidity concentration.">
               <div className="space-y-4">
                 <div>
                   <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
                   <p className="mt-2 text-sm leading-6 text-zinc-600">{treasuryCommentary.detail}</p>
                 </div>
                 {treasuryCommentary.metrics.length ? (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     {treasuryCommentary.metrics.map((metric) => (
                       <div key={metric.label} className="min-w-0 border-t border-zinc-100 pt-3">
                         <div className="truncate text-[11px] font-medium text-zinc-500">{metric.label}</div>
-                        <div className="mt-1 truncate text-sm font-semibold tabular-nums text-zinc-950">{metric.value}</div>
+                        <div className="mt-1 break-words text-sm font-semibold tabular-nums text-zinc-950">{metric.value}</div>
                       </div>
                     ))}
                   </div>
