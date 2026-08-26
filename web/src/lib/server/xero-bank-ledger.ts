@@ -1,5 +1,5 @@
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
-import { upsertBankBalances, upsertBankTransactions, type BankTransactionInput } from "@/lib/server/bank-ledger";
+import { upsertBankTransactions, upsertXeroBankSummaryBalancesByExternalId, type BankTransactionInput } from "@/lib/server/bank-ledger";
 import { classifyLedgerAccountType, shouldExcludeLedgerAccount } from "@/lib/server/ledger-dashboard";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
 import { xeroOrganisationBaseCurrency, xeroReportBalances } from "@/lib/server/xero-bank-summary-report";
@@ -279,7 +279,7 @@ export async function syncXeroBankLedger(
     } else {
       const reportResponse = await context.xero.accountingApi.getReportBankSummary(context.mapping.xero_tenant_id, fromDate, toDate);
       const balances = xeroReportBalances(reportResponse.body, accountsByXeroId, accountsByName, entityId, context.mapping.id, toDate, reportCurrency);
-      balanceResult = await upsertBankBalances(supabase, balances);
+      balanceResult = await upsertXeroBankSummaryBalancesByExternalId(supabase, balances);
       if (!balances.length) warning = "Xero Bank Summary did not expose account balance rows that could be tied to synced bank accounts.";
     }
   } catch (error) {

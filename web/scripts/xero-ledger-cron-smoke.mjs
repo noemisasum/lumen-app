@@ -6,7 +6,7 @@ import {
   maxXeroLedgerSyncWindowDays,
   parseBoundedInteger,
 } from "../src/lib/server/maintenance-cron.ts";
-import { normalizeBankBalance } from "../src/lib/server/bank-ledger.ts";
+import { normalizeBankBalance, upsertXeroBankSummaryBalancesByExternalId } from "../src/lib/server/bank-ledger.ts";
 import { xeroReportBalances } from "../src/lib/server/xero-bank-summary-report.ts";
 
 assert.deepEqual(
@@ -104,6 +104,112 @@ assert.equal(
     sourceRowId: "manual-statement-row",
   }).currency,
   "USD",
+);
+
+const oldWrongCurrencyBalance = normalizeBankBalance({
+  entityId: "entity-id",
+  bankAccountId: "zand-usd-account",
+  source: "xero",
+  sourceRecordType: "xero_bank_summary_report",
+  entityXeroMappingId: "mapping-id",
+  balanceDate: "2026-08-26",
+  balanceType: "reported",
+  amount: 2134149.89,
+  currency: "USD",
+  externalId: "xero-bank-summary:zand-usd-xero-id:2026-08-26",
+});
+
+const correctedBalanceInput = {
+  entityId: "entity-id",
+  bankAccountId: "zand-usd-account",
+  source: "xero",
+  sourceRecordType: "xero_bank_summary_report",
+  entityXeroMappingId: "mapping-id",
+  balanceDate: "2026-08-26",
+  balanceType: "reported",
+  amount: 2134149.89,
+  currency: "AED",
+  externalId: "xero-bank-summary:zand-usd-xero-id:2026-08-26",
+};
+const correctedCurrencyBalance = normalizeBankBalance(correctedBalanceInput);
+assert.notEqual(oldWrongCurrencyBalance.external_hash, correctedCurrencyBalance.external_hash);
+
+function createBalanceOverwriteSupabaseStub(initialRows) {
+  const rows = initialRows.map((row) => ({ ...row }));
+  const updates = [];
+  const inserts = [];
+  return {
+    rows,
+    updates,
+    inserts,
+    from(table) {
+      assert.equal(table, "bank_account_balances");
+      const filters = [];
+      return {
+        update(nextRow) {
+          updates.push({ row: nextRow, filters });
+          return this;
+        },
+        eq(column, value) {
+          filters.push({ column, value });
+          return this;
+        },
+        select(columns) {
+          assert.equal(columns, "id");
+          return this;
+        },
+        maybeSingle() {
+          const nextRow = updates.at(-1).row;
+          const matches = (row) => filters.every((filter) => row[filter.column] === filter.value);
+          const existingIndex = rows.findIndex(matches);
+          if (existingIndex === -1) return Promise.resolve({ data: null, error: null });
+          rows[existingIndex] = { ...rows[existingIndex], ...nextRow };
+          return Promise.resolve({ data: { id: rows[existingIndex].id ?? "updated-balance-id" }, error: null });
+        },
+        insert(nextRows) {
+          inserts.push(nextRows);
+          const normalizedRows = Array.isArray(nextRows) ? nextRows : [nextRows];
+          for (const nextRow of normalizedRows) {
+            const existingIndex = rows.findIndex(
+              (row) =>
+                row.bank_account_id === nextRow.bank_account_id &&
+                row.source === nextRow.source &&
+                row.external_id === nextRow.external_id,
+            );
+            if (existingIndex === -1) rows.push({ ...nextRow });
+            else rows[existingIndex] = { ...rows[existingIndex], ...nextRow };
+          }
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
+  };
+}
+
+const balanceOverwriteSupabase = createBalanceOverwriteSupabaseStub([oldWrongCurrencyBalance]);
+const overwriteResult = await upsertXeroBankSummaryBalancesByExternalId(balanceOverwriteSupabase, [correctedBalanceInput]);
+assert.equal(overwriteResult.count, 1);
+assert.deepEqual(
+  balanceOverwriteSupabase.updates[0].filters,
+  [
+    { column: "bank_account_id", value: "zand-usd-account" },
+    { column: "source", value: "xero" },
+    { column: "external_id", value: "xero-bank-summary:zand-usd-xero-id:2026-08-26" },
+  ],
+);
+assert.equal(balanceOverwriteSupabase.inserts.length, 0);
+assert.equal(balanceOverwriteSupabase.rows.length, 1);
+assert.equal(balanceOverwriteSupabase.rows[0].currency, "AED");
+assert.equal(balanceOverwriteSupabase.rows[0].external_hash, correctedCurrencyBalance.external_hash);
+
+await assert.rejects(
+  upsertXeroBankSummaryBalancesByExternalId(createBalanceOverwriteSupabaseStub([]), [
+    {
+      ...correctedBalanceInput,
+      sourceRecordType: "manual_statement_balance",
+    },
+  ]),
+  /only available for Xero Bank Summary report rows/,
 );
 
 console.log("Xero ledger cron smoke checks passed.");
