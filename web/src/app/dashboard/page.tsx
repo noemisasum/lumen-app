@@ -193,6 +193,23 @@ const bankNameRules: Array<[RegExp, string]> = [
   [/\bpaypal\b/i, "PayPal"],
   [/\bstripe\b/i, "Stripe"],
   [/\binteractive\s+brokers\b|\bibkr\b/i, "Interactive Brokers"],
+  [/\bbutterfield\b/i, "Butterfield Bank"],
+  [/\bbank\s+of\s+cyprus\b/i, "Bank of Cyprus"],
+  [/\bbankwest\b/i, "Bankwest"],
+  [/\bbarclays\b/i, "Barclays"],
+  [/\bcashplus\b/i, "Cashplus"],
+  [/\bdafribank\b/i, "DafriBank"],
+  [/\becommbx\b/i, "EcommBX"],
+  [/\beurobank\b/i, "Eurobank"],
+  [/\bfar\s+eastern\b/i, "Far Eastern Bank"],
+  [/\bhabib\b/i, "Habib Bank"],
+  [/\binterpolitan\b/i, "Interpolitan Money"],
+  [/\bmcb\b/i, "MCB"],
+  [/\brevolut\b/i, "Revolut"],
+  [/\brhb\b/i, "RHB Bank"],
+  [/\bsbm\b/i, "SBM Bank"],
+  [/\bsilvergate\b/i, "Silvergate"],
+  [/\bzand\b/i, "Zand"],
 ];
 
 function inferBankName(accountName: string) {
@@ -200,7 +217,7 @@ function inferBankName(accountName: string) {
   for (const [pattern, bankName] of bankNameRules) {
     if (pattern.test(normalized)) return bankName;
   }
-  return "Unclassified Bank";
+  return null;
 }
 
 const categoryOrder: AccountType[] = ["operating_bank", "client_money", "money_processor", "liquidity_provider"];
@@ -264,6 +281,10 @@ function hasNonZeroBalance(account: LedgerAccount) {
   return Boolean(account.latestBalance && account.latestBalance.amount !== 0);
 }
 
+function isBankExposureAccount(account: LedgerAccount) {
+  return account.accountType === "operating_bank" || account.accountType === "client_money";
+}
+
 function sumUsd(accounts: LedgerAccount[]) {
   return accounts.reduce((total, account) => total + (balanceUsd(account) ?? 0), 0);
 }
@@ -285,8 +306,8 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
     const amountUsd = balanceUsd(account);
     if (amountUsd === null) continue;
 
-    const key =
-      groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : groupBy === "bank" ? inferBankName(account.accountName) : account.accountName;
+    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : groupBy === "bank" ? inferBankName(account.accountName) : account.accountName;
+    if (key === null) continue;
     if (groupBy === "bank") {
       const accountTypes = bankAccountTypes.get(key) ?? new Set<AccountType>();
       accountTypes.add(account.accountType);
@@ -616,11 +637,14 @@ export default function DashboardPage() {
   const accountsWithBalances = accounts.filter((account) => account.latestBalance);
   const accountDetailRows = accounts.filter(hasNonZeroBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
+  const bankAccounts = useMemo(() => accounts.filter(isBankExposureAccount), [accounts]);
+  const convertedBankAccounts = bankAccounts.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
+  const bankTotalUsd = sumUsd(convertedBankAccounts);
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
-  const bankExposure = useMemo(() => groupExposure(accounts, entityNameById, "bank"), [accounts, entityNameById]);
+  const bankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
@@ -913,8 +937,8 @@ export default function DashboardPage() {
               <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
             </Panel>
 
-            <Panel title="Exposure by Bank" subtitle="Largest banking relationships by USD balance.">
-              <ExposureList rows={bankExposure} totalUsd={totalUsd} emptyLabel="No USD bank balances yet." maxRows={6} />
+            <Panel title="Exposure by Bank" subtitle="Operating and client bank balances by banking relationship.">
+              <ExposureList rows={bankExposure} totalUsd={bankTotalUsd} emptyLabel="No USD bank balances yet." />
             </Panel>
           </section>
 
