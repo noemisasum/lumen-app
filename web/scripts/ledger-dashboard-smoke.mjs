@@ -161,8 +161,13 @@ assert.equal(classifyLedgerAccountType({ accountName: "MP: Stripe USD", accountT
 assert.equal(classifyLedgerAccountType({ accountName: "LP: Prime Broker USD", accountType: null }), "liquidity_provider");
 assert.equal(classifyLedgerAccountType({ accountName: "Legacy Bank", accountType: "bank" }), "operating_bank");
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liability" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability AUD" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability USD" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Trust Liability Bal USD (MT4)" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liabiltiy" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "PayPal Clearing" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Money Account" }), false);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "Operating Liability Insurance" }), false);
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "PGRST204", message: "Could not find the 'account_type' column of 'entity_bank_accounts' in the schema cache" }), true);
 assert.equal(isMissingLedgerAccountTypeColumnError({ code: "42501", message: "permission denied for table entity_bank_accounts" }), false);
 assert.deepEqual(payload.totalsByCurrency, [
@@ -426,7 +431,12 @@ const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", im
 assert.match(dashboardSource, /Treasury Dashboard/);
 assert.match(dashboardSource, /Treasury Categories/);
 assert.match(dashboardSource, /Other\/remaining/);
-assert.match(dashboardSource, /rowsWithRemaining\(rows\)/);
+assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemaining\(rows, maxRows\) : rows;/);
+assert.match(dashboardSource, /<ExposureList rows=\{accountExposure\} totalUsd=\{totalUsd\} emptyLabel="No converted account balances yet\." maxRows=\{6\} \/>/);
+assert.match(dashboardSource, /<ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No converted entity balances yet\." \/>/);
+assert.match(dashboardSource, /<ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No converted category balances yet\." \/>/);
+assert.doesNotMatch(dashboardSource, /<ExposureList rows={entityExposure}[^>]*maxRows=/);
+assert.doesNotMatch(dashboardSource, /<ExposureList rows={categoryExposure}[^>]*maxRows=/);
 assert.doesNotMatch(dashboardSource, /accounts\.slice\(0,\s*12\)/);
 assert.match(dashboardSource, /Operating bank accounts/);
 assert.match(dashboardSource, /Client money accounts/);

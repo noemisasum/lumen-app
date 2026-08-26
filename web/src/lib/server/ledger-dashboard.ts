@@ -174,7 +174,9 @@ function normalizeAccountNameForRules(value: string) {
 
 export function shouldExcludeLedgerAccount(input: { accountName: string }) {
   const normalized = normalizeAccountNameForRules(input.accountName);
-  return normalized === "ex client liability" || /\bclearing\b/.test(normalized);
+  const hasLiabilityMarker = /\b(?:liability|liabiltiy)\b/.test(normalized);
+  const hasClientLedgerMarker = /\b(client|trust|open[-\s]?position|ex)\b/.test(normalized);
+  return /\bclearing\b/.test(normalized) || (hasLiabilityMarker && hasClientLedgerMarker);
 }
 
 export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {

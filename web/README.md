@@ -72,7 +72,53 @@ The app defines an internal Vercel cron in `vercel.json` for `GET /api/xero/bank
 
 Protect the route with Vercel `CRON_SECRET` in the automatic `Authorization: Bearer ...` header. Optionally set a dedicated `XERO_LEDGER_SYNC_SECRET`; either secret can be sent as bearer, and `XERO_LEDGER_SYNC_SECRET` can also be sent as `x-lumen-maintenance-key` for internal maintenance calls. The sync window defaults to `XERO_LEDGER_SYNC_WINDOW_DAYS=90` and is capped at 366 days. Reruns are idempotent because Xero accounts, transactions, and balance snapshots are upserted on stable keys, and each scheduled run writes the balance snapshot for that run's UTC `toDate`.
 
-The Treasury Dashboard classifies accounts at read time. Account names beginning `MP:` are shown as money processors, names beginning `LP:` are shown as liquidity providers, client/segregated/trust-style bank names are shown as client money accounts, and unmarked bank accounts default to operating bank accounts. Clearing accounts and the exact account name `EX Client Liability` are excluded from treasury analytics and details, so those rows do not reappear in dashboard summaries after the scheduled Xero sync. Historical database cleanup, if desired, should be run by an operator separately from application deployment.
+The Treasury Dashboard classifies accounts at read time. Account names beginning `MP:` are shown as money processors, names beginning `LP:` are shown as liquidity providers, client/segregated/trust-style bank names are shown as client money accounts, and unmarked bank accounts default to operating bank accounts. Clearing accounts and client/trust/open-position liability ledger accounts, including names such as `EX Client Trust Liability AUD`, `EX Client Trust Liability USD`, and `Client Trust Liability Bal USD (MT4)`, are excluded from treasury analytics and details because they are not bank/cash assets. Historical database cleanup, if desired, should be run by an operator separately from application deployment after `supabase/migrations/20260826_expand_treasury_account_types.sql` has been applied:
+
+```sql
+begin;
+
+with normalized_accounts as (
+  select
+    id,
+    lower(regexp_replace(coalesce(account_name, ''), '\s+', ' ', 'g')) as normalized_name
+  from public.entity_bank_accounts
+)
+update public.entity_bank_accounts as account
+set status = 'archived'
+from normalized_accounts
+where account.id = normalized_accounts.id
+  and account.status <> 'archived'
+  and (
+    normalized_accounts.normalized_name ~ '\mclearing\M'
+    or (
+      normalized_accounts.normalized_name ~ '\m(liability|liabiltiy)\M'
+      and normalized_accounts.normalized_name ~ '\m(client|trust|ex)\M|open[- ]?position'
+    )
+  );
+
+with normalized_accounts as (
+  select
+    id,
+    lower(regexp_replace(coalesce(account_name, ''), '\s+', ' ', 'g')) as normalized_name
+  from public.entity_bank_accounts
+  where status <> 'archived'
+)
+update public.entity_bank_accounts as account
+set account_type = case
+  when normalized_accounts.normalized_name like 'mp:%'
+    or normalized_accounts.normalized_name ~ '\m(adyen|airwallex|alipay|braintree|checkout\.com|neteller|paypal|payoneer|razorpay|skrill|square|stripe|wise|worldpay|wechat pay)\M'
+    then 'money_processor'
+  when normalized_accounts.normalized_name like 'lp:%'
+    then 'liquidity_provider'
+  when normalized_accounts.normalized_name ~ '\m(client|customer|segregated|safeguard(ed|ing)?|trust|custod(y|ial))\M'
+    then 'client_money'
+  else 'operating_bank'
+end
+from normalized_accounts
+where account.id = normalized_accounts.id;
+
+commit;
+```
 
 ## Manual bank statement parsing
 

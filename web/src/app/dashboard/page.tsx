@@ -328,12 +328,14 @@ function Panel({ title, subtitle, children }: { title: string; subtitle?: string
   );
 }
 
-function ExposureList({ rows, totalUsd, emptyLabel }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string }) {
+function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string; maxRows?: number }) {
   if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
 
+  const displayedRows = maxRows ? rowsWithRemaining(rows, maxRows) : rows;
+
   return (
-    <div className="space-y-4">
-      {rowsWithRemaining(rows).map((row) => {
+    <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+      {displayedRows.map((row) => {
         const share = totalUsd ? Math.abs(row.amountUsd / totalUsd) : 0;
         return (
           <div key={row.id}>
@@ -682,7 +684,7 @@ export default function DashboardPage() {
             </Panel>
 
             <Panel title="Exposure by Account" subtitle="Largest account relationships by converted balance.">
-              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." />
+              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." maxRows={6} />
             </Panel>
           </section>
 
