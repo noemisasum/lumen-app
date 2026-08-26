@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
+import { estimateInternalTransferEliminations } from "../src/lib/treasury-movement.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
   const upserts = [];
@@ -196,6 +197,32 @@ assert.deepEqual(payload.transactionBreakdowns, [
   { source: "manual", currency: "USD", inflow: 300, outflow: 0, net: 300, usdInflow: 300, usdOutflow: 0, usdNet: 300, usdConvertibleTransactionCount: 1, transactionCount: 1 },
   { source: "xero", currency: "USD", inflow: 10, outflow: 0, net: 10, usdInflow: 10, usdOutflow: 0, usdNet: 10, usdConvertibleTransactionCount: 1, transactionCount: 1 },
 ]);
+assert.deepEqual(
+  estimateInternalTransferEliminations([
+    { id: "transfer-out", bankAccountId: "account-hkd", transactionDate: "2026-08-21", signedAmount: -100, signedAmountUsd: -100, currency: "USD" },
+    { id: "transfer-in", bankAccountId: "account-usd", transactionDate: "2026-08-22", signedAmount: 100, signedAmountUsd: 100, currency: "USD" },
+    { id: "vendor-out", bankAccountId: "account-hkd", transactionDate: "2026-08-21", signedAmount: -100, signedAmountUsd: -100, currency: "USD" },
+    { id: "same-account-in", bankAccountId: "account-hkd", transactionDate: "2026-08-21", signedAmount: 100, signedAmountUsd: 100, currency: "USD" },
+    { id: "late-in", bankAccountId: "account-usd", transactionDate: "2026-08-29", signedAmount: 100, signedAmountUsd: 100, currency: "USD" },
+  ]),
+  { eliminatedUsd: 100, pairedTransactionCount: 2 },
+);
+assert.deepEqual(
+  estimateInternalTransferEliminations([
+    { id: "tolerance-out", bankAccountId: "account-hkd", transactionDate: "2026-08-21", signedAmount: -1000, signedAmountUsd: -1000, currency: "USD" },
+    { id: "tolerance-in", bankAccountId: "account-usd", transactionDate: "2026-08-23", signedAmount: 1002, signedAmountUsd: 1002, currency: "USD" },
+    { id: "duplicate-in", bankAccountId: "account-paypal", transactionDate: "2026-08-23", signedAmount: 1002, signedAmountUsd: 1002, currency: "USD" },
+  ]),
+  { eliminatedUsd: 1000, pairedTransactionCount: 2 },
+);
+assert.deepEqual(
+  estimateInternalTransferEliminations([
+    { id: "missing-fx-out", bankAccountId: "account-hkd", transactionDate: "2026-08-21", signedAmount: -7800, signedAmountUsd: null, currency: "HKD" },
+    { id: "missing-fx-in", bankAccountId: "account-usd", transactionDate: "2026-08-22", signedAmount: 7800, signedAmountUsd: null, currency: "HKD" },
+    { id: "external-in", bankAccountId: "account-usd", transactionDate: "2026-08-22", signedAmount: 250, signedAmountUsd: 250, currency: "USD" },
+  ]),
+  { eliminatedUsd: 0, pairedTransactionCount: 0 },
+);
 
 const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   id: `large-account-${index}`,
@@ -453,8 +480,10 @@ assert.match(dashboardSource, /Treasury Intelligence/);
 assert.match(dashboardSource, /Liquidity, movement, and concentration in USD\./);
 assert.match(dashboardSource, /Executive Read:/);
 assert.match(dashboardSource, /Net Cash Movement/);
-assert.match(dashboardSource, /Gross Inflows/);
-assert.match(dashboardSource, /Gross Outflows/);
+assert.match(dashboardSource, /External Inflows/);
+assert.match(dashboardSource, /External Outflows/);
+assert.match(dashboardSource, /Est\. Internal Transfers/);
+assert.match(dashboardSource, /estimateInternalTransferEliminations/);
 assert.match(dashboardSource, /Ledger Source:/);
 assert.match(dashboardSource, /usdInflow/);
 assert.match(dashboardSource, /usdOutflow/);

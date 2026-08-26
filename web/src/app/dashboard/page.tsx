@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
 
 type SessionInfo = {
   accessToken: string;
@@ -356,6 +357,9 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const usdInflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdInflow, 0);
   const usdOutflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdOutflow, 0);
   const usdNet = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdNet, 0);
+  const transferEliminations = estimateInternalTransferEliminations(recentMovements);
+  const estimatedExternalInflow = Math.max(0, usdInflow - transferEliminations.eliminatedUsd);
+  const estimatedExternalOutflow = Math.max(0, usdOutflow - transferEliminations.eliminatedUsd);
   const largestCategory = sortMixRowsByExposure(mixRows)[0];
   const largestCategoryShare = largestCategory && totalExposure ? Math.abs(largestCategory.amountUsd) / totalExposure : 0;
   const movementBias =
@@ -370,8 +374,9 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
             : "Balanced";
   const connectionNote = xeroStatus?.connected ? "Ledger Source: Xero Connected" : "Ledger Source: Not Connected";
   const netMovementLabel = formatUsdCompact(usdNet);
-  const inflowValueLabel = formatUsdCompact(usdInflow);
-  const outflowValueLabel = formatUsdCompact(usdOutflow);
+  const inflowValueLabel = formatUsdCompact(estimatedExternalInflow);
+  const outflowValueLabel = formatUsdCompact(estimatedExternalOutflow);
+  const eliminatedTransferLabel = formatUsdCompact(transferEliminations.eliminatedUsd);
   const concentrationNote =
     ownFundsShare >= 0.65
       ? "Own funds dominate visible liquidity, keeping operating cash clear while external float remains a secondary exposure."
@@ -379,7 +384,9 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
         ? "Processor/provider float is material enough to watch for settlement timing and counterparty exposure."
         : "Liquidity is relatively diversified across treasury categories.";
   const movementPoint = recentMovements.length
-    ? `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} gross inflows, ${outflowValueLabel} gross outflows, ${netMovementLabel} net.`
+    ? transferEliminations.eliminatedUsd > 0
+      ? `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} estimated external inflows, ${outflowValueLabel} estimated external outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`
+      : `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net with no likely internal-transfer pairs detected.`
     : `No posted movements in the last ${data.windowDays} days.`;
   const concentrationPoint = largestCategory ? `${largestCategory.label} is the largest bucket at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
   const watchPoint = externalFloatShare > 0.08 ? `External float is ${formatPercent(externalFloatShare)} of visible exposure, worth tracking for settlement timing and liquidity availability.` : `External float is ${formatPercent(externalFloatShare)} of visible exposure, so operating liquidity is the main executive signal.`;
@@ -390,8 +397,9 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
     connectionNote,
     metrics: [
       { label: "Net Cash Movement", value: netMovementLabel },
-      { label: "Gross Inflows", value: inflowValueLabel },
-      { label: "Gross Outflows", value: outflowValueLabel },
+      { label: "External Inflows", value: inflowValueLabel },
+      { label: "External Outflows", value: outflowValueLabel },
+      { label: "Est. Internal Transfers", value: eliminatedTransferLabel },
       { label: "External Float", value: formatPercent(externalFloatShare) },
     ],
   };
