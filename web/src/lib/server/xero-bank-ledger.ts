@@ -147,20 +147,33 @@ async function loadXeroContext(supabase: SupabaseClient, entityId: string) {
 }
 
 async function syncXeroBankAccounts(supabase: SupabaseClient, entityId: string, mapping: EntityXeroMappingRow, accounts: XeroAccount[]) {
-  const rows = accounts
-    .filter((account) => account.accountID && account.name)
-    .map((account) => ({
+  const bankAccounts = accounts.filter((account) => account.accountID && account.name);
+  if (!bankAccounts.length) return 0;
+
+  const xeroAccountIds = bankAccounts.map((account) => account.accountID as string);
+  const { data: existingAccounts, error: existingError } = await supabase
+    .from("entity_bank_accounts")
+    .select("xero_bank_account_id,status")
+    .eq("entity_id", entityId)
+    .in("xero_bank_account_id", xeroAccountIds);
+  if (existingError) throw existingError;
+
+  const locallyArchivedXeroIds = new Set(
+    (existingAccounts ?? [])
+      .filter((account) => account.status === "archived" && account.xero_bank_account_id)
+      .map((account) => account.xero_bank_account_id as string),
+  );
+
+  const rows = bankAccounts.map((account) => ({
       entity_id: entityId,
       entity_xero_mapping_id: mapping.id,
       xero_bank_account_id: account.accountID,
       account_name: account.name,
       currency: account.currencyCode ?? null,
       account_type: classifyLedgerAccountType({ accountName: account.name ?? "", accountType: null }),
-      status: account.status === "ARCHIVED" || shouldExcludeLedgerAccount({ accountName: account.name ?? "" }) ? "archived" : "active",
+      status: account.status === "ARCHIVED" || locallyArchivedXeroIds.has(account.accountID as string) || shouldExcludeLedgerAccount({ accountName: account.name ?? "" }) ? "archived" : "active",
       updated_at: new Date().toISOString(),
     }));
-
-  if (!rows.length) return 0;
 
   const { error } = await supabase.from("entity_bank_accounts").upsert(rows, { onConflict: "entity_id,xero_bank_account_id" });
   if (error) throw error;

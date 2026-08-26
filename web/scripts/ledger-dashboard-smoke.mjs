@@ -162,13 +162,15 @@ assert.equal(classifyLedgerAccountType({ accountName: "LP: Prime Broker USD", ac
 assert.equal(classifyLedgerAccountType({ accountName: "MP: Legacy Processor", accountType: "operating_bank" }), "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "LP: Legacy Provider", accountType: "operating_bank" }), "liquidity_provider");
 assert.equal(classifyLedgerAccountType({ accountName: "UOB USD Bank Account (Client funds)", accountType: "operating_bank" }), "client_money");
-assert.equal(classifyLedgerAccountType({ accountName: "EX Open Position AUD", accountType: "operating_bank" }), "client_money");
+assert.equal(classifyLedgerAccountType({ accountName: "EX Open Position AUD", accountType: "operating_bank" }), "operating_bank");
 assert.equal(classifyLedgerAccountType({ accountName: "Legacy Bank", accountType: "bank" }), "operating_bank");
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liability" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability AUD" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Trust Liability USD" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Trust Liability Bal USD (MT4)" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Client Liabiltiy" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Open Position AUD" }), true);
+assert.equal(shouldExcludeLedgerAccount({ accountName: "EX Open Positions USD" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "PayPal Clearing" }), true);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Client Money Account" }), false);
 assert.equal(shouldExcludeLedgerAccount({ accountName: "Operating Liability Insurance" }), false);

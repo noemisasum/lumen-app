@@ -144,7 +144,7 @@ type GroupValue = {
   accountIds: Set<string>;
 };
 
-const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial)|open[-\s]?positions?)\b/;
+const clientMoneyAccountNamePattern = /\b(client|customer|segregated|safeguard(?:ed|ing)?|trust|custod(?:y|ial))\b/;
 
 const balanceTypeRank: Record<string, number> = {
   closing: 6,
@@ -173,8 +173,9 @@ function normalizeAccountNameForRules(value: string) {
 export function shouldExcludeLedgerAccount(input: { accountName: string }) {
   const normalized = normalizeAccountNameForRules(input.accountName);
   const hasLiabilityMarker = /\b(?:liability|liabiltiy)\b/.test(normalized);
-  const hasClientLedgerMarker = /\b(client|trust|open[-\s]?position|ex)\b/.test(normalized);
-  return /\bclearing\b/.test(normalized) || (hasLiabilityMarker && hasClientLedgerMarker);
+  const hasClientLedgerMarker = /\b(client|trust|ex)\b/.test(normalized);
+  const hasOpenPositionMarker = /\bopen[-\s]?positions?\b/.test(normalized);
+  return /\bclearing\b/.test(normalized) || hasOpenPositionMarker || (hasLiabilityMarker && hasClientLedgerMarker);
 }
 
 export function classifyLedgerAccountType(input: { accountType?: LedgerAccountType | "bank" | null; accountName: string }): LedgerAccountType {
