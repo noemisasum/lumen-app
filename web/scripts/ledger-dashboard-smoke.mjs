@@ -154,6 +154,7 @@ const payload = buildLedgerDashboardPayload({
 
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.amount, 250.5);
 assert.equal(payload.accounts.find((account) => account.id === "account-hkd")?.latestBalance?.usdConversion?.amount, 32.064);
+assert.equal(payload.recentTransactions.find((transaction) => transaction.id === "txn-in")?.signedAmountUsd, 9.63);
 assert.equal(payload.accounts.find((account) => account.id === "account-paypal")?.accountType, "money_processor");
 assert.equal(classifyLedgerAccountType({ accountName: "Operating Account", accountType: null }), "operating_bank");
 assert.equal(classifyLedgerAccountType({ accountName: "Client Money Account", accountType: null }), "client_money");
@@ -191,9 +192,9 @@ assert.deepEqual(payload.totalsByAccountType, [
   { accountType: "operating_bank", currency: "USD", amount: 40, accountCount: 1 },
 ]);
 assert.deepEqual(payload.transactionBreakdowns, [
-  { source: "manual", currency: "HKD", inflow: 75.25, outflow: 25, net: 50.25, transactionCount: 2 },
-  { source: "manual", currency: "USD", inflow: 300, outflow: 0, net: 300, transactionCount: 1 },
-  { source: "xero", currency: "USD", inflow: 10, outflow: 0, net: 10, transactionCount: 1 },
+  { source: "manual", currency: "HKD", inflow: 75.25, outflow: 25, net: 50.25, usdInflow: 9.63, usdOutflow: 3.2, usdNet: 6.43, usdConvertibleTransactionCount: 2, transactionCount: 2 },
+  { source: "manual", currency: "USD", inflow: 300, outflow: 0, net: 300, usdInflow: 300, usdOutflow: 0, usdNet: 300, usdConvertibleTransactionCount: 1, transactionCount: 1 },
+  { source: "xero", currency: "USD", inflow: 10, outflow: 0, net: 10, usdInflow: 10, usdOutflow: 0, usdNet: 10, usdConvertibleTransactionCount: 1, transactionCount: 1 },
 ]);
 
 const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
@@ -265,8 +266,8 @@ assert.deepEqual(largePayload.totalsByCurrency, [
   { currency: "USD", amount: 5000, accountCount: 2500 },
 ]);
 assert.deepEqual(largePayload.transactionBreakdowns, [
-  { source: "manual", currency: "HKD", inflow: 334, outflow: 333, net: 1, transactionCount: 667 },
-  { source: "manual", currency: "USD", inflow: 167, outflow: 167, net: 0, transactionCount: 334 },
+  { source: "manual", currency: "HKD", inflow: 334, outflow: 333, net: 1, usdInflow: 43.42, usdOutflow: 43.29, usdNet: 0.13, usdConvertibleTransactionCount: 667, transactionCount: 667 },
+  { source: "manual", currency: "USD", inflow: 167, outflow: 167, net: 0, usdInflow: 167, usdOutflow: 167, usdNet: 0, usdConvertibleTransactionCount: 334, transactionCount: 334 },
 ]);
 
 const invalidCurrencyPayload = buildLedgerDashboardPayload({
@@ -434,6 +435,7 @@ try {
 }
 
 const dashboardSource = readFileSync(new URL("../src/app/dashboard/page.tsx", import.meta.url), "utf8");
+const dashboardRouteSource = readFileSync(new URL("../src/app/api/dashboard/ledger/route.ts", import.meta.url), "utf8");
 const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledger.ts", import.meta.url), "utf8");
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
@@ -447,14 +449,19 @@ assert.match(dashboardSource, /Data last updated:/);
 assert.match(dashboardSource, /inset-\[28%\]/);
 assert.match(dashboardSource, /max-w-\[18rem\]/);
 assert.match(dashboardSource, /function buildTreasuryCommentary/);
-assert.match(dashboardSource, /function formatCurrencySeries/);
-assert.match(dashboardSource, /Treasury Commentary/);
-assert.match(dashboardSource, /Executive treasury read from recent movement and liquidity concentration/);
-assert.match(dashboardSource, /Executive read:/);
-assert.match(dashboardSource, /Net movement/);
-assert.match(dashboardSource, /Inflow \/ outflow/);
+assert.match(dashboardSource, /Executive Treasury Read/);
+assert.match(dashboardSource, /Liquidity, movement, and concentration in USD\./);
+assert.match(dashboardSource, /Executive Read:/);
+assert.match(dashboardSource, /Net Cash Movement/);
+assert.match(dashboardSource, /Gross Inflows/);
+assert.match(dashboardSource, /Gross Outflows/);
+assert.match(dashboardSource, /Ledger Source:/);
+assert.match(dashboardSource, /usdInflow/);
+assert.match(dashboardSource, /usdOutflow/);
+assert.match(dashboardSource, /usdNet/);
 assert.match(dashboardSource, /transactionBreakdowns: LedgerTransactionBreakdown\[\]/);
 assert.doesNotMatch(dashboardSource, /still need balance or FX coverage/);
+assert.match(dashboardRouteSource, /\.\.\.transactionResult\.map\(\(transaction\) => transaction\.currency\)/);
 assert.match(dashboardSource, /w-full min-w-\[1040px\] table-fixed/);
 assert.match(dashboardSource, /function sortMixRowsByExposure/);
 assert.match(dashboardSource, /const displayRows = sortMixRowsByExposure\(mixRows\);/);

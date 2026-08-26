@@ -62,6 +62,7 @@ type LedgerRecentTransaction = {
   transactionDate: string;
   description: string;
   signedAmount: number;
+  signedAmountUsd: number | null;
   direction: "inflow" | "outflow" | "unknown";
   currency: string;
   status: string;
@@ -73,6 +74,10 @@ type LedgerTransactionBreakdown = {
   inflow: number;
   outflow: number;
   net: number;
+  usdInflow: number;
+  usdOutflow: number;
+  usdNet: number;
+  usdConvertibleTransactionCount: number;
   transactionCount: number;
 };
 
@@ -200,14 +205,6 @@ function formatLocalMoney(currency: string, amount: number) {
     maximumFractionDigits: Math.abs(amount) >= 1000 ? 0 : 2,
   }).format(amount);
   return `${currency || "Unspecified"} ${formatted}`;
-}
-
-function formatCurrencySeries(groups: Array<{ currency: string; amount: number }>, limit = 2) {
-  const visibleGroups = groups.filter((group) => Math.abs(group.amount) > 0).sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount));
-  if (!visibleGroups.length) return "No value";
-  const displayed = visibleGroups.slice(0, limit).map((group) => formatLocalMoney(group.currency, group.amount));
-  const remaining = visibleGroups.length - displayed.length;
-  return remaining > 0 ? `${displayed.join(", ")} +${remaining} more` : displayed.join(", ");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -341,14 +338,12 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   if (!data) {
     return {
       headline: "Waiting for ledger data",
-      detail: "Momentum commentary will appear once balances and recent movements load.",
+      points: ["Executive treasury read will appear once balances and recent movements load."],
+      connectionNote: "Ledger Source: Checking Connection",
       metrics: [] as CommentaryMetric[],
     };
   }
 
-  const accountsWithBalances = data.accounts.filter((account) => account.latestBalance);
-  const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
-  const totalUsd = sumUsd(convertedAccounts);
   const mixRows = liquidityMixRows(groupExposure(data.accounts, new Map(data.entities.map((entity) => [entity.id, entity.name])), "accountType"));
   const ownFunds = Math.abs(mixRows.find((row) => row.accountType === "operating_bank")?.amountUsd ?? 0);
   const externalFloat = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
@@ -358,50 +353,46 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const recentMovements = data.recentTransactions;
   const inflowCount = recentMovements.filter((transaction) => transaction.direction === "inflow" || transaction.signedAmount > 0).length;
   const outflowCount = recentMovements.filter((transaction) => transaction.direction === "outflow" || transaction.signedAmount < 0).length;
-  const inflowValueByCurrency = new Map<string, number>();
-  const outflowValueByCurrency = new Map<string, number>();
-  const netValueByCurrency = new Map<string, number>();
-  for (const breakdown of data.transactionBreakdowns) {
-    inflowValueByCurrency.set(breakdown.currency, (inflowValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.inflow);
-    outflowValueByCurrency.set(breakdown.currency, (outflowValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.outflow);
-    netValueByCurrency.set(breakdown.currency, (netValueByCurrency.get(breakdown.currency) ?? 0) + breakdown.net);
-  }
-  const netMovement = Array.from(netValueByCurrency, ([currency, amount]) => ({ currency, amount }));
-  const inflowValue = Array.from(inflowValueByCurrency, ([currency, amount]) => ({ currency, amount }));
-  const outflowValue = Array.from(outflowValueByCurrency, ([currency, amount]) => ({ currency, amount }));
-  const netPositiveCurrencyCount = netMovement.filter((group) => group.amount > 0).length;
-  const netNegativeCurrencyCount = netMovement.filter((group) => group.amount < 0).length;
+  const usdInflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdInflow, 0);
+  const usdOutflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdOutflow, 0);
+  const usdNet = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdNet, 0);
+  const largestCategory = sortMixRowsByExposure(mixRows)[0];
+  const largestCategoryShare = largestCategory && totalExposure ? Math.abs(largestCategory.amountUsd) / totalExposure : 0;
   const movementBias =
-    netPositiveCurrencyCount > netNegativeCurrencyCount
-      ? "cash-building"
-      : netNegativeCurrencyCount > netPositiveCurrencyCount
-        ? "cash-burning"
+    usdNet > 0
+      ? "Cash Building"
+      : usdNet < 0
+        ? "Cash Burning"
         : inflowCount > outflowCount
-          ? "activity-heavy on receipts"
+          ? "Activity Heavy On Receipts"
           : outflowCount > inflowCount
-            ? "activity-heavy on payments"
-            : "balanced";
-  const connectionNote = xeroStatus?.connected ? "Xero is connected, so this view can keep tracking new postings." : "Connect a ledger source to keep the movement read current.";
-  const netMovementLabel = formatCurrencySeries(netMovement);
-  const inflowValueLabel = formatCurrencySeries(inflowValue);
-  const outflowValueLabel = formatCurrencySeries(outflowValue);
+            ? "Activity Heavy On Payments"
+            : "Balanced";
+  const connectionNote = xeroStatus?.connected ? "Ledger Source: Xero Connected" : "Ledger Source: Not Connected";
+  const netMovementLabel = formatUsdCompact(usdNet);
+  const inflowValueLabel = formatUsdCompact(usdInflow);
+  const outflowValueLabel = formatUsdCompact(usdOutflow);
   const concentrationNote =
     ownFundsShare >= 0.65
-      ? "Liquidity is concentrated in own-funds accounts, which keeps operating cash visible but makes external float a smaller secondary signal."
+      ? "Own funds dominate visible liquidity, keeping operating cash clear while external float remains a secondary exposure."
       : externalFloatShare >= 0.2
-        ? "Processor/provider float is material enough to keep settlement timing and counterparty movement in the executive view."
+        ? "Processor/provider float is material enough to watch for settlement timing and counterparty exposure."
         : "Liquidity is relatively diversified across treasury categories.";
+  const movementPoint = recentMovements.length
+    ? `${recentMovements.length} posted movements over ${data.windowDays} days: ${inflowValueLabel} gross inflows, ${outflowValueLabel} gross outflows, ${netMovementLabel} net.`
+    : `No posted movements in the last ${data.windowDays} days.`;
+  const concentrationPoint = largestCategory ? `${largestCategory.label} is the largest bucket at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
+  const watchPoint = externalFloatShare > 0.08 ? `External float is ${formatPercent(externalFloatShare)} of visible exposure, worth tracking for settlement timing and liquidity availability.` : `External float is ${formatPercent(externalFloatShare)} of visible exposure, so operating liquidity is the main executive signal.`;
 
   return {
-    headline: recentMovements.length ? `Executive read: ${movementBias}` : "Executive read: waiting for movement data",
-    detail: recentMovements.length
-      ? `${recentMovements.length} posted movement${recentMovements.length === 1 ? "" : "s"} in the last ${data.windowDays} days, with net movement of ${netMovementLabel}. Inflows total ${inflowValueLabel}; outflows total ${outflowValueLabel}. ${concentrationNote} ${connectionNote}`
-      : connectionNote,
+    headline: `Executive Read: ${movementBias}`,
+    points: [movementPoint, concentrationPoint, watchPoint],
+    connectionNote,
     metrics: [
-      { label: "Visible liquidity", value: formatUsdCompact(Math.abs(totalUsd)) },
-      { label: "Net movement", value: netMovementLabel },
-      { label: "Inflow / outflow", value: `${inflowCount} / ${outflowCount}` },
-      { label: "Own funds", value: formatPercent(ownFundsShare) },
+      { label: "Net Cash Movement", value: netMovementLabel },
+      { label: "Gross Inflows", value: inflowValueLabel },
+      { label: "Gross Outflows", value: outflowValueLabel },
+      { label: "External Float", value: formatPercent(externalFloatShare) },
     ],
   };
 }
@@ -796,11 +787,17 @@ export default function DashboardPage() {
             ) : (
               <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} />
             )}
-            <Panel title="Treasury Commentary" subtitle="Executive treasury read from recent movement and liquidity concentration.">
+            <Panel title="Executive Treasury Read" subtitle="Liquidity, movement, and concentration in USD.">
               <div className="space-y-4">
                 <div>
                   <div className="text-base font-semibold text-zinc-950">{treasuryCommentary.headline}</div>
-                  <p className="mt-2 text-sm leading-6 text-zinc-600">{treasuryCommentary.detail}</p>
+                  <div className="mt-3 space-y-2">
+                    {treasuryCommentary.points.map((point) => (
+                      <p key={point} className="text-sm leading-6 text-zinc-600">
+                        {point}
+                      </p>
+                    ))}
+                  </div>
                 </div>
                 {treasuryCommentary.metrics.length ? (
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -812,6 +809,7 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 ) : null}
+                <div className="border-t border-zinc-100 pt-3 text-xs leading-5 text-zinc-500">{treasuryCommentary.connectionNote}</div>
               </div>
             </Panel>
           </section>

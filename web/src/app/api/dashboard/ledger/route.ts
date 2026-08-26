@@ -212,7 +212,7 @@ export async function GET(request: Request) {
           )
         : Promise.resolve([]),
     ]);
-    const usdRates = await getUsdRatesForCurrencies(supabase, balanceResult.map((balance) => balance.currency));
+    const usdRates = await getUsdRatesForCurrencies(supabase, [...balanceResult.map((balance) => balance.currency), ...transactionResult.map((transaction) => transaction.currency)]);
 
     return NextResponse.json(
       buildLedgerDashboardPayload({

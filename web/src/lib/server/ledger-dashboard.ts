@@ -89,6 +89,10 @@ export type LedgerTransactionBreakdown = {
   inflow: number;
   outflow: number;
   net: number;
+  usdInflow: number;
+  usdOutflow: number;
+  usdNet: number;
+  usdConvertibleTransactionCount: number;
   transactionCount: number;
 };
 
@@ -114,6 +118,7 @@ export type LedgerDashboardRecentTransaction = {
   transactionDate: string;
   description: string;
   signedAmount: number;
+  signedAmountUsd: number | null;
   direction: "inflow" | "outflow" | "unknown";
   currency: string;
   status: string;
@@ -158,6 +163,10 @@ const balanceTypeRank: Record<string, number> = {
 function numberValue(value: string | number) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundedMoneyValue(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function normalizeDashboardCurrency(value: string | null | undefined) {
@@ -340,7 +349,10 @@ export function buildLedgerDashboardPayload(input: {
   for (const transaction of input.transactions) {
     const signedAmount = numberValue(transaction.signedAmount);
     const account = accountById.get(transaction.bankAccountId);
+    const normalizedTransactionCurrency = normalizeDashboardCurrency(transaction.currency) ?? normalizeDashboardCurrency(account?.currency);
     const currency = displayCurrency(transaction.currency, account?.currency);
+    const usdRate = normalizedTransactionCurrency ? input.usdRates?.get(normalizedTransactionCurrency) : null;
+    const signedAmountUsd = usdRate?.status === "available" && Number.isFinite(usdRate.rateToUsd) && usdRate.rateToUsd > 0 ? roundedMoneyValue(signedAmount * usdRate.rateToUsd) : null;
     const key = `${transaction.source}:${currency}`;
     const existing =
       transactionBreakdowns.get(key) ??
@@ -350,12 +362,22 @@ export function buildLedgerDashboardPayload(input: {
         inflow: 0,
         outflow: 0,
         net: 0,
+        usdInflow: 0,
+        usdOutflow: 0,
+        usdNet: 0,
+        usdConvertibleTransactionCount: 0,
         transactionCount: 0,
       } satisfies LedgerTransactionBreakdown);
 
     if (signedAmount > 0) existing.inflow += signedAmount;
     if (signedAmount < 0) existing.outflow += Math.abs(signedAmount);
     existing.net += signedAmount;
+    if (signedAmountUsd !== null) {
+      if (signedAmountUsd > 0) existing.usdInflow = roundedMoneyValue(existing.usdInflow + signedAmountUsd);
+      if (signedAmountUsd < 0) existing.usdOutflow = roundedMoneyValue(existing.usdOutflow + Math.abs(signedAmountUsd));
+      existing.usdNet = roundedMoneyValue(existing.usdNet + signedAmountUsd);
+      existing.usdConvertibleTransactionCount += 1;
+    }
     existing.transactionCount += 1;
     transactionBreakdowns.set(key, existing);
   }
@@ -414,6 +436,10 @@ export function buildLedgerDashboardPayload(input: {
     .map((transaction) => {
       const account = accountById.get(transaction.bankAccountId);
       const entity = entityById.get(transaction.entityId);
+      const normalizedTransactionCurrency = normalizeDashboardCurrency(transaction.currency) ?? normalizeDashboardCurrency(account?.currency);
+      const usdRate = normalizedTransactionCurrency ? input.usdRates?.get(normalizedTransactionCurrency) : null;
+      const signedAmount = numberValue(transaction.signedAmount);
+      const signedAmountUsd = usdRate?.status === "available" && Number.isFinite(usdRate.rateToUsd) && usdRate.rateToUsd > 0 ? roundedMoneyValue(signedAmount * usdRate.rateToUsd) : null;
       return {
         id: transaction.id,
         entityId: transaction.entityId,
@@ -424,7 +450,8 @@ export function buildLedgerDashboardPayload(input: {
         accountType: account?.accountType ?? "operating_bank",
         transactionDate: transaction.transactionDate,
         description: transaction.description,
-        signedAmount: numberValue(transaction.signedAmount),
+        signedAmount,
+        signedAmountUsd,
         direction: transaction.direction,
         currency: displayCurrency(transaction.currency, account?.currency),
         status: transaction.status,
