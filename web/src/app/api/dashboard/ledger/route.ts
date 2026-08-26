@@ -2,7 +2,17 @@ import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { getUsdRatesForCurrencies } from "@/lib/server/fx-rates";
-import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, type LedgerAccountType, type LedgerDashboardAccount, type LedgerDashboardBalance, type LedgerDashboardEntity, type LedgerDashboardTransaction } from "@/lib/server/ledger-dashboard";
+import {
+  buildLedgerDashboardPayload,
+  classifyLedgerAccountType,
+  isMissingLedgerAccountTypeColumnError,
+  shouldExcludeLedgerAccount,
+  type LedgerAccountType,
+  type LedgerDashboardAccount,
+  type LedgerDashboardBalance,
+  type LedgerDashboardEntity,
+  type LedgerDashboardTransaction,
+} from "@/lib/server/ledger-dashboard";
 
 export const runtime = "nodejs";
 
@@ -30,7 +40,7 @@ type BankAccountRow = {
   xero_bank_account_id: string | null;
   account_name: string;
   currency: string | null;
-  account_type?: LedgerAccountType | null;
+  account_type?: LedgerAccountType | "bank" | null;
   status: string;
 };
 
@@ -174,7 +184,7 @@ export async function GET(request: Request) {
     await Promise.all(entities.map((entity) => requireEntityAccess(supabase, entity.id, user.id)));
 
     const entityIds = entities.map((entity) => entity.id);
-    const accounts = await loadBankAccounts(supabase, entityIds);
+    const accounts = (await loadBankAccounts(supabase, entityIds)).filter((account) => !shouldExcludeLedgerAccount({ accountName: account.account_name }));
     const accountIds = accounts.map((account) => account.id);
     const sinceDate = daysAgoIsoDate(30);
 

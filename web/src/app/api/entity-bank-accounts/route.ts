@@ -3,9 +3,12 @@ import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { requireEntityAccess, requireEntityAdmin } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
+import { classifyLedgerAccountType, shouldExcludeLedgerAccount } from "@/lib/server/ledger-dashboard";
 import type { TokenSet } from "xero-node";
 
 export const runtime = "nodejs";
+
+type AccountType = "bank" | "operating_bank" | "client_money" | "money_processor" | "liquidity_provider";
 
 type BankAccountRow = {
   id: string;
@@ -14,7 +17,7 @@ type BankAccountRow = {
   xero_bank_account_id: string | null;
   account_name: string;
   currency: string | null;
-  account_type: "bank" | "money_processor";
+  account_type: AccountType;
   status: string;
   created_at: string;
   updated_at: string;
@@ -45,7 +48,7 @@ type CreateAccountBody = {
   entityId?: string;
   accountName?: string;
   currency?: string;
-  accountType?: "bank" | "money_processor";
+  accountType?: AccountType;
   allowDuplicate?: boolean;
 };
 
@@ -53,10 +56,11 @@ type UpdateAccountBody = {
   entityId?: string;
   accountId?: string;
   accountName?: string;
-  accountType?: "bank" | "money_processor";
+  accountType?: AccountType;
 };
 
 const accountSelectColumns = "id,entity_id,entity_xero_mapping_id,xero_bank_account_id,account_name,currency,account_type,status,created_at,updated_at";
+const validAccountTypes = new Set<AccountType>(["bank", "operating_bank", "client_money", "money_processor", "liquidity_provider"]);
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Entity bank accounts are not configured.", missing }, { status: 500 });
@@ -74,7 +78,7 @@ function serializeAccount(account: BankAccountRow) {
     xeroBankAccountId: account.xero_bank_account_id,
     accountName: account.account_name,
     currency: account.currency,
-    accountType: account.account_type,
+    accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
     status: account.status,
     source: accountSource(account),
     createdAt: account.created_at,
@@ -88,6 +92,10 @@ function sanitizeAccountName(value: string | undefined) {
 
 function normalizeAccountName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeAccountType(value: unknown): AccountType {
+  return validAccountTypes.has(value as AccountType) ? (value as AccountType) : "operating_bank";
 }
 
 async function loadAccounts(supabase: ReturnType<typeof getSupabaseServiceClient>, entityId: string) {
@@ -160,7 +168,8 @@ async function syncXeroBankAccounts(supabase: ReturnType<typeof getSupabaseServi
     xero_bank_account_id: account.accountID,
     account_name: account.name,
     currency: account.currencyCode ?? null,
-    status: account.status === "ARCHIVED" ? "archived" : "active",
+    account_type: classifyLedgerAccountType({ accountName: account.name ?? "", accountType: null }),
+    status: account.status === "ARCHIVED" || shouldExcludeLedgerAccount({ accountName: account.name ?? "" }) ? "archived" : "active",
     updated_at: now,
   }));
 
@@ -209,7 +218,7 @@ export async function POST(request: Request) {
     const entityId = body.entityId?.trim();
     const accountName = sanitizeAccountName(body.accountName);
     const currency = body.currency?.trim().toUpperCase().slice(0, 3) || null;
-    const accountType = body.accountType === "money_processor" ? "money_processor" : "bank";
+    const accountType = normalizeAccountType(body.accountType);
     const allowDuplicate = body.allowDuplicate === true;
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
@@ -257,13 +266,13 @@ export async function PATCH(request: Request) {
     const accountId = body.accountId?.trim();
     const hasAccountNameUpdate = typeof body.accountName === "string";
     const accountName = sanitizeAccountName(body.accountName);
-    const hasAccountTypeUpdate = body.accountType === "bank" || body.accountType === "money_processor";
+    const hasAccountTypeUpdate = body.accountType !== undefined && validAccountTypes.has(body.accountType);
 
     if (!entityId) return NextResponse.json({ error: "Choose a Lumen entity." }, { status: 400 });
     if (!accountId) return NextResponse.json({ error: "Choose a bank account." }, { status: 400 });
     if (!hasAccountNameUpdate && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose an account update." }, { status: 400 });
     if (hasAccountNameUpdate && (!accountName || accountName.length < 2)) return NextResponse.json({ error: "Enter a bank account name." }, { status: 400 });
-    if (body.accountType !== undefined && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose Bank or Money Processor." }, { status: 400 });
+    if (body.accountType !== undefined && !hasAccountTypeUpdate) return NextResponse.json({ error: "Choose a supported treasury account category." }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
     await requireEntityAdmin(supabase, entityId, user.id);

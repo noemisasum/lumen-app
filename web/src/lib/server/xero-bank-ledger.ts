@@ -1,5 +1,6 @@
 import { encryptJson, decryptJson } from "@/lib/server/crypto";
 import { upsertBankBalances, upsertBankTransactions, type BankBalanceInput, type BankTransactionInput } from "@/lib/server/bank-ledger";
+import { classifyLedgerAccountType, shouldExcludeLedgerAccount } from "@/lib/server/ledger-dashboard";
 import { createXeroClient, getXeroEnvIssueNames, refreshXeroTokenSet, serializeTokenSet, type XeroTenant } from "@/lib/server/xero";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BankTransaction, TokenSet } from "xero-node";
@@ -154,7 +155,8 @@ async function syncXeroBankAccounts(supabase: SupabaseClient, entityId: string, 
       xero_bank_account_id: account.accountID,
       account_name: account.name,
       currency: account.currencyCode ?? null,
-      status: account.status === "ARCHIVED" ? "archived" : "active",
+      account_type: classifyLedgerAccountType({ accountName: account.name ?? "", accountType: null }),
+      status: account.status === "ARCHIVED" || shouldExcludeLedgerAccount({ accountName: account.name ?? "" }) ? "archived" : "active",
       updated_at: new Date().toISOString(),
     }));
 

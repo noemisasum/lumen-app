@@ -23,7 +23,7 @@ type XeroErrorBody = {
 };
 
 type LedgerSource = "manual" | "xero" | "bank_feed";
-type AccountType = "bank" | "money_processor";
+type AccountType = "operating_bank" | "client_money" | "money_processor" | "liquidity_provider";
 
 type LedgerAccount = {
   id: string;
@@ -72,6 +72,7 @@ type LedgerDashboardData = {
   windowDays: number;
   entities: Array<{ id: string; name: string; code: string | null; orgId: string }>;
   accounts: LedgerAccount[];
+  totalsByAccountType: Array<{ accountType: AccountType; currency: string; amount: number; accountCount: number }>;
   recentTransactions: LedgerRecentTransaction[];
   dataQualityIssues: Array<{
     code: "invalid_balance_currency" | "missing_usd_rate";
@@ -141,7 +142,10 @@ function sourceLabel(source: LedgerSource) {
 }
 
 function accountTypeLabel(accountType: AccountType) {
-  return accountType === "money_processor" ? "Processor" : "Bank";
+  if (accountType === "client_money") return "Client money accounts";
+  if (accountType === "money_processor") return "Money processors";
+  if (accountType === "liquidity_provider") return "Liquidity providers";
+  return "Operating bank accounts";
 }
 
 function formatMoney(currency: string, amount: number, compact = false) {
@@ -185,20 +189,30 @@ function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
 
-function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, string>, groupBy: "entity" | "account"): ExposureRow[] {
+function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, string>, groupBy: "entity" | "account" | "accountType"): ExposureRow[] {
   const groups = new Map<string, ExposureRow>();
 
   for (const account of accounts) {
     const amountUsd = balanceUsd(account);
     if (amountUsd === null) continue;
 
-    const key = groupBy === "entity" ? account.entityId : account.accountName;
+    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : account.accountName;
     const current =
       groups.get(key) ??
       ({
         id: key,
-        label: groupBy === "entity" ? entityNameById.get(account.entityId) ?? "Unassigned Entity" : account.accountName,
-        detail: groupBy === "entity" ? "Converted account balances" : `${entityNameById.get(account.entityId) ?? "Unassigned Entity"} · ${accountTypeLabel(account.accountType)}`,
+        label:
+          groupBy === "entity"
+            ? entityNameById.get(account.entityId) ?? "Unassigned Entity"
+            : groupBy === "accountType"
+              ? accountTypeLabel(account.accountType)
+              : account.accountName,
+        detail:
+          groupBy === "entity"
+            ? "Converted account balances"
+            : groupBy === "accountType"
+              ? "Converted balances by treasury category"
+              : `${entityNameById.get(account.entityId) ?? "Unassigned Entity"} · ${accountTypeLabel(account.accountType)}`,
         amountUsd: 0,
         accountCount: 0,
       } satisfies ExposureRow);
@@ -208,6 +222,22 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
   }
 
   return Array.from(groups.values()).sort((left, right) => Math.abs(right.amountUsd) - Math.abs(left.amountUsd));
+}
+
+function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
+  if (rows.length <= maxRows) return rows;
+
+  const visibleRows = rows.slice(0, maxRows - 1);
+  const remainingRows = rows.slice(maxRows - 1);
+  const relationshipLabel = remainingRows.length === 1 ? "relationship" : "relationships";
+  visibleRows.push({
+    id: "__remaining",
+    label: "Other/remaining",
+    detail: `${remainingRows.length} ${relationshipLabel} represented`,
+    amountUsd: remainingRows.reduce((total, row) => total + row.amountUsd, 0),
+    accountCount: remainingRows.reduce((total, row) => total + row.accountCount, 0),
+  });
+  return visibleRows;
 }
 
 function concentrationTone(share: number) {
@@ -298,12 +328,14 @@ function Panel({ title, subtitle, children }: { title: string; subtitle?: string
   );
 }
 
-function ExposureList({ rows, totalUsd, emptyLabel }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string }) {
+function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string; maxRows?: number }) {
   if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
 
+  const displayedRows = maxRows ? rowsWithRemaining(rows, maxRows) : rows;
+
   return (
-    <div className="space-y-4">
-      {rows.slice(0, 6).map((row) => {
+    <div className="max-h-[28rem] space-y-3 overflow-y-auto pr-1">
+      {displayedRows.map((row) => {
         const share = totalUsd ? Math.abs(row.amountUsd / totalUsd) : 0;
         return (
           <div key={row.id}>
@@ -355,6 +387,7 @@ export default function DashboardPage() {
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const accountExposure = useMemo(() => groupExposure(accounts, entityNameById, "account"), [accounts, entityNameById]);
+  const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
   const topExposure = accountExposure[0] ?? null;
   const topShare = topExposure && totalUsd ? Math.abs(topExposure.amountUsd / totalUsd) : 0;
   const actionItems = useMemo(() => buildActionItems(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
@@ -480,7 +513,7 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
           </header>
 
           <main className="mt-8">
@@ -508,7 +541,7 @@ export default function DashboardPage() {
               <BrandLogo className="h-8 sm:h-9" />
             </Link>
             <div className="h-6 w-px bg-zinc-300" aria-hidden="true" />
-            <div className="text-sm font-medium text-zinc-700">Dashboard</div>
+            <div className="text-sm font-medium text-zinc-700">Treasury Dashboard</div>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/dashboard/entities" className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:px-4">
@@ -532,10 +565,10 @@ export default function DashboardPage() {
           <section className="border-b border-zinc-200 pb-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase text-zinc-500">Finance Workspace</p>
-                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Dashboard</h1>
+                <p className="text-xs font-semibold uppercase text-zinc-500">Treasury Workspace</p>
+                <h1 className="mt-2 break-words text-2xl font-semibold text-zinc-950 sm:text-3xl">Treasury Dashboard</h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-600">
-                  Track converted liquidity, account coverage, exposure concentration, and recent ledger movement from authenticated finance data.
+                  Monitor operating cash, client money, processor balances, liquidity-provider balances, and recent ledger movement from authenticated treasury data.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -575,7 +608,7 @@ export default function DashboardPage() {
           ) : null}
 
           {ledgerError ? (
-            <Notice tone="error" title="Dashboard Unavailable">
+            <Notice tone="error" title="Treasury Dashboard Unavailable">
               {ledgerError}
             </Notice>
           ) : null}
@@ -637,17 +670,21 @@ export default function DashboardPage() {
 
           {ledgerData && ledgerData.entities.length > 0 && !ledgerData.accounts.length ? (
             <Notice tone="info" title="No Accounts Yet">
-              Add a statement account or connect an accounting source to start building the dashboard.
+              Add a statement account or connect an accounting source to start building treasury visibility.
             </Notice>
           ) : null}
 
-          <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+          <section className="grid gap-4 xl:grid-cols-3">
+            <Panel title="Treasury Categories" subtitle="Converted balances across operating accounts, client money, processors, and liquidity providers.">
+              <ExposureList rows={categoryExposure} totalUsd={totalUsd} emptyLabel="No converted category balances yet." />
+            </Panel>
+
             <Panel title="Liquidity by Entity" subtitle="Converted balances grouped by entity, limited to accounts with available USD conversion.">
               <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No converted entity balances yet." />
             </Panel>
 
             <Panel title="Exposure by Account" subtitle="Largest account relationships by converted balance.">
-              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." />
+              <ExposureList rows={accountExposure} totalUsd={totalUsd} emptyLabel="No converted account balances yet." maxRows={6} />
             </Panel>
           </section>
 
@@ -731,7 +768,7 @@ export default function DashboardPage() {
                       </tr>
                     ))
                   ) : accounts.length ? (
-                    accounts.slice(0, 12).map((account) => {
+                    accounts.map((account) => {
                       const usdAmount = balanceUsd(account);
                       return (
                         <tr key={account.id} className="align-top">
