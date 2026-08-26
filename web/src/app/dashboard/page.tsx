@@ -636,7 +636,7 @@ export default function DashboardPage() {
                   tone={convertedAccounts.length ? "success" : "warning"}
                 />
                 <KpiCard
-                  label="Coverage"
+                  label="Balance Coverage"
                   value={accounts.length ? `${accountsWithBalances.length}/${accounts.length}` : "No accounts"}
                   detail={latestBalanceDate ? `Latest balance date ${formatDate(latestBalanceDate)}` : "Waiting for first balance sync"}
                 />

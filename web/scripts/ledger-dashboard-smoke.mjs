@@ -438,6 +438,7 @@ const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledge
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
 assert.match(dashboardSource, /Total Liquidity in USD/);
+assert.match(dashboardSource, /Balance Coverage/);
 assert.match(dashboardSource, /Liquidity Mix/);
 assert.match(dashboardSource, /Other\/remaining/);
 assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemaining\(rows, maxRows\) : rows;/);
