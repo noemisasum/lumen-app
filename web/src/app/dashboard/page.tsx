@@ -129,6 +129,8 @@ type CommentaryMetric = {
   value: string;
 };
 
+const analysisCharacterLimit = 130;
+
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
 }
@@ -335,6 +337,10 @@ function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
+function fitAnalysisText(text: string, fallback: string) {
+  return text.length <= analysisCharacterLimit ? text : fallback;
+}
+
 function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null) {
   if (!data) {
     return {
@@ -384,10 +390,21 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
         : "Liquidity is relatively diversified across treasury categories.";
   const movementPoint = recentMovements.length
     ? transferEliminations.eliminatedUsd > 0
-      ? `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net after ${eliminatedTransferLabel} internal transfers.`
-      : `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net. No likely internal transfers detected.`
+      ? fitAnalysisText(
+          `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net after ${eliminatedTransferLabel} internal transfers.`,
+          `${recentMovements.length} movements: ${netMovementLabel} net after likely internal transfers.`,
+        )
+      : fitAnalysisText(
+          `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
+          `${recentMovements.length} movements: ${netMovementLabel} net. No likely internal transfers detected.`,
+        )
     : `No posted movements in the last ${data.windowDays} days.`;
-  const concentrationPoint = largestCategory ? `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}` : concentrationNote;
+  const concentrationPoint = largestCategory
+    ? fitAnalysisText(
+        `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}`,
+        `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure.`,
+      )
+    : concentrationNote;
 
   return {
     headline: `Executive Read: ${movementBias}`,

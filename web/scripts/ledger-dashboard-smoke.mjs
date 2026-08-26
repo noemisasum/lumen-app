@@ -476,6 +476,8 @@ assert.match(dashboardSource, /Data last updated:/);
 assert.match(dashboardSource, /inset-\[28%\]/);
 assert.match(dashboardSource, /max-w-\[18rem\]/);
 assert.match(dashboardSource, /function buildTreasuryCommentary/);
+assert.match(dashboardSource, /analysisCharacterLimit = 130/);
+assert.match(dashboardSource, /function fitAnalysisText/);
 assert.doesNotMatch(dashboardSource, /Treasury Intelligence/);
 assert.doesNotMatch(dashboardSource, /Liquidity, movement, and concentration in USD\./);
 assert.match(dashboardSource, /function Panel\(\{ title, subtitle, children \}: \{ title\?: string; subtitle\?: string; children: ReactNode \}\)/);
