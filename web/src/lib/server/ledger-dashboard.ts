@@ -377,7 +377,7 @@ export function buildLedgerDashboardPayload(input: {
       const [entityId, currency] = key.split(":");
       return {
         entityId,
-        entityName: entityById.get(entityId)?.name ?? "Unknown Entity",
+        entityName: entityById.get(entityId)?.name ?? "Unknown entity",
         currency,
         amount: value.amount,
         accountCount: value.accountIds.size,
@@ -418,8 +418,8 @@ export function buildLedgerDashboardPayload(input: {
         id: transaction.id,
         entityId: transaction.entityId,
         bankAccountId: transaction.bankAccountId,
-        accountName: account?.accountName ?? "Unknown Account",
-        entityName: entity?.name ?? "Unknown Entity",
+        accountName: account?.accountName ?? "Unknown account",
+        entityName: entity?.name ?? "Unknown entity",
         source: transaction.source,
         accountType: account?.accountType ?? "operating_bank",
         transactionDate: transaction.transactionDate,

@@ -638,7 +638,7 @@ export default function DashboardPage() {
                 <KpiCard
                   label="Balance completeness"
                   value={accounts.length ? `${accountsWithBalances.length}/${accounts.length}` : "No accounts"}
-                  detail={latestBalanceDate ? `Latest balance date ${formatDate(latestBalanceDate)}` : "Waiting for first balance sync"}
+                  detail={latestBalanceDate ? `Accounts with current balances · latest ${formatDate(latestBalanceDate)}` : "Accounts with current balances · waiting for first sync"}
                 />
                 <KpiCard
                   label="Concentration"
@@ -772,7 +772,7 @@ export default function DashboardPage() {
                       const usdAmount = balanceUsd(account);
                       return (
                         <tr key={account.id} className="align-top">
-                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned Entity"}</td>
+                          <td className="px-4 py-3 font-medium text-zinc-950">{entityNameById.get(account.entityId) ?? "Unassigned entity"}</td>
                           <td className="max-w-64 px-4 py-3">
                             <div className="truncate font-medium text-zinc-900">{account.accountName}</div>
                             <div className="mt-1 text-xs text-zinc-500">{account.latestBalance ? formatDate(account.latestBalance.balanceDate) : "No balance date"}</div>

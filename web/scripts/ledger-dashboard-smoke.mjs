@@ -439,6 +439,7 @@ const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-ban
 assert.match(dashboardSource, /Treasury dashboard/);
 assert.match(dashboardSource, /Total liquidity in USD/);
 assert.match(dashboardSource, /Balance completeness/);
+assert.match(dashboardSource, /Accounts with current balances/);
 assert.match(dashboardSource, /Liquidity mix/);
 assert.match(dashboardSource, /Other\/remaining/);
 assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemaining\(rows, maxRows\) : rows;/);
