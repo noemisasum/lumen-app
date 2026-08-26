@@ -278,7 +278,7 @@ function KpiCard({ label, value, detail, tone = "neutral" }: { label: string; va
   const toneClass = tone === "warning" ? "text-amber-800" : tone === "success" ? "text-emerald-800" : "text-zinc-950";
 
   return (
-    <div className="min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+    <div className="h-full min-w-0 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="text-xs font-semibold uppercase text-zinc-500">{label}</div>
       <div className={`mt-2 break-words text-xl font-semibold tabular-nums ${toneClass}`}>{value}</div>
       <div className="mt-2 text-xs leading-5 text-zinc-500">{detail}</div>
@@ -670,7 +670,7 @@ export default function DashboardPage() {
 
             <Panel title="Recent Movements" subtitle={`Latest posted ledger activity from the past ${ledgerData?.windowDays ?? 30} days when available.`}>
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-zinc-100 text-sm">
+                <table className="min-w-[560px] divide-y divide-zinc-100 text-sm sm:min-w-full">
                   <thead className="bg-zinc-50 text-left text-xs font-medium uppercase text-zinc-500">
                     <tr>
                       <th scope="col" className="px-3 py-2">Date</th>
