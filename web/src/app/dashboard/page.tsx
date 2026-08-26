@@ -129,7 +129,7 @@ type CommentaryMetric = {
   value: string;
 };
 
-const analysisCharacterLimit = 130;
+const analysisCharacterLimit = 190;
 
 function getErrorMessage(err: unknown, fallback: string) {
   return err instanceof Error ? err.message : fallback;
@@ -384,18 +384,18 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const eliminatedTransferLabel = formatUsdCompact(transferEliminations.eliminatedUsd);
   const concentrationNote =
     ownFundsShare >= 0.65
-      ? "Own Funds dominate visible liquidity, keeping operating cash clear."
+      ? "Own Funds dominate visible liquidity, keeping operating cash clear while non-operating balances remain secondary."
       : externalFloat >= totalExposure * 0.2
-        ? "Processor and provider balances are material enough to watch for settlement timing."
+        ? "Processor and provider balances are material enough to watch for settlement timing and counterparty exposure."
         : "Liquidity is relatively diversified across treasury categories.";
   const movementPoint = recentMovements.length
     ? transferEliminations.eliminatedUsd > 0
       ? fitAnalysisText(
-          `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net after ${eliminatedTransferLabel} internal transfers.`,
+          `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`,
           `${recentMovements.length} movements: ${netMovementLabel} net after likely internal transfers.`,
         )
       : fitAnalysisText(
-          `${recentMovements.length} movements: ${inflowValueLabel} inflows, ${outflowValueLabel} outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
+          `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
           `${recentMovements.length} movements: ${netMovementLabel} net. No likely internal transfers detected.`,
         )
     : `No posted movements in the last ${data.windowDays} days.`;
