@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+import { groupSmallBankExposureRows, withComparisonExposureAmounts, type TreasuryExposureRow } from "@/lib/treasury-exposure";
 import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
 
 type SessionInfo = {
@@ -105,15 +106,10 @@ type LedgerDashboardData = {
     source: "frankfurter" | "xe";
     missingCurrencies: string[];
   };
+  comparison?: LedgerDashboardData;
 };
 
-type ExposureRow = {
-  id: string;
-  label: string;
-  detail: string;
-  amountUsd: number;
-  accountCount: number;
-};
+type ExposureRow = TreasuryExposureRow;
 
 type LiquidityMixRow = {
   accountType: AccountType;
@@ -223,6 +219,19 @@ function inferBankName(accountName: string) {
   return null;
 }
 
+function fallbackBankRelationshipLabel(account: LedgerAccount) {
+  const normalized = account.accountName.trim().replace(/^(MP|LP)\s*:\s*/i, "");
+  return normalized || `Bank account ${account.id.slice(0, 8)}`;
+}
+
+function bankRelationshipForAccount(account: LedgerAccount) {
+  const inferredBankName = inferBankName(account.accountName);
+  if (inferredBankName) return { id: `bank:${inferredBankName.toLowerCase()}`, label: inferredBankName };
+
+  const fallbackLabel = fallbackBankRelationshipLabel(account);
+  return { id: `account:${account.id}`, label: fallbackLabel };
+}
+
 function isExcludedBankExposureAccount(accountName: string) {
   return excludedBankExposureAccountNameRules.some((pattern) => pattern.test(accountName));
 }
@@ -254,6 +263,16 @@ function formatMoney(currency: string, amount: number, compact = false) {
 
 function formatUsdCompact(amount: number) {
   return formatMoney("USD", amount, true).replace("$", "US$");
+}
+
+function formatUsdFull(amount: number) {
+  return formatMoney("USD", amount).replace("$", "US$");
+}
+
+function formatSignedUsdCompact(amount: number) {
+  if (Math.abs(amount) < 1) return "No change";
+  const prefix = amount > 0 ? "+" : "-";
+  return `${prefix}${formatUsdCompact(Math.abs(amount))}`;
 }
 
 function formatLocalMoney(currency: string, amount: number) {
@@ -301,6 +320,18 @@ function latestIso(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort((left, right) => right.localeCompare(left))[0] ?? null;
 }
 
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dashboardFetchPath(asOfDate: string, compareDate: string) {
+  const params = new URLSearchParams();
+  if (asOfDate) params.set("asOfDate", asOfDate);
+  if (compareDate) params.set("compareDate", compareDate);
+  const query = params.toString();
+  return query ? `/api/dashboard/ledger?${query}` : "/api/dashboard/ledger";
+}
+
 function bankExposureDetail(accountTypes: Set<AccountType>) {
   const labels = categoryOrder.filter((accountType) => accountTypes.has(accountType)).map(accountTypeLabel);
   return labels.length ? labels.join(", ") : "USD account balances";
@@ -314,8 +345,8 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
     const amountUsd = balanceUsd(account);
     if (amountUsd === null) continue;
 
-    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : groupBy === "bank" ? inferBankName(account.accountName) : account.accountName;
-    if (key === null) continue;
+    const bankRelationship = groupBy === "bank" ? bankRelationshipForAccount(account) : undefined;
+    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : bankRelationship ? bankRelationship.id : account.accountName;
     if (groupBy === "bank") {
       const accountTypes = bankAccountTypes.get(key) ?? new Set<AccountType>();
       accountTypes.add(account.accountType);
@@ -330,8 +361,8 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
             ? entityNameById.get(account.entityId) ?? "Unassigned entity"
             : groupBy === "accountType"
               ? accountTypeLabel(account.accountType)
-              : groupBy === "bank"
-                ? key
+              : bankRelationship
+                ? bankRelationship.label
               : account.accountName,
         detail:
           groupBy === "entity"
@@ -371,6 +402,11 @@ function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
     accountCount: remainingRows.reduce((total, row) => total + row.accountCount, 0),
   });
   return visibleRows;
+}
+
+function compareExposureRow(row: ExposureRow, comparisonRows: ExposureRow[]) {
+  if (row.comparisonAmountUsd !== undefined) return row.amountUsd - row.comparisonAmountUsd;
+  return row.amountUsd - (comparisonRows.find((comparisonRow) => comparisonRow.id === row.id)?.amountUsd ?? 0);
 }
 
 function liquidityMixRows(rows: ExposureRow[]): LiquidityMixRow[] {
@@ -523,7 +559,19 @@ function Panel({ title, subtitle, children }: { title?: string; subtitle?: strin
   );
 }
 
-function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureRow[]; totalUsd: number; emptyLabel: string; maxRows?: number }) {
+function ExposureList({
+  rows,
+  totalUsd,
+  emptyLabel,
+  maxRows,
+  comparisonRows = [],
+}: {
+  rows: ExposureRow[];
+  totalUsd: number;
+  emptyLabel: string;
+  maxRows?: number;
+  comparisonRows?: ExposureRow[];
+}) {
   if (!rows.length) return <div className="text-sm text-zinc-500">{emptyLabel}</div>;
 
   const displayedRows = maxRows ? rowsWithRemaining(rows, maxRows) : rows;
@@ -537,13 +585,18 @@ function ExposureList({ rows, totalUsd, emptyLabel, maxRows }: { rows: ExposureR
             <div className="flex items-start justify-between gap-3 text-sm">
               <div className="min-w-0">
                 <div className="truncate font-medium text-zinc-950">{row.label}</div>
-                <div className="mt-1 text-xs text-zinc-500">
+                <div className="mt-1 line-clamp-2 text-xs leading-5 text-zinc-500">
                   {row.detail} · {row.accountCount} account{row.accountCount === 1 ? "" : "s"}
                 </div>
               </div>
               <div className="shrink-0 text-right">
                 <div className="tabular-nums font-semibold text-zinc-950">{formatMoney("USD", row.amountUsd, true)}</div>
                 <div className="mt-1 text-xs text-zinc-500">{formatPercent(share)}</div>
+                {comparisonRows.length ? (
+                  <div className={`mt-1 text-xs font-medium tabular-nums ${compareExposureRow(row, comparisonRows) < 0 ? "text-red-800" : compareExposureRow(row, comparisonRows) > 0 ? "text-emerald-800" : "text-zinc-500"}`}>
+                    {formatSignedUsdCompact(compareExposureRow(row, comparisonRows))}
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
@@ -580,7 +633,7 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
         <div className="text-left lg:shrink-0 lg:text-right">
           <div className="text-[11px] font-semibold uppercase text-zinc-500">Total</div>
           <div className="mt-1 break-words text-xl font-semibold tabular-nums text-zinc-950 sm:text-2xl">
-            {hasConvertedBalances ? formatUsdCompact(mixTotal) : "Unavailable"}
+            {hasConvertedBalances ? formatUsdFull(mixTotal) : "Unavailable"}
           </div>
         </div>
       </div>
@@ -639,20 +692,37 @@ export default function DashboardPage() {
   const [xeroConnecting, setXeroConnecting] = useState(false);
   const [xeroError, setXeroError] = useState<string | null>(null);
   const [xeroNotice, setXeroNotice] = useState<ReturnType<typeof xeroStatusMessage>>(null);
+  const [asOfDate, setAsOfDate] = useState("");
+  const [compareDate, setCompareDate] = useState("");
+  const selectedDashboardDatesRef = useRef({ asOfDate: "", compareDate: "" });
+
+  useEffect(() => {
+    selectedDashboardDatesRef.current = { asOfDate, compareDate };
+  }, [asOfDate, compareDate]);
 
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
+  const comparisonAccounts = useMemo(() => ledgerData?.comparison?.accounts ?? [], [ledgerData]);
+  const comparisonEntityNameById = useMemo(() => new Map((ledgerData?.comparison?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accountsWithBalances = accounts.filter((account) => account.latestBalance);
   const accountDetailRows = accounts.filter(hasNonZeroBalance);
   const convertedAccounts = accountsWithBalances.filter((account) => balanceUsd(account) !== null);
+  const convertedComparisonAccounts = comparisonAccounts.filter((account) => account.latestBalance && balanceUsd(account) !== null);
   const bankAccounts = useMemo(() => accounts.filter(isBankExposureAccount), [accounts]);
+  const comparisonBankAccounts = useMemo(() => comparisonAccounts.filter(isBankExposureAccount), [comparisonAccounts]);
   const convertedBankAccounts = bankAccounts.filter((account) => balanceUsd(account) !== null);
   const missingFxAccounts = accountsWithBalances.length - convertedAccounts.length;
   const totalUsd = sumUsd(convertedAccounts);
+  const comparisonTotalUsd = sumUsd(convertedComparisonAccounts);
+  const totalUsdDelta = ledgerData?.comparison ? totalUsd - comparisonTotalUsd : null;
   const bankTotalUsd = sumUsd(convertedBankAccounts);
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
-  const bankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
+  const comparisonEntityExposure = useMemo(() => groupExposure(comparisonAccounts, comparisonEntityNameById, "entity"), [comparisonAccounts, comparisonEntityNameById]);
+  const rawBankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
+  const rawComparisonBankExposure = useMemo(() => groupExposure(comparisonBankAccounts, comparisonEntityNameById, "bank"), [comparisonBankAccounts, comparisonEntityNameById]);
+  const bankExposure = useMemo(() => groupSmallBankExposureRows(withComparisonExposureAmounts(rawBankExposure, rawComparisonBankExposure)), [rawBankExposure, rawComparisonBankExposure]);
+  const comparisonBankExposure = useMemo(() => groupSmallBankExposureRows(rawComparisonBankExposure), [rawComparisonBankExposure]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
@@ -675,11 +745,11 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const loadLedgerDashboard = useCallback(async (accessToken: string) => {
+  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsOfDate: string, nextCompareDate: string) => {
     setLedgerLoading(true);
     setLedgerError(null);
     try {
-      const response = await fetch("/api/dashboard/ledger", {
+      const response = await fetch(dashboardFetchPath(nextAsOfDate, nextCompareDate), {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const body = (await response.json()) as LedgerDashboardData | { error?: string };
@@ -715,10 +785,16 @@ export default function DashboardPage() {
         const currentSession = {
           accessToken: data.session.access_token,
         };
+        const params = new URLSearchParams(window.location.search);
+        const initialAsOfDate = params.get("asOfDate") ?? "";
+        const initialCompareDate = params.get("compareDate") ?? "";
+        setAsOfDate(initialAsOfDate);
+        setCompareDate(initialCompareDate);
+        selectedDashboardDatesRef.current = { asOfDate: initialAsOfDate, compareDate: initialCompareDate };
         setSession(currentSession);
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
-        void loadLedgerDashboard(currentSession.accessToken);
+        void loadLedgerDashboard(currentSession.accessToken, initialAsOfDate, initialCompareDate);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
@@ -727,8 +803,9 @@ export default function DashboardPage() {
           }
           const nextSession = { accessToken: sess.access_token };
           setSession(nextSession);
+          const { asOfDate: selectedAsOfDate, compareDate: selectedCompareDate } = selectedDashboardDatesRef.current;
           void loadXeroStatus(nextSession.accessToken);
-          void loadLedgerDashboard(nextSession.accessToken);
+          void loadLedgerDashboard(nextSession.accessToken, selectedAsOfDate, selectedCompareDate);
         });
         unsub = sub.subscription;
       } catch (err: unknown) {
@@ -742,6 +819,18 @@ export default function DashboardPage() {
       unsub?.unsubscribe();
     };
   }, [loadLedgerDashboard, loadXeroStatus, supabase]);
+
+  function applyDashboardDates() {
+    if (!session) return;
+    void loadLedgerDashboard(session.accessToken, asOfDate, compareDate);
+  }
+
+  function resetDashboardDates() {
+    if (!session) return;
+    setAsOfDate("");
+    setCompareDate("");
+    void loadLedgerDashboard(session.accessToken, "", "");
+  }
 
   async function connectXero() {
     if (!session) return;
@@ -835,15 +924,52 @@ export default function DashboardPage() {
                   Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data.
                 </p>
               </div>
-              <div className="flex flex-col items-start gap-2 sm:items-end">
+              <div className="flex w-full flex-col items-start gap-3 xl:w-auto xl:items-end">
                 <p className="text-xs leading-5 text-zinc-500 sm:text-right">
-                  Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
+                  {asOfDate ? "Viewing as at" : "Data last updated"}: <span className="font-medium text-zinc-800">{asOfDate ? formatDate(asOfDate) : latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
+                  {ledgerData?.comparison && compareDate ? <span> · compared with <span className="font-medium text-zinc-800">{formatDate(compareDate)}</span></span> : null}
                 </p>
-                <div className="flex flex-wrap gap-2 sm:justify-end">
+                <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:grid-cols-[minmax(9rem,11rem)_minmax(9rem,11rem)_auto_auto_auto] sm:items-end">
+                  <label className="min-w-0 text-xs font-medium text-zinc-600">
+                    <span className="mb-1 block">As at</span>
+                    <input
+                      type="date"
+                      value={asOfDate}
+                      max={todayIsoDate()}
+                      onChange={(event) => setAsOfDate(event.target.value)}
+                      className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                    />
+                  </label>
+                  <label className="min-w-0 text-xs font-medium text-zinc-600">
+                    <span className="mb-1 block">Compare with</span>
+                    <input
+                      type="date"
+                      value={compareDate}
+                      max={todayIsoDate()}
+                      onChange={(event) => setCompareDate(event.target.value)}
+                      className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={applyDashboardDates}
+                    disabled={ledgerLoading}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    Apply
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetDashboardDates}
+                    disabled={ledgerLoading || (!asOfDate && !compareDate)}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                  >
+                    Current
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
-                      void loadLedgerDashboard(session.accessToken);
+                      void loadLedgerDashboard(session.accessToken, asOfDate, compareDate);
                       void loadXeroStatus(session.accessToken);
                     }}
                     disabled={ledgerLoading || xeroLoading}
@@ -851,6 +977,8 @@ export default function DashboardPage() {
                   >
                     {ledgerLoading || xeroLoading ? "Refreshing" : "Refresh"}
                   </button>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
                   <button
                     type="button"
                     onClick={connectXero}
@@ -942,11 +1070,16 @@ export default function DashboardPage() {
 
           <section className="grid gap-4 xl:grid-cols-2">
             <Panel title="Liquidity by Entity" subtitle="USD balances grouped by entity, limited to accounts with available USD conversion.">
-              <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." />
+              {totalUsdDelta !== null ? (
+                <div className="mb-3 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
+                  Total liquidity is <span className={`font-semibold tabular-nums ${totalUsdDelta < 0 ? "text-red-800" : totalUsdDelta > 0 ? "text-emerald-800" : "text-zinc-700"}`}>{formatSignedUsdCompact(totalUsdDelta)}</span> versus the comparison date.
+                </div>
+              ) : null}
+              <ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet." comparisonRows={comparisonEntityExposure} />
             </Panel>
 
-            <Panel title="Exposure by Bank" subtitle="Operating and client bank balances by banking relationship.">
-              <ExposureList rows={bankExposure} totalUsd={bankTotalUsd} emptyLabel="No USD bank balances yet." />
+            <Panel title="Exposure by Bank" subtitle="Banks above US$250k are shown individually; smaller relationships are grouped into Other Banks.">
+              <ExposureList rows={bankExposure} totalUsd={bankTotalUsd} emptyLabel="No USD bank balances yet." comparisonRows={comparisonBankExposure} />
             </Panel>
           </section>
 
