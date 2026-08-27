@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
@@ -379,7 +379,7 @@ function bankRowsWithThreshold(rows: ExposureRow[], thresholdUsd = bankExposureT
   visibleRows.push({
     id: "__bank_exposure_other",
     label: "Others",
-    detail: `${relationshipCount} bank${relationshipCount === 1 ? "" : "s"} / ${accountCount} account${accountCount === 1 ? "" : "s"} below ${formatUsdFull(thresholdUsd)}`,
+    detail: `${relationshipCount} bank${relationshipCount === 1 ? "" : "s"} below ${formatUsdFull(thresholdUsd)}`,
     amountUsd: otherRows.reduce((total, row) => total + row.amountUsd, 0),
     accountCount,
     relationshipCount,
@@ -670,8 +670,11 @@ export default function DashboardPage() {
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
   const [compareLedgerData, setCompareLedgerData] = useState<LedgerDashboardData | null>(null);
-  const [asAtDate, setAsAtDate] = useState("");
-  const [compareAsAtDate, setCompareAsAtDate] = useState("");
+  const [draftAsAtDate, setDraftAsAtDate] = useState("");
+  const [draftCompareAsAtDate, setDraftCompareAsAtDate] = useState("");
+  const [appliedAsAtDate, setAppliedAsAtDate] = useState("");
+  const [appliedCompareAsAtDate, setAppliedCompareAsAtDate] = useState("");
+  const appliedDateRef = useRef({ asAtDate: "", compareAsAtDate: "" });
   const [xeroStatus, setXeroStatus] = useState<XeroStatus | null>(null);
   const [xeroLoading, setXeroLoading] = useState(false);
   const [xeroConnecting, setXeroConnecting] = useState(false);
@@ -729,7 +732,13 @@ export default function DashboardPage() {
     return body as LedgerDashboardData;
   }, []);
 
-  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string) => {
+  const setAppliedDashboardDates = useCallback((nextAsAtDate: string, nextCompareAsAtDate: string) => {
+    appliedDateRef.current = { asAtDate: nextAsAtDate, compareAsAtDate: nextCompareAsAtDate };
+    setAppliedAsAtDate(nextAsAtDate);
+    setAppliedCompareAsAtDate(nextCompareAsAtDate);
+  }, []);
+
+  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string, options?: { applyDates?: boolean }) => {
     setLedgerLoading(true);
     setLedgerError(null);
     try {
@@ -739,6 +748,7 @@ export default function DashboardPage() {
       ]);
       setLedgerData(primaryData);
       setCompareLedgerData(comparisonData);
+      if (options?.applyDates) setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate);
     } catch (err: unknown) {
       setLedgerData(null);
       setCompareLedgerData(null);
@@ -746,7 +756,7 @@ export default function DashboardPage() {
     } finally {
       setLedgerLoading(false);
     }
-  }, [fetchLedgerDashboard]);
+  }, [fetchLedgerDashboard, setAppliedDashboardDates]);
 
   useEffect(() => {
     let unsub: { unsubscribe: () => void } | null = null;
@@ -773,7 +783,7 @@ export default function DashboardPage() {
         setSession(currentSession);
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
-        void loadLedgerDashboard(currentSession.accessToken, "", "");
+        void loadLedgerDashboard(currentSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
@@ -783,7 +793,7 @@ export default function DashboardPage() {
           const nextSession = { accessToken: sess.access_token };
           setSession(nextSession);
           void loadXeroStatus(nextSession.accessToken);
-          void loadLedgerDashboard(nextSession.accessToken, "", "");
+          void loadLedgerDashboard(nextSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate);
         });
         unsub = sub.subscription;
       } catch (err: unknown) {
@@ -898,7 +908,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      void loadLedgerDashboard(session.accessToken, asAtDate, compareAsAtDate);
+                      void loadLedgerDashboard(session.accessToken, appliedAsAtDate, appliedCompareAsAtDate);
                       void loadXeroStatus(session.accessToken);
                     }}
                     disabled={ledgerLoading || xeroLoading}
@@ -922,9 +932,9 @@ export default function DashboardPage() {
                 <span className="text-xs font-semibold text-zinc-600">As at</span>
                 <input
                   type="date"
-                  value={asAtDate}
+                  value={draftAsAtDate}
                   max={todayIsoDate()}
-                  onChange={(event) => setAsAtDate(event.target.value)}
+                  onChange={(event) => setDraftAsAtDate(event.target.value)}
                   className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
                 />
               </label>
@@ -932,28 +942,29 @@ export default function DashboardPage() {
                 <span className="text-xs font-semibold text-zinc-600">Compare to</span>
                 <input
                   type="date"
-                  value={compareAsAtDate}
+                  value={draftCompareAsAtDate}
                   max={todayIsoDate()}
-                  onChange={(event) => setCompareAsAtDate(event.target.value)}
+                  onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
                   className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
                 />
               </label>
               <div className="flex flex-wrap gap-2 md:justify-end">
                 <button
                   type="button"
-                  onClick={() => void loadLedgerDashboard(session.accessToken, asAtDate, compareAsAtDate)}
+                  onClick={() => void loadLedgerDashboard(session.accessToken, draftAsAtDate, draftCompareAsAtDate, { applyDates: true })}
                   disabled={ledgerLoading}
                   className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
                   Apply Dates
                 </button>
-                {(asAtDate || compareAsAtDate) ? (
+                {(draftAsAtDate || draftCompareAsAtDate || appliedAsAtDate || appliedCompareAsAtDate) ? (
                   <button
                     type="button"
                     onClick={() => {
-                      setAsAtDate("");
-                      setCompareAsAtDate("");
-                      void loadLedgerDashboard(session.accessToken, "", "");
+                      setDraftAsAtDate("");
+                      setDraftCompareAsAtDate("");
+                      setAppliedDashboardDates("", "");
+                      void loadLedgerDashboard(session.accessToken, "", "", { applyDates: true });
                     }}
                     disabled={ledgerLoading}
                     className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
@@ -963,8 +974,8 @@ export default function DashboardPage() {
                 ) : null}
               </div>
               <div className="text-xs leading-5 text-zinc-500 md:col-span-3">
-                Showing {asAtDate ? formatDate(asAtDate) : "latest available balances"}
-                {compareAsAtDate && compareDeltaUsd !== null ? ` vs ${formatDate(compareAsAtDate)} (${compareDeltaUsd >= 0 ? "+" : ""}${formatUsdFull(compareDeltaUsd)})` : ""}
+                Showing {appliedAsAtDate ? formatDate(appliedAsAtDate) : "latest available balances"}
+                {appliedCompareAsAtDate && compareDeltaUsd !== null ? ` vs ${formatDate(appliedCompareAsAtDate)} (${compareDeltaUsd >= 0 ? "+" : ""}${formatUsdFull(compareDeltaUsd)})` : ""}
               </div>
             </div>
           </section>

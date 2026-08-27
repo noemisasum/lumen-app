@@ -97,7 +97,9 @@ function daysBeforeIsoDate(toDate: string, days: number) {
 function parseAsAtDate(value: string | null) {
   const date = value?.trim().slice(0, 10);
   if (!date) return null;
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "__invalid";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "__invalid";
+  const parsedDate = new Date(`${date}T00:00:00.000Z`);
+  return Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date ? "__invalid" : date;
 }
 
 function uniqueById<T extends { id: string }>(rows: T[]) {
