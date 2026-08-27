@@ -5,6 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
+import { daysBeforeIsoDate, formatDashboardDate, todayIsoDate } from "@/lib/dashboard-dates";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
 
@@ -272,17 +273,12 @@ function formatLocalMoney(currency: string, amount: number) {
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "Not available";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
+  return formatDashboardDate(value);
 }
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not available";
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
-}
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function formatPercent(value: number) {
@@ -661,6 +657,8 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
 
 export default function DashboardPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const defaultAsAtDate = useMemo(() => todayIsoDate(), []);
+  const defaultCompareAsAtDate = useMemo(() => daysBeforeIsoDate(defaultAsAtDate, 30), [defaultAsAtDate]);
 
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -669,12 +667,11 @@ export default function DashboardPage() {
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
-  const [compareLedgerData, setCompareLedgerData] = useState<LedgerDashboardData | null>(null);
-  const [draftAsAtDate, setDraftAsAtDate] = useState("");
-  const [draftCompareAsAtDate, setDraftCompareAsAtDate] = useState("");
-  const [appliedAsAtDate, setAppliedAsAtDate] = useState("");
-  const [appliedCompareAsAtDate, setAppliedCompareAsAtDate] = useState("");
-  const appliedDateRef = useRef({ asAtDate: "", compareAsAtDate: "" });
+  const [draftAsAtDate, setDraftAsAtDate] = useState(defaultAsAtDate);
+  const [draftCompareAsAtDate, setDraftCompareAsAtDate] = useState(defaultCompareAsAtDate);
+  const [appliedAsAtDate, setAppliedAsAtDate] = useState(defaultAsAtDate);
+  const [appliedCompareAsAtDate, setAppliedCompareAsAtDate] = useState(defaultCompareAsAtDate);
+  const appliedDateRef = useRef({ asAtDate: defaultAsAtDate, compareAsAtDate: defaultCompareAsAtDate });
   const [xeroStatus, setXeroStatus] = useState<XeroStatus | null>(null);
   const [xeroLoading, setXeroLoading] = useState(false);
   const [xeroConnecting, setXeroConnecting] = useState(false);
@@ -696,12 +693,13 @@ export default function DashboardPage() {
   const bankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
   const visibleBankExposure = useMemo(() => bankRowsWithThreshold(bankExposure), [bankExposure]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
-  const compareAccounts = useMemo(() => compareLedgerData?.accounts ?? [], [compareLedgerData]);
-  const compareConvertedAccounts = compareAccounts.filter((account) => account.latestBalance && balanceUsd(account) !== null);
-  const compareTotalUsd = compareLedgerData ? sumUsd(compareConvertedAccounts) : null;
-  const compareDeltaUsd = compareTotalUsd === null ? null : totalUsd - compareTotalUsd;
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
+  const hasDateOverride =
+    draftAsAtDate !== defaultAsAtDate ||
+    draftCompareAsAtDate !== defaultCompareAsAtDate ||
+    appliedAsAtDate !== defaultAsAtDate ||
+    appliedCompareAsAtDate !== defaultCompareAsAtDate;
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -742,16 +740,11 @@ export default function DashboardPage() {
     setLedgerLoading(true);
     setLedgerError(null);
     try {
-      const [primaryData, comparisonData] = await Promise.all([
-        fetchLedgerDashboard(accessToken, nextAsAtDate),
-        nextCompareAsAtDate ? fetchLedgerDashboard(accessToken, nextCompareAsAtDate) : Promise.resolve(null),
-      ]);
+      const primaryData = await fetchLedgerDashboard(accessToken, nextAsAtDate);
       setLedgerData(primaryData);
-      setCompareLedgerData(comparisonData);
       if (options?.applyDates) setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate);
     } catch (err: unknown) {
       setLedgerData(null);
-      setCompareLedgerData(null);
       setLedgerError(getErrorMessage(err, "Failed to load ledger dashboard."));
     } finally {
       setLedgerLoading(false);
@@ -901,9 +894,6 @@ export default function DashboardPage() {
                 </p>
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
-                <p className="text-xs leading-5 text-zinc-500 sm:text-right">
-                  Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
-                </p>
                 <div className="flex flex-wrap gap-2 sm:justify-end">
                   <button
                     type="button"
@@ -927,55 +917,54 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-5 grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-              <label className="min-w-0">
-                <span className="text-xs font-semibold text-zinc-600">As at</span>
-                <input
-                  type="date"
-                  value={draftAsAtDate}
-                  max={todayIsoDate()}
-                  onChange={(event) => setDraftAsAtDate(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-              </label>
-              <label className="min-w-0">
-                <span className="text-xs font-semibold text-zinc-600">Compare to</span>
-                <input
-                  type="date"
-                  value={draftCompareAsAtDate}
-                  max={todayIsoDate()}
-                  onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-              </label>
-              <div className="flex flex-wrap gap-2 md:justify-end">
+            <div className="mt-4 flex flex-col gap-2 border-t border-zinc-200 pt-3 lg:flex-row lg:items-center lg:justify-between">
+              <p className="text-xs leading-5 text-zinc-500">
+                Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
+              </p>
+              <div className="flex min-w-0 flex-wrap items-end gap-2">
+                <label className="min-w-0">
+                  <span className="block text-[11px] font-medium text-zinc-500">As at</span>
+                  <input
+                    type="date"
+                    value={draftAsAtDate}
+                    max={todayIsoDate()}
+                    onChange={(event) => setDraftAsAtDate(event.target.value)}
+                    className="mt-1 h-8 w-36 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                  />
+                </label>
+                <label className="min-w-0">
+                  <span className="block text-[11px] font-medium text-zinc-500">Compare to</span>
+                  <input
+                    type="date"
+                    value={draftCompareAsAtDate}
+                    max={todayIsoDate()}
+                    onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
+                    className="mt-1 h-8 w-36 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={() => void loadLedgerDashboard(session.accessToken, draftAsAtDate, draftCompareAsAtDate, { applyDates: true })}
                   disabled={ledgerLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  className="inline-flex h-8 items-center justify-center rounded-md bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
-                  Apply Dates
+                  Apply
                 </button>
-                {(draftAsAtDate || draftCompareAsAtDate || appliedAsAtDate || appliedCompareAsAtDate) ? (
+                {hasDateOverride ? (
                   <button
                     type="button"
                     onClick={() => {
-                      setDraftAsAtDate("");
-                      setDraftCompareAsAtDate("");
-                      setAppliedDashboardDates("", "");
-                      void loadLedgerDashboard(session.accessToken, "", "", { applyDates: true });
+                      setDraftAsAtDate(defaultAsAtDate);
+                      setDraftCompareAsAtDate(defaultCompareAsAtDate);
+                      setAppliedDashboardDates(defaultAsAtDate, defaultCompareAsAtDate);
+                      void loadLedgerDashboard(session.accessToken, defaultAsAtDate, defaultCompareAsAtDate, { applyDates: true });
                     }}
                     disabled={ledgerLoading}
-                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                    className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                   >
-                    Clear
+                    Reset
                   </button>
                 ) : null}
-              </div>
-              <div className="text-xs leading-5 text-zinc-500 md:col-span-3">
-                Showing {appliedAsAtDate ? formatDate(appliedAsAtDate) : "latest available balances"}
-                {appliedCompareAsAtDate && compareDeltaUsd !== null ? ` vs ${formatDate(appliedCompareAsAtDate)} (${compareDeltaUsd >= 0 ? "+" : ""}${formatUsdFull(compareDeltaUsd)})` : ""}
               </div>
             </div>
           </section>
