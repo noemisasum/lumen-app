@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
 import { estimateInternalTransferEliminations } from "../src/lib/treasury-movement.ts";
-import { daysBeforeIsoDate, formatDashboardDate, isoDateFromLocalDate } from "../src/lib/dashboard-dates.ts";
+import { daysBeforeIsoDate, formatDashboardDate, isoDateFromLocalDate, previousMonthEndIsoDate } from "../src/lib/dashboard-dates.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
   const upserts = [];
@@ -230,6 +230,8 @@ assert.deepEqual(
 assert.equal(formatDashboardDate("2026-07-31"), "Jul 31, 2026");
 assert.equal(isoDateFromLocalDate(new Date(2026, 7, 27, 23, 30)), "2026-08-27");
 assert.equal(daysBeforeIsoDate("2026-08-27", 30), "2026-07-28");
+assert.equal(previousMonthEndIsoDate("2026-08-27"), "2026-07-31");
+assert.equal(previousMonthEndIsoDate("2026-07-31"), "2026-06-30");
 
 const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   id: `large-account-${index}`,
@@ -481,20 +483,35 @@ assert.match(dashboardSource, /formatUsdFull/);
 assert.match(dashboardSource, /USD balance distribution by treasury account type/);
 assert.match(dashboardSource, /Data last updated:/);
 assert.match(dashboardSource, /As at/);
-assert.match(dashboardSource, /Compare to/);
+assert.match(dashboardSource, /Compare/);
 assert.match(dashboardSource, /Apply/);
 assert.match(dashboardSource, /formatDashboardDate/);
 assert.match(dashboardSource, /daysBeforeIsoDate/);
-assert.match(dashboardSource, /const defaultAsAtDate = useMemo\(\(\) => todayIsoDate\(\), \[\]\);/);
-assert.match(dashboardSource, /const defaultCompareAsAtDate = useMemo\(\(\) => daysBeforeIsoDate\(defaultAsAtDate, 30\), \[defaultAsAtDate\]\);/);
-assert.match(dashboardSource, /const \[draftAsAtDate, setDraftAsAtDate\] = useState\(defaultAsAtDate\);/);
-assert.match(dashboardSource, /const \[appliedAsAtDate, setAppliedAsAtDate\] = useState\(defaultAsAtDate\);/);
-assert.match(dashboardSource, /const appliedDateRef = useRef\(\{ asAtDate: defaultAsAtDate, compareAsAtDate: defaultCompareAsAtDate \}\);/);
+assert.match(dashboardSource, /previousMonthEndIsoDate/);
+assert.match(dashboardSource, /datePresetOptions/);
+assert.match(dashboardSource, /dashboardDateRangeForPreset\("30d"\)/);
+assert.match(dashboardSource, /const \[datePreset, setDatePreset\] = useState<DatePreset>\("30d"\);/);
+assert.match(dashboardSource, /aria-controls="workspace-actions"/);
+assert.match(dashboardSource, /aria-label="Workspace actions"/);
+assert.match(dashboardSource, /aria-pressed=\{datePreset === option\.value\}/);
+assert.match(dashboardSource, /workspaceMenuRef/);
+assert.match(dashboardSource, /workspaceMenuButtonRef/);
+assert.match(dashboardSource, /role="group" aria-label="Date range presets"/);
+assert.match(dashboardSource, /document\.addEventListener\("pointerdown", handlePointerDown\)/);
+assert.match(dashboardSource, /event\.key === "Escape"/);
+assert.match(dashboardSource, /workspaceMenuButtonRef\.current\?\.focus\(\)/);
+assert.doesNotMatch(dashboardSource, /aria-haspopup="menu"/);
+assert.doesNotMatch(dashboardSource, /role="menu"/);
+assert.doesNotMatch(dashboardSource, /role="menuitem"/);
+assert.match(dashboardSource, /const \[draftAsAtDate, setDraftAsAtDate\] = useState\(defaultDateRange\.asAtDate\);/);
+assert.match(dashboardSource, /const \[appliedAsAtDate, setAppliedAsAtDate\] = useState\(defaultDateRange\.asAtDate\);/);
+assert.match(dashboardSource, /const appliedDateRef = useRef\(\{ asAtDate: defaultDateRange\.asAtDate, compareAsAtDate: defaultDateRange\.compareAsAtDate \}\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(session\.accessToken, appliedAsAtDate, appliedCompareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(currentSession\.accessToken, appliedDateRef\.current\.asAtDate, appliedDateRef\.current\.compareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(nextSession\.accessToken, appliedDateRef\.current\.asAtDate, appliedDateRef\.current\.compareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(session\.accessToken, draftAsAtDate, draftCompareAsAtDate, \{ applyDates: true \}\)/);
-assert.match(dashboardSource, /setAppliedDashboardDates\(defaultAsAtDate, defaultCompareAsAtDate\);/);
+assert.match(dashboardSource, /function applyDatePreset\(preset: DatePreset\)/);
+assert.match(dashboardSource, /setAppliedDashboardDates\(defaultDateRange\.asAtDate, defaultDateRange\.compareAsAtDate\);/);
 assert.match(dashboardSource, /fetchLedgerDashboard\(accessToken, nextCompareAsAtDate\)/);
 assert.match(dashboardSource, /\.catch\(\(\) => \{/);
 assert.match(dashboardSource, /compareDeltaUsd/);
