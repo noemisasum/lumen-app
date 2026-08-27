@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
 import { estimateInternalTransferEliminations } from "../src/lib/treasury-movement.ts";
+import { daysBeforeIsoDate, formatDashboardDate, isoDateFromLocalDate } from "../src/lib/dashboard-dates.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
   const upserts = [];
@@ -225,6 +226,10 @@ assert.deepEqual(
   ]),
   { eliminatedUsd: 0, pairedTransactionCount: 0 },
 );
+
+assert.equal(formatDashboardDate("2026-07-31"), "Jul 31, 2026");
+assert.equal(isoDateFromLocalDate(new Date(2026, 7, 27, 23, 30)), "2026-08-27");
+assert.equal(daysBeforeIsoDate("2026-08-27", 30), "2026-07-28");
 
 const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
   id: `large-account-${index}`,
@@ -469,7 +474,6 @@ const xeroLedgerSource = readFileSync(new URL("../src/lib/server/xero-bank-ledge
 const entityAccountRouteSource = readFileSync(new URL("../src/app/api/entity-bank-accounts/route.ts", import.meta.url), "utf8");
 assert.match(dashboardSource, /Treasury Dashboard/);
 assert.match(dashboardSource, /Monitor cash positions, account balances, liquidity, and recent ledger movement from authenticated treasury data\./);
-assert.match(dashboardSource, /<p className="text-xs leading-5 text-zinc-500 sm:text-right">/);
 assert.match(dashboardSource, /function LiquidityMixCard/);
 assert.match(dashboardSource, /Donut chart of USD liquidity\. \$\{displayRows/);
 assert.match(dashboardSource, /formatUsdCompact/);
@@ -479,18 +483,28 @@ assert.match(dashboardSource, /Data last updated:/);
 assert.match(dashboardSource, /As at/);
 assert.match(dashboardSource, /Compare to/);
 assert.match(dashboardSource, /Apply/);
-assert.match(dashboardSource, /timeZone: "UTC"/);
-assert.match(dashboardSource, /selectedDateCoverage/);
-assert.match(dashboardSource, /const \[draftAsAtDate, setDraftAsAtDate\] = useState\(""\);/);
-assert.match(dashboardSource, /const \[appliedAsAtDate, setAppliedAsAtDate\] = useState\(""\);/);
-assert.match(dashboardSource, /const appliedDateRef = useRef\(\{ asAtDate: "", compareAsAtDate: "" \}\);/);
+assert.match(dashboardSource, /formatDashboardDate/);
+assert.match(dashboardSource, /daysBeforeIsoDate/);
+assert.match(dashboardSource, /const defaultAsAtDate = useMemo\(\(\) => todayIsoDate\(\), \[\]\);/);
+assert.match(dashboardSource, /const defaultCompareAsAtDate = useMemo\(\(\) => daysBeforeIsoDate\(defaultAsAtDate, 30\), \[defaultAsAtDate\]\);/);
+assert.match(dashboardSource, /const \[draftAsAtDate, setDraftAsAtDate\] = useState\(defaultAsAtDate\);/);
+assert.match(dashboardSource, /const \[appliedAsAtDate, setAppliedAsAtDate\] = useState\(defaultAsAtDate\);/);
+assert.match(dashboardSource, /const appliedDateRef = useRef\(\{ asAtDate: defaultAsAtDate, compareAsAtDate: defaultCompareAsAtDate \}\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(session\.accessToken, appliedAsAtDate, appliedCompareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(currentSession\.accessToken, appliedDateRef\.current\.asAtDate, appliedDateRef\.current\.compareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(nextSession\.accessToken, appliedDateRef\.current\.asAtDate, appliedDateRef\.current\.compareAsAtDate\);/);
 assert.match(dashboardSource, /void loadLedgerDashboard\(session\.accessToken, draftAsAtDate, draftCompareAsAtDate, \{ applyDates: true \}\)/);
-assert.match(dashboardSource, /setAppliedDashboardDates\("", ""\);/);
-assert.match(dashboardSource, /Showing \{appliedAsAtDate \? formatDate\(appliedAsAtDate\) : "latest available balances"\}/);
-assert.match(dashboardSource, /appliedCompareAsAtDate && compareDeltaUsd !== null/);
+assert.match(dashboardSource, /setAppliedDashboardDates\(defaultAsAtDate, defaultCompareAsAtDate\);/);
+assert.match(dashboardSource, /fetchLedgerDashboard\(accessToken, nextCompareAsAtDate\)/);
+assert.match(dashboardSource, /\.catch\(\(\) => \{/);
+assert.match(dashboardSource, /compareDeltaUsd/);
+assert.match(dashboardSource, /vs \{formatDate\(compareAsAtDate\)\}/);
+assert.match(dashboardSource, /const dashboardRequestRef = useRef\(0\);/);
+assert.match(dashboardSource, /setCompareLedgerData\(null\);/);
+assert.match(dashboardSource, /dashboardRequestRef\.current === requestId/);
+assert.match(dashboardSource, /Reset/);
+assert.doesNotMatch(dashboardSource, /Showing \{appliedAsAtDate \? formatDate\(appliedAsAtDate\) : "latest available balances"\}/);
+assert.doesNotMatch(dashboardSource, /selectedDateCoverage/);
 assert.match(dashboardSource, /inset-\[28%\]/);
 assert.match(dashboardSource, /max-w-\[18rem\]/);
 assert.match(dashboardSource, /function buildTreasuryCommentary/);
@@ -536,7 +550,9 @@ assert.doesNotMatch(dashboardSource, /Categories <span/);
 assert.doesNotMatch(dashboardSource, /Accounts <span/);
 assert.doesNotMatch(dashboardSource, /Total USD exposure; external float is/);
 assert.doesNotMatch(dashboardSource, /Action Needs/);
-assert.match(dashboardSource, /<LiquidityMixCard rows=\{categoryExposure\} convertedCount=\{convertedAccounts\.length\} \/>/);
+assert.match(dashboardSource, /<LiquidityMixCard/);
+assert.match(dashboardSource, /compareAsAtDate=\{appliedCompareAsAtDate\}/);
+assert.match(dashboardSource, /compareDeltaUsd=\{compareDeltaUsd\}/);
 assert.match(dashboardSource, /xl:grid-cols-\[1\.35fr_0\.65fr\]/);
 assert.doesNotMatch(dashboardSource, /label="Bank Balances"/);
 assert.doesNotMatch(dashboardSource, /label="External Float Share"/);
