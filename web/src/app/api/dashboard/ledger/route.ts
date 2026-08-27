@@ -88,6 +88,18 @@ function daysAgoIsoDate(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function daysBeforeIsoDate(toDate: string, days: number) {
+  const date = new Date(`${toDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseAsAtDate(value: string | null) {
+  const date = value?.trim().slice(0, 10);
+  if (!date) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "__invalid";
+}
+
 function uniqueById<T extends { id: string }>(rows: T[]) {
   return Array.from(new Map(rows.map((row) => [row.id, row])).values());
 }
@@ -165,6 +177,12 @@ export async function GET(request: Request) {
   if (missing.length) return missingEnvResponse(missing);
 
   try {
+    const url = new URL(request.url);
+    const asAtDate = parseAsAtDate(url.searchParams.get("asAt"));
+    if (asAtDate === "__invalid") {
+      return NextResponse.json({ error: "Use an asAt date in YYYY-MM-DD format." }, { status: 400 });
+    }
+
     const { user } = await requireSupabaseUser(request);
     const supabase = getSupabaseServiceClient();
     const entities = await loadAccessibleEntities(supabase, user.id);
@@ -186,7 +204,8 @@ export async function GET(request: Request) {
     const entityIds = entities.map((entity) => entity.id);
     const accounts = (await loadBankAccounts(supabase, entityIds)).filter((account) => !shouldExcludeLedgerAccount({ accountName: account.account_name }));
     const accountIds = accounts.map((account) => account.id);
-    const sinceDate = daysAgoIsoDate(30);
+    const dashboardDate = asAtDate ?? new Date().toISOString().slice(0, 10);
+    const sinceDate = asAtDate ? daysBeforeIsoDate(asAtDate, 30) : daysAgoIsoDate(30);
 
     const [balanceResult, transactionResult] = await Promise.all([
       accountIds.length
@@ -195,6 +214,7 @@ export async function GET(request: Request) {
               .from("bank_account_balances")
               .select("id,entity_id,bank_account_id,source,balance_date,as_of,balance_type,amount,currency")
               .in("bank_account_id", accountIds)
+              .lte("balance_date", dashboardDate)
               .order("balance_date", { ascending: false })
               .order("as_of", { ascending: false }),
           )
@@ -206,6 +226,7 @@ export async function GET(request: Request) {
               .select("id,entity_id,bank_account_id,source,transaction_date,description,signed_amount,amount,direction,currency,status")
               .in("bank_account_id", accountIds)
               .gte("transaction_date", sinceDate)
+              .lte("transaction_date", dashboardDate)
               .neq("status", "voided")
               .neq("status", "failed")
               .order("transaction_date", { ascending: false }),
@@ -268,6 +289,7 @@ export async function GET(request: Request) {
         fxStatus: usdRates.status,
         fxSource: usdRates.source,
         fxMissingCurrencies: usdRates.missingCurrencies,
+        asOf: asAtDate ? `${asAtDate}T23:59:59.999Z` : undefined,
         windowDays: 30,
       }),
     );
