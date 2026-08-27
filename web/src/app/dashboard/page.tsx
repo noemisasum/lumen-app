@@ -5,7 +5,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
-import { daysBeforeIsoDate, formatDashboardDate, previousMonthEndIsoDate, todayIsoDate } from "@/lib/dashboard-dates";
+import { daysBeforeIsoDate, formatDashboardDate, formatDashboardDateCompact, previousMonthEndIsoDate, todayIsoDate } from "@/lib/dashboard-dates";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
 
@@ -141,7 +141,7 @@ const maxDashboardWindowDays = 366;
 const datePresetOptions: Array<{ value: DatePreset; label: string }> = [
   { value: "7d", label: "7D" },
   { value: "30d", label: "30D" },
-  { value: "month_end", label: "Month-end" },
+  { value: "month_end", label: "Month End" },
   { value: "custom", label: "Custom" },
 ];
 
@@ -161,6 +161,19 @@ function dashboardDateRangeForPreset(preset: Exclude<DatePreset, "custom">, asAt
     return { asAtDate: monthEndDate, compareAsAtDate, windowDays: dashboardWindowDays(monthEndDate, compareAsAtDate) };
   }
   return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 30), windowDays: 30 };
+}
+
+function dashboardWindowLabel(windowDays: number) {
+  if (windowDays === 7) return "7-Day";
+  if (windowDays === 30) return "30-Day";
+  return `${windowDays}-Day`;
+}
+
+function datePresetLabel(preset: DatePreset, windowDays: number) {
+  if (preset === "7d") return "7D";
+  if (preset === "30d") return "30D";
+  if (preset === "month_end") return "Month End";
+  return windowDays ? `${windowDays}D` : "Custom";
 }
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -480,7 +493,7 @@ function fitAnalysisText(text: string, fallback: string) {
   return text.length <= analysisCharacterLimit ? text : fallback;
 }
 
-function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null) {
+function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null, preset: DatePreset, asAtDate: string, compareAsAtDate: string) {
   if (!data) {
     return {
       headline: "Waiting for ledger data",
@@ -517,6 +530,13 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
             ? "Activity Heavy On Payments"
             : "Balanced";
   const connectionNote = xeroStatus?.connected ? "Ledger Source: Xero Connected" : "Ledger Source: Not Connected";
+  const windowLabel = preset === "month_end" ? "Month End" : dashboardWindowLabel(data.windowDays);
+  const movementContext =
+    preset === "month_end"
+      ? `At ${formatDashboardDateCompact(asAtDate)} month end`
+      : preset === "custom"
+        ? `${formatDashboardDateCompact(compareAsAtDate)}-${formatDashboardDateCompact(asAtDate)}`
+        : `Past ${data.windowDays} days`;
   const netMovementLabel = formatUsdCompact(usdNet);
   const inflowValueLabel = formatUsdCompact(estimatedExternalInflow);
   const outflowValueLabel = formatUsdCompact(estimatedExternalOutflow);
@@ -530,14 +550,14 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
   const movementPoint = recentMovements.length
     ? transferEliminations.eliminatedUsd > 0
       ? fitAnalysisText(
-          `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`,
+          `${movementContext}: ${recentMovements.length} movements, ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`,
           `${recentMovements.length} movements: ${netMovementLabel} net after likely internal transfers.`,
         )
       : fitAnalysisText(
-          `${recentMovements.length} movements over ${data.windowDays} days: ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
+          `${movementContext}: ${recentMovements.length} movements, ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
           `${recentMovements.length} movements: ${netMovementLabel} net. No likely internal transfers detected.`,
         )
-    : `No posted movements in the last ${data.windowDays} days.`;
+    : `No posted movements for ${movementContext}.`;
   const concentrationPoint = largestCategory
     ? fitAnalysisText(
         `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}`,
@@ -546,7 +566,7 @@ function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: X
     : concentrationNote;
 
   return {
-    headline: `Executive Read: ${movementBias}`,
+    headline: `${windowLabel} Executive Read: ${movementBias}`,
     points: [movementPoint, concentrationPoint],
     connectionNote,
     metrics: [
@@ -707,11 +727,13 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [dateMenuOpen, setDateMenuOpen] = useState(false);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [ledgerData, setLedgerData] = useState<LedgerDashboardData | null>(null);
   const [compareLedgerData, setCompareLedgerData] = useState<LedgerDashboardData | null>(null);
   const [datePreset, setDatePreset] = useState<DatePreset>("30d");
+  const [appliedDatePreset, setAppliedDatePreset] = useState<DatePreset>("30d");
   const [draftAsAtDate, setDraftAsAtDate] = useState(defaultDateRange.asAtDate);
   const [draftCompareAsAtDate, setDraftCompareAsAtDate] = useState(defaultDateRange.compareAsAtDate);
   const [appliedAsAtDate, setAppliedAsAtDate] = useState(defaultDateRange.asAtDate);
@@ -721,6 +743,8 @@ export default function DashboardPage() {
   const dashboardRequestRef = useRef(0);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const workspaceMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const dateMenuRef = useRef<HTMLDivElement>(null);
+  const dateMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [xeroStatus, setXeroStatus] = useState<XeroStatus | null>(null);
   const [xeroLoading, setXeroLoading] = useState(false);
   const [xeroConnecting, setXeroConnecting] = useState(false);
@@ -746,15 +770,22 @@ export default function DashboardPage() {
   const compareConvertedAccounts = compareAccounts.filter((account) => account.latestBalance && balanceUsd(account) !== null);
   const compareTotalUsd = compareLedgerData ? sumUsd(compareConvertedAccounts) : null;
   const compareDeltaUsd = compareTotalUsd === null ? null : totalUsd - compareTotalUsd;
-  const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
+  const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus, appliedDatePreset, appliedAsAtDate, appliedCompareAsAtDate), [appliedAsAtDate, appliedCompareAsAtDate, appliedDatePreset, ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
   const hasDateOverride =
-    datePreset !== "30d" ||
+    appliedDatePreset !== "30d" ||
     draftAsAtDate !== defaultDateRange.asAtDate ||
     draftCompareAsAtDate !== defaultDateRange.compareAsAtDate ||
     appliedAsAtDate !== defaultDateRange.asAtDate ||
     appliedCompareAsAtDate !== defaultDateRange.compareAsAtDate ||
     appliedWindowDays !== defaultDateRange.windowDays;
+  const selectedDatePresetLabel = datePresetLabel(appliedDatePreset, appliedWindowDays);
+  const selectedDateDetail =
+    appliedDatePreset === "month_end"
+      ? `As of ${formatDashboardDateCompact(appliedAsAtDate)} vs ${formatDashboardDateCompact(appliedCompareAsAtDate)}`
+      : appliedDatePreset === "custom"
+        ? `${formatDashboardDateCompact(appliedCompareAsAtDate)}-${formatDashboardDateCompact(appliedAsAtDate)}`
+        : `As of ${formatDashboardDateCompact(appliedAsAtDate)} vs ${formatDashboardDateCompact(appliedCompareAsAtDate)}`;
 
   useEffect(() => {
     if (!workspaceMenuOpen) return undefined;
@@ -777,6 +808,28 @@ export default function DashboardPage() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [workspaceMenuOpen]);
+
+  useEffect(() => {
+    if (!dateMenuOpen) return undefined;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!dateMenuRef.current?.contains(event.target as Node)) setDateMenuOpen(false);
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setDateMenuOpen(false);
+        dateMenuButtonRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [dateMenuOpen]);
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -815,7 +868,7 @@ export default function DashboardPage() {
     setAppliedWindowDays(nextWindowDays);
   }, []);
 
-  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string, nextWindowDays: number, options?: { applyDates?: boolean }) => {
+  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string, nextWindowDays: number, options?: { applyDates?: boolean; appliedPreset?: DatePreset }) => {
     const requestId = dashboardRequestRef.current + 1;
     dashboardRequestRef.current = requestId;
     setLedgerLoading(true);
@@ -825,7 +878,10 @@ export default function DashboardPage() {
       const primaryData = await fetchLedgerDashboard(accessToken, nextAsAtDate, nextWindowDays);
       if (dashboardRequestRef.current !== requestId) return;
       setLedgerData(primaryData);
-      if (options?.applyDates) setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate, nextWindowDays);
+      if (options?.applyDates) {
+        setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate, nextWindowDays);
+        if (options.appliedPreset) setAppliedDatePreset(options.appliedPreset);
+      }
       if (nextCompareAsAtDate) {
         fetchLedgerDashboard(accessToken, nextCompareAsAtDate, nextWindowDays)
           .then((comparisonData) => {
@@ -902,7 +958,8 @@ export default function DashboardPage() {
     const nextRange = dashboardDateRangeForPreset(preset);
     setDraftAsAtDate(nextRange.asAtDate);
     setDraftCompareAsAtDate(nextRange.compareAsAtDate);
-    if (session) void loadLedgerDashboard(session.accessToken, nextRange.asAtDate, nextRange.compareAsAtDate, nextRange.windowDays, { applyDates: true });
+    setDateMenuOpen(false);
+    if (session) void loadLedgerDashboard(session.accessToken, nextRange.asAtDate, nextRange.compareAsAtDate, nextRange.windowDays, { applyDates: true, appliedPreset: preset });
   }
 
   async function connectXero() {
@@ -1039,82 +1096,103 @@ export default function DashboardPage() {
               <p className="text-xs leading-5 text-zinc-500">
                 Data last updated: <span className="font-medium text-zinc-800">{latestRefresh ? formatDateTime(latestRefresh) : "Not synced yet"}</span>
               </p>
-              <div className="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
-                <div className="flex min-w-0 flex-wrap rounded-md border border-zinc-300 bg-white p-0.5 shadow-sm" role="group" aria-label="Date range presets">
-                  {datePresetOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => applyDatePreset(option.value)}
-                      aria-pressed={datePreset === option.value}
-                      className={`inline-flex h-7 items-center justify-center rounded px-2 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 ${
-                        datePreset === option.value ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950"
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {datePreset === "custom" ? (
-                  <>
-                    <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 shadow-sm focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200">
-                      <span className="text-[11px] font-medium text-zinc-500">As at</span>
-                      <input
-                        type="date"
-                        value={draftAsAtDate}
-                        max={todayIsoDate()}
-                        onChange={(event) => {
-                          const nextAsAtDate = event.target.value;
-                          const effectiveAsAtDate = nextAsAtDate || todayIsoDate();
-                          const minCompareDate = daysBeforeIsoDate(effectiveAsAtDate, maxDashboardWindowDays);
-                          setDraftAsAtDate(nextAsAtDate);
-                          if (draftCompareAsAtDate && draftCompareAsAtDate > effectiveAsAtDate) setDraftCompareAsAtDate(effectiveAsAtDate);
-                          if (draftCompareAsAtDate && draftCompareAsAtDate < minCompareDate) setDraftCompareAsAtDate(minCompareDate);
-                        }}
-                        className="h-7 w-28 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
-                      />
-                    </label>
-                    <label className="flex h-8 min-w-0 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 shadow-sm focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200">
-                      <span className="text-[11px] font-medium text-zinc-500">Compare</span>
-                      <input
-                        type="date"
-                        value={draftCompareAsAtDate}
-                        min={daysBeforeIsoDate(draftAsAtDate || todayIsoDate(), maxDashboardWindowDays)}
-                        max={draftAsAtDate || todayIsoDate()}
-                        onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
-                        className="h-7 w-28 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const nextAsAtDate = draftAsAtDate || todayIsoDate();
-                        setDraftAsAtDate(nextAsAtDate);
-                        void loadLedgerDashboard(session.accessToken, nextAsAtDate, draftCompareAsAtDate, dashboardWindowDays(nextAsAtDate, draftCompareAsAtDate), { applyDates: true });
-                      }}
-                      disabled={ledgerLoading}
-                      className="inline-flex h-8 items-center justify-center rounded-md bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
-                    >
-                      Apply
-                    </button>
-                  </>
-                ) : null}
-                {hasDateOverride ? (
+              <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto lg:justify-end">
+                <span className="min-w-0 text-xs leading-5 text-zinc-500">{selectedDateDetail}</span>
+                <div ref={dateMenuRef} className="relative w-full sm:w-auto">
                   <button
                     type="button"
-                    onClick={() => {
-                      setDatePreset("30d");
-                      setDraftAsAtDate(defaultDateRange.asAtDate);
-                      setDraftCompareAsAtDate(defaultDateRange.compareAsAtDate);
-                      setAppliedDashboardDates(defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, defaultDateRange.windowDays);
-                      void loadLedgerDashboard(session.accessToken, defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, defaultDateRange.windowDays, { applyDates: true });
-                    }}
-                    disabled={ledgerLoading}
-                    className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                    ref={dateMenuButtonRef}
+                    onClick={() => setDateMenuOpen((open) => !open)}
+                    aria-expanded={dateMenuOpen}
+                    aria-controls="date-window-menu"
+                    className="inline-flex h-8 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 sm:w-auto"
                   >
-                    Reset
+                    Window: {selectedDatePresetLabel}
                   </button>
-                ) : null}
+                  {dateMenuOpen ? (
+                    <div id="date-window-menu" className="absolute left-0 right-0 z-20 mt-2 rounded-lg border border-zinc-200 bg-white p-2 text-sm shadow-lg sm:left-auto sm:w-72">
+                      <div className="grid grid-cols-2 gap-1" role="group" aria-label="Date range presets">
+                        {datePresetOptions.map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => applyDatePreset(option.value)}
+                            aria-pressed={datePreset === option.value}
+                            className={`inline-flex h-8 items-center justify-center rounded-md px-2 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 ${
+                              datePreset === option.value ? "bg-zinc-950 text-white" : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-2 border-t border-zinc-100 pt-2 text-xs leading-5 text-zinc-500">
+                        Month End: {formatDate(dashboardDateRangeForPreset("month_end").asAtDate)}
+                      </div>
+                      {datePreset === "custom" ? (
+                        <div className="mt-3 space-y-2">
+                          <label className="flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-zinc-300 bg-white px-2 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200">
+                            <span className="text-[11px] font-medium text-zinc-500">As at</span>
+                            <input
+                              type="date"
+                              value={draftAsAtDate}
+                              max={todayIsoDate()}
+                              onChange={(event) => {
+                                const nextAsAtDate = event.target.value;
+                                const effectiveAsAtDate = nextAsAtDate || todayIsoDate();
+                                const minCompareDate = daysBeforeIsoDate(effectiveAsAtDate, maxDashboardWindowDays);
+                                setDraftAsAtDate(nextAsAtDate);
+                                if (draftCompareAsAtDate && draftCompareAsAtDate > effectiveAsAtDate) setDraftCompareAsAtDate(effectiveAsAtDate);
+                                if (draftCompareAsAtDate && draftCompareAsAtDate < minCompareDate) setDraftCompareAsAtDate(minCompareDate);
+                              }}
+                              className="h-8 w-32 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
+                            />
+                          </label>
+                          <label className="flex h-9 min-w-0 items-center justify-between gap-2 rounded-md border border-zinc-300 bg-white px-2 focus-within:border-zinc-500 focus-within:ring-2 focus-within:ring-zinc-200">
+                            <span className="text-[11px] font-medium text-zinc-500">Compare</span>
+                            <input
+                              type="date"
+                              value={draftCompareAsAtDate}
+                              min={daysBeforeIsoDate(draftAsAtDate || todayIsoDate(), maxDashboardWindowDays)}
+                              max={draftAsAtDate || todayIsoDate()}
+                              onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
+                              className="h-8 w-32 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextAsAtDate = draftAsAtDate || todayIsoDate();
+                              setDraftAsAtDate(nextAsAtDate);
+                              setDateMenuOpen(false);
+                              void loadLedgerDashboard(session.accessToken, nextAsAtDate, draftCompareAsAtDate, dashboardWindowDays(nextAsAtDate, draftCompareAsAtDate), { applyDates: true, appliedPreset: "custom" });
+                            }}
+                            disabled={ledgerLoading}
+                            className="inline-flex h-8 w-full items-center justify-center rounded-md bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      ) : null}
+                      {hasDateOverride ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDatePreset("30d");
+                            setDraftAsAtDate(defaultDateRange.asAtDate);
+                            setDraftCompareAsAtDate(defaultDateRange.compareAsAtDate);
+                            setDateMenuOpen(false);
+                            void loadLedgerDashboard(session.accessToken, defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, defaultDateRange.windowDays, { applyDates: true, appliedPreset: "30d" });
+                          }}
+                          disabled={ledgerLoading}
+                          className="mt-2 inline-flex h-8 w-full items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                        >
+                          Reset to 30D
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </section>
