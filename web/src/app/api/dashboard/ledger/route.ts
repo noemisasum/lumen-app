@@ -102,6 +102,12 @@ function parseAsAtDate(value: string | null) {
   return Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date ? "__invalid" : date;
 }
 
+function parseWindowDays(value: string | null) {
+  if (!value) return 30;
+  const days = Number(value);
+  return Number.isInteger(days) && days >= 1 && days <= 366 ? days : "__invalid";
+}
+
 function uniqueById<T extends { id: string }>(rows: T[]) {
   return Array.from(new Map(rows.map((row) => [row.id, row])).values());
 }
@@ -184,6 +190,10 @@ export async function GET(request: Request) {
     if (asAtDate === "__invalid") {
       return NextResponse.json({ error: "Use an asAt date in YYYY-MM-DD format." }, { status: 400 });
     }
+    const windowDays = parseWindowDays(url.searchParams.get("windowDays"));
+    if (windowDays === "__invalid") {
+      return NextResponse.json({ error: "Use windowDays as an integer from 1 to 366." }, { status: 400 });
+    }
 
     const { user } = await requireSupabaseUser(request);
     const supabase = getSupabaseServiceClient();
@@ -196,7 +206,7 @@ export async function GET(request: Request) {
           accounts: [],
           balances: [],
           transactions: [],
-          windowDays: 30,
+          windowDays,
         }),
       );
     }
@@ -207,7 +217,7 @@ export async function GET(request: Request) {
     const accounts = (await loadBankAccounts(supabase, entityIds)).filter((account) => !shouldExcludeLedgerAccount({ accountName: account.account_name }));
     const accountIds = accounts.map((account) => account.id);
     const dashboardDate = asAtDate ?? new Date().toISOString().slice(0, 10);
-    const sinceDate = asAtDate ? daysBeforeIsoDate(asAtDate, 30) : daysAgoIsoDate(30);
+    const sinceDate = asAtDate ? daysBeforeIsoDate(asAtDate, windowDays) : daysAgoIsoDate(windowDays);
 
     const [balanceResult, transactionResult] = await Promise.all([
       accountIds.length
@@ -292,7 +302,7 @@ export async function GET(request: Request) {
         fxSource: usdRates.source,
         fxMissingCurrencies: usdRates.missingCurrencies,
         asOf: asAtDate ? `${asAtDate}T23:59:59.999Z` : undefined,
-        windowDays: 30,
+        windowDays,
       }),
     );
   } catch (error) {
