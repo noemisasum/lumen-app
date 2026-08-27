@@ -273,7 +273,7 @@ function formatLocalMoney(currency: string, amount: number) {
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Not available";
-  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
+  return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -702,6 +702,8 @@ export default function DashboardPage() {
   const compareDeltaUsd = compareTotalUsd === null ? null : totalUsd - compareTotalUsd;
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
+  const selectedDateCoverage =
+    appliedAsAtDate && ledgerData?.accounts.length ? `${accountsWithBalances.length} of ${ledgerData.accounts.length} accounts have balances on or before ${formatDate(appliedAsAtDate)}.` : "";
 
   const loadXeroStatus = useCallback(async (accessToken: string) => {
     setXeroLoading(true);
@@ -927,35 +929,35 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
-            <div className="mt-5 grid gap-3 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
-              <label className="min-w-0">
-                <span className="text-xs font-semibold text-zinc-600">As at</span>
-                <input
-                  type="date"
-                  value={draftAsAtDate}
-                  max={todayIsoDate()}
-                  onChange={(event) => setDraftAsAtDate(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-              </label>
-              <label className="min-w-0">
-                <span className="text-xs font-semibold text-zinc-600">Compare to</span>
-                <input
-                  type="date"
-                  value={draftCompareAsAtDate}
-                  max={todayIsoDate()}
-                  onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
-                />
-              </label>
-              <div className="flex flex-wrap gap-2 md:justify-end">
+            <div className="mt-4 flex flex-col gap-2 border-t border-zinc-200 pt-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 flex-wrap items-end gap-2">
+                <label className="min-w-0">
+                  <span className="block text-[11px] font-medium text-zinc-500">As at</span>
+                  <input
+                    type="date"
+                    value={draftAsAtDate}
+                    max={todayIsoDate()}
+                    onChange={(event) => setDraftAsAtDate(event.target.value)}
+                    className="mt-1 h-8 w-36 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                  />
+                </label>
+                <label className="min-w-0">
+                  <span className="block text-[11px] font-medium text-zinc-500">Compare to</span>
+                  <input
+                    type="date"
+                    value={draftCompareAsAtDate}
+                    max={todayIsoDate()}
+                    onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
+                    className="mt-1 h-8 w-36 rounded-md border border-zinc-300 bg-white px-2 text-xs text-zinc-950 shadow-sm focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-200"
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={() => void loadLedgerDashboard(session.accessToken, draftAsAtDate, draftCompareAsAtDate, { applyDates: true })}
                   disabled={ledgerLoading}
-                  className="inline-flex h-10 items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                  className="inline-flex h-8 items-center justify-center rounded-md bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                 >
-                  Apply Dates
+                  Apply
                 </button>
                 {(draftAsAtDate || draftCompareAsAtDate || appliedAsAtDate || appliedCompareAsAtDate) ? (
                   <button
@@ -967,15 +969,16 @@ export default function DashboardPage() {
                       void loadLedgerDashboard(session.accessToken, "", "", { applyDates: true });
                     }}
                     disabled={ledgerLoading}
-                    className="inline-flex h-10 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                    className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
                   >
                     Clear
                   </button>
                 ) : null}
               </div>
-              <div className="text-xs leading-5 text-zinc-500 md:col-span-3">
+              <div className="min-w-0 text-xs leading-5 text-zinc-500 lg:text-right">
                 Showing {appliedAsAtDate ? formatDate(appliedAsAtDate) : "latest available balances"}
                 {appliedCompareAsAtDate && compareDeltaUsd !== null ? ` vs ${formatDate(appliedCompareAsAtDate)} (${compareDeltaUsd >= 0 ? "+" : ""}${formatUsdFull(compareDeltaUsd)})` : ""}
+                {selectedDateCoverage ? <span className="block">{selectedDateCoverage}</span> : null}
               </div>
             </div>
           </section>

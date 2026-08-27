@@ -478,7 +478,9 @@ assert.match(dashboardSource, /USD balance distribution by treasury account type
 assert.match(dashboardSource, /Data last updated:/);
 assert.match(dashboardSource, /As at/);
 assert.match(dashboardSource, /Compare to/);
-assert.match(dashboardSource, /Apply Dates/);
+assert.match(dashboardSource, /Apply/);
+assert.match(dashboardSource, /timeZone: "UTC"/);
+assert.match(dashboardSource, /selectedDateCoverage/);
 assert.match(dashboardSource, /const \[draftAsAtDate, setDraftAsAtDate\] = useState\(""\);/);
 assert.match(dashboardSource, /const \[appliedAsAtDate, setAppliedAsAtDate\] = useState\(""\);/);
 assert.match(dashboardSource, /const appliedDateRef = useRef\(\{ asAtDate: "", compareAsAtDate: "" \}\);/);
