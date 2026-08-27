@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
+import { BANK_EXPOSURE_THRESHOLD_USD, groupSmallBankExposureRows } from "../src/lib/treasury-exposure.ts";
 import { estimateInternalTransferEliminations } from "../src/lib/treasury-movement.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
@@ -224,6 +225,19 @@ assert.deepEqual(
     { id: "external-in", bankAccountId: "account-usd", transactionDate: "2026-08-22", signedAmount: 250, signedAmountUsd: 250, currency: "USD" },
   ]),
   { eliminatedUsd: 0, pairedTransactionCount: 0 },
+);
+assert.equal(BANK_EXPOSURE_THRESHOLD_USD, 250000);
+assert.deepEqual(
+  groupSmallBankExposureRows([
+    { id: "hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 320000, accountCount: 2 },
+    { id: "dbs", label: "DBS", detail: "Client Funds", amountUsd: 250000, accountCount: 1 },
+    { id: "uob", label: "UOB", detail: "Own Funds", amountUsd: 120000, accountCount: 2 },
+    { id: "wise", label: "Wise", detail: "Own Funds", amountUsd: 90000, accountCount: 1 },
+  ]),
+  [
+    { id: "hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 320000, accountCount: 2 },
+    { id: "__other_banks", label: "Other Banks", detail: "3 banking relationships below US$250k, US$460K total", amountUsd: 460000, accountCount: 4 },
+  ],
 );
 
 const largeAccounts = Array.from({ length: 5001 }, (_, index) => ({
@@ -474,7 +488,7 @@ assert.match(dashboardSource, /function LiquidityMixCard/);
 assert.match(dashboardSource, /Donut chart of USD liquidity\. \$\{displayRows/);
 assert.match(dashboardSource, /formatUsdCompact/);
 assert.match(dashboardSource, /USD balance distribution by treasury account type/);
-assert.match(dashboardSource, /Data last updated:/);
+assert.match(dashboardSource, /asOfDate \? "Viewing as at" : "Data last updated"/);
 assert.match(dashboardSource, /inset-\[28%\]/);
 assert.match(dashboardSource, /max-w-\[18rem\]/);
 assert.match(dashboardSource, /function buildTreasuryCommentary/);
@@ -490,7 +504,6 @@ assert.match(dashboardSource, /External Inflows/);
 assert.match(dashboardSource, /External Outflows/);
 assert.match(dashboardSource, /Est\. Internal Transfers/);
 assert.doesNotMatch(dashboardSource, /capWords/);
-assert.doesNotMatch(dashboardSource, /line-clamp/);
 assert.match(dashboardSource, /estimateInternalTransferEliminations/);
 assert.match(dashboardSource, /Ledger Source:/);
 assert.match(dashboardSource, /usdInflow/);
@@ -533,6 +546,8 @@ assert.doesNotMatch(dashboardSource, />No balance</);
 assert.match(dashboardSource, /Liquidity Mix/);
 assert.match(dashboardSource, /Other\/Remaining/);
 assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemaining\(rows, maxRows\) : rows;/);
+assert.match(dashboardSource, /groupSmallBankExposureRows/);
+assert.match(dashboardSource, /formatSignedUsdCompact/);
 assert.match(dashboardSource, /function inferBankName/);
 assert.ok(dashboardSource.includes('[/\\balph(?:a)?\\b/i, "Alpha Bank"]'));
 assert.ok(dashboardSource.includes("const excludedBankExposureAccountNameRules = [/\\bbank\\s+guarantee\\b/i, /\\bintercompany\\s*-\\s*mitrade\\s+group\\b/i];"));
@@ -551,14 +566,20 @@ assert.match(dashboardSource, /account\.accountType === "operating_bank" \|\| ac
 assert.match(dashboardSource, /groupBy: "entity" \| "account" \| "accountType" \| "bank"/);
 assert.match(dashboardSource, /const bankAccounts = useMemo\(\(\) => accounts\.filter\(isBankExposureAccount\), \[accounts\]\);/);
 assert.match(dashboardSource, /const bankTotalUsd = sumUsd\(convertedBankAccounts\);/);
-assert.match(dashboardSource, /const bankExposure = useMemo\(\(\) => groupExposure\(bankAccounts, entityNameById, "bank"\), \[bankAccounts, entityNameById\]\);/);
+assert.match(dashboardSource, /const bankExposure = useMemo\(\(\) => groupSmallBankExposureRows\(groupExposure\(bankAccounts, entityNameById, "bank"\)\), \[bankAccounts, entityNameById\]\);/);
+assert.match(dashboardSource, /const comparisonBankExposure = useMemo\(\(\) => groupSmallBankExposureRows\(groupExposure\(comparisonBankAccounts, comparisonEntityNameById, "bank"\)\), \[comparisonBankAccounts, comparisonEntityNameById\]\);/);
 assert.match(dashboardSource, /Exposure by Bank/);
-assert.match(dashboardSource, /Operating and client bank balances by banking relationship\./);
-assert.match(dashboardSource, /<ExposureList rows=\{bankExposure\} totalUsd=\{bankTotalUsd\} emptyLabel="No USD bank balances yet\." \/>/);
+assert.match(dashboardSource, /Banks above US\$250k are shown individually; smaller relationships are grouped into Other Banks\./);
+assert.match(dashboardSource, /<ExposureList rows=\{bankExposure\} totalUsd=\{bankTotalUsd\} emptyLabel="No USD bank balances yet\." comparisonRows=\{comparisonBankExposure\} \/>/);
 assert.doesNotMatch(dashboardSource, /<ExposureList rows=\{bankExposure\}[^>]*maxRows=/);
+assert.match(dashboardSource, /type="date"/);
+assert.match(dashboardSource, /dashboardFetchPath/);
+assert.match(dashboardSource, /params\.set\("asOfDate", asOfDate\)/);
+assert.match(dashboardSource, /params\.set\("compareDate", compareDate\)/);
+assert.match(dashboardSource, /Viewing as at/);
 assert.doesNotMatch(dashboardSource, /Exposure by Account/);
 assert.doesNotMatch(dashboardSource, /accountExposure/);
-assert.match(dashboardSource, /<ExposureList rows={entityExposure} totalUsd={totalUsd} emptyLabel="No USD entity balances yet\." \/>/);
+assert.match(dashboardSource, /<ExposureList rows=\{entityExposure\} totalUsd=\{totalUsd\} emptyLabel="No USD entity balances yet\." comparisonRows=\{comparisonEntityExposure\} \/>/);
 assert.doesNotMatch(dashboardSource, /<ExposureList rows={categoryExposure}/);
 assert.doesNotMatch(dashboardSource, /<ExposureList rows={entityExposure}[^>]*maxRows=/);
 assert.doesNotMatch(dashboardSource, /accounts\.slice\(0,\s*12\)/);
@@ -570,5 +591,10 @@ assert.match(xeroLedgerSource, /shouldExcludeLedgerAccount/);
 assert.match(xeroLedgerSource, /account_type: classifyLedgerAccountType/);
 assert.match(entityAccountRouteSource, /shouldExcludeLedgerAccount/);
 assert.match(entityAccountRouteSource, /account_type: classifyLedgerAccountType/);
+assert.match(dashboardRouteSource, /parseDashboardDateParam\(requestUrl\.searchParams, "asOfDate"\)/);
+assert.match(dashboardRouteSource, /parseDashboardDateParam\(requestUrl\.searchParams, "compareDate"\)/);
+assert.match(dashboardRouteSource, /\.lte\("balance_date", input\.asOfDate\)/);
+assert.match(dashboardRouteSource, /\.lte\("transaction_date", input\.asOfDate\)/);
+assert.match(dashboardRouteSource, /comparison: await buildSnapshotPayload/);
 
 console.log("ledger-dashboard smoke ok");

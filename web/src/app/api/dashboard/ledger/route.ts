@@ -88,6 +88,25 @@ function daysAgoIsoDate(days: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function daysBeforeIsoDate(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDashboardDateParam(searchParams: URLSearchParams, name: "asOfDate" | "compareDate") {
+  const value = searchParams.get(name)?.trim();
+  if (!value) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${name} must use YYYY-MM-DD.`);
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error(`${name} must be a valid calendar date.`);
+  return value;
+}
+
+function snapshotAsOfTimestamp(value: string | null) {
+  return value ? `${value}T23:59:59.999Z` : new Date().toISOString();
+}
+
 function uniqueById<T extends { id: string }>(rows: T[]) {
   return Array.from(new Map(rows.map((row) => [row.id, row])).values());
 }
@@ -160,11 +179,108 @@ async function loadBankAccounts(supabase: ReturnType<typeof getSupabaseServiceCl
   return ((fallbackResult.data ?? []) as unknown as BankAccountRow[]).map((account) => ({ ...account, account_type: null }));
 }
 
+async function buildSnapshotPayload(input: {
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+  entities: EntityRow[];
+  accounts: BankAccountRow[];
+  accountIds: string[];
+  asOfDate: string | null;
+}) {
+  const windowDays = 30;
+  const sinceDate = input.asOfDate ? daysBeforeIsoDate(input.asOfDate, windowDays) : daysAgoIsoDate(windowDays);
+
+  // Historical dashboard views use the selected date as the inclusive end of both
+  // latest-balance selection and the recent movement window. With no date params,
+  // the route keeps the existing "current dashboard" behavior.
+  const balanceQuery = input.supabase
+    .from("bank_account_balances")
+    .select("id,entity_id,bank_account_id,source,balance_date,as_of,balance_type,amount,currency")
+    .in("bank_account_id", input.accountIds)
+    .order("balance_date", { ascending: false })
+    .order("as_of", { ascending: false });
+  const datedBalanceQuery = input.asOfDate ? balanceQuery.lte("balance_date", input.asOfDate) : balanceQuery;
+  const transactionQuery = input.supabase
+    .from("bank_account_transactions")
+    .select("id,entity_id,bank_account_id,source,transaction_date,description,signed_amount,amount,direction,currency,status")
+    .in("bank_account_id", input.accountIds)
+    .gte("transaction_date", sinceDate)
+    .neq("status", "voided")
+    .neq("status", "failed")
+    .order("transaction_date", { ascending: false });
+  const datedTransactionQuery = input.asOfDate ? transactionQuery.lte("transaction_date", input.asOfDate) : transactionQuery;
+
+  const [balanceResult, transactionResult] = await Promise.all([
+    input.accountIds.length ? loadAllRows<BankBalanceRow>(datedBalanceQuery) : Promise.resolve([]),
+    input.accountIds.length ? loadAllRows<BankTransactionRow>(datedTransactionQuery) : Promise.resolve([]),
+  ]);
+  const usdRates = await getUsdRatesForCurrencies(input.supabase, [...balanceResult.map((balance) => balance.currency), ...transactionResult.map((transaction) => transaction.currency)]);
+
+  return buildLedgerDashboardPayload({
+    entities: input.entities.map(
+      (entity): LedgerDashboardEntity => ({
+        id: entity.id,
+        orgId: entity.org_id,
+        name: entity.name,
+        code: entity.code,
+      }),
+    ),
+    accounts: input.accounts.map(
+      (account): LedgerDashboardAccount => ({
+        id: account.id,
+        entityId: account.entity_id,
+        accountName: account.account_name,
+        currency: account.currency,
+        status: account.status,
+        source: accountSource(account),
+        accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
+        canAdmin: input.entities.find((entity) => entity.id === account.entity_id)?.canAdmin ?? false,
+      }),
+    ),
+    balances: balanceResult.map(
+      (balance): LedgerDashboardBalance => ({
+        id: balance.id,
+        entityId: balance.entity_id,
+        bankAccountId: balance.bank_account_id,
+        source: balance.source,
+        balanceDate: balance.balance_date,
+        asOf: balance.as_of,
+        balanceType: balance.balance_type,
+        amount: balance.amount,
+        currency: balance.currency,
+      }),
+    ),
+    transactions: transactionResult.map(
+      (transaction): LedgerDashboardTransaction => ({
+        id: transaction.id,
+        entityId: transaction.entity_id,
+        bankAccountId: transaction.bank_account_id,
+        source: transaction.source,
+        transactionDate: transaction.transaction_date,
+        description: transaction.description,
+        signedAmount: transaction.signed_amount,
+        amount: transaction.amount,
+        direction: transaction.direction,
+        currency: transaction.currency,
+        status: transaction.status,
+      }),
+    ),
+    usdRates: usdRates.rates,
+    fxStatus: usdRates.status,
+    fxSource: usdRates.source,
+    fxMissingCurrencies: usdRates.missingCurrencies,
+    asOf: snapshotAsOfTimestamp(input.asOfDate),
+    windowDays,
+  });
+}
+
 export async function GET(request: Request) {
   const missing = getMissingSupabaseServerEnv();
   if (missing.length) return missingEnvResponse(missing);
 
   try {
+    const requestUrl = new URL(request.url);
+    const asOfDate = parseDashboardDateParam(requestUrl.searchParams, "asOfDate");
+    const compareDate = parseDashboardDateParam(requestUrl.searchParams, "compareDate");
     const { user } = await requireSupabaseUser(request);
     const supabase = getSupabaseServiceClient();
     const entities = await loadAccessibleEntities(supabase, user.id);
@@ -186,93 +302,17 @@ export async function GET(request: Request) {
     const entityIds = entities.map((entity) => entity.id);
     const accounts = (await loadBankAccounts(supabase, entityIds)).filter((account) => !shouldExcludeLedgerAccount({ accountName: account.account_name }));
     const accountIds = accounts.map((account) => account.id);
-    const sinceDate = daysAgoIsoDate(30);
 
-    const [balanceResult, transactionResult] = await Promise.all([
-      accountIds.length
-        ? loadAllRows<BankBalanceRow>(
-            supabase
-              .from("bank_account_balances")
-              .select("id,entity_id,bank_account_id,source,balance_date,as_of,balance_type,amount,currency")
-              .in("bank_account_id", accountIds)
-              .order("balance_date", { ascending: false })
-              .order("as_of", { ascending: false }),
-          )
-        : Promise.resolve([]),
-      accountIds.length
-        ? loadAllRows<BankTransactionRow>(
-            supabase
-              .from("bank_account_transactions")
-              .select("id,entity_id,bank_account_id,source,transaction_date,description,signed_amount,amount,direction,currency,status")
-              .in("bank_account_id", accountIds)
-              .gte("transaction_date", sinceDate)
-              .neq("status", "voided")
-              .neq("status", "failed")
-              .order("transaction_date", { ascending: false }),
-          )
-        : Promise.resolve([]),
-    ]);
-    const usdRates = await getUsdRatesForCurrencies(supabase, [...balanceResult.map((balance) => balance.currency), ...transactionResult.map((transaction) => transaction.currency)]);
+    const payload = await buildSnapshotPayload({ supabase, entities, accounts, accountIds, asOfDate });
+    if (!compareDate) return NextResponse.json(payload);
 
-    return NextResponse.json(
-      buildLedgerDashboardPayload({
-        entities: entities.map(
-          (entity): LedgerDashboardEntity => ({
-            id: entity.id,
-            orgId: entity.org_id,
-            name: entity.name,
-            code: entity.code,
-          }),
-        ),
-        accounts: accounts.map(
-          (account): LedgerDashboardAccount => ({
-            id: account.id,
-            entityId: account.entity_id,
-            accountName: account.account_name,
-            currency: account.currency,
-            status: account.status,
-            source: accountSource(account),
-            accountType: classifyLedgerAccountType({ accountName: account.account_name, accountType: account.account_type }),
-            canAdmin: entities.find((entity) => entity.id === account.entity_id)?.canAdmin ?? false,
-          }),
-        ),
-        balances: balanceResult.map(
-          (balance): LedgerDashboardBalance => ({
-            id: balance.id,
-            entityId: balance.entity_id,
-            bankAccountId: balance.bank_account_id,
-            source: balance.source,
-            balanceDate: balance.balance_date,
-            asOf: balance.as_of,
-            balanceType: balance.balance_type,
-            amount: balance.amount,
-            currency: balance.currency,
-          }),
-        ),
-        transactions: transactionResult.map(
-          (transaction): LedgerDashboardTransaction => ({
-            id: transaction.id,
-            entityId: transaction.entity_id,
-            bankAccountId: transaction.bank_account_id,
-            source: transaction.source,
-            transactionDate: transaction.transaction_date,
-            description: transaction.description,
-            signedAmount: transaction.signed_amount,
-            amount: transaction.amount,
-            direction: transaction.direction,
-            currency: transaction.currency,
-            status: transaction.status,
-          }),
-        ),
-        usdRates: usdRates.rates,
-        fxStatus: usdRates.status,
-        fxSource: usdRates.source,
-        fxMissingCurrencies: usdRates.missingCurrencies,
-        windowDays: 30,
-      }),
-    );
+    return NextResponse.json({
+      ...payload,
+      comparison: await buildSnapshotPayload({ supabase, entities, accounts, accountIds, asOfDate: compareDate }),
+    });
   } catch (error) {
     if (error instanceof Response) return error;
+    if (error instanceof Error && /Date must|date must|asOfDate|compareDate/.test(error.message)) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ error: "Failed to load ledger dashboard." }, { status: 500 });
   }
 }
