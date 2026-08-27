@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
-import { groupSmallBankExposureRows, type TreasuryExposureRow } from "@/lib/treasury-exposure";
+import { groupSmallBankExposureRows, withComparisonExposureAmounts, type TreasuryExposureRow } from "@/lib/treasury-exposure";
 import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
 
 type SessionInfo = {
@@ -219,6 +219,19 @@ function inferBankName(accountName: string) {
   return null;
 }
 
+function fallbackBankRelationshipLabel(account: LedgerAccount) {
+  const normalized = account.accountName.trim().replace(/^(MP|LP)\s*:\s*/i, "");
+  return normalized || `Bank account ${account.id.slice(0, 8)}`;
+}
+
+function bankRelationshipForAccount(account: LedgerAccount) {
+  const inferredBankName = inferBankName(account.accountName);
+  if (inferredBankName) return { id: `bank:${inferredBankName.toLowerCase()}`, label: inferredBankName };
+
+  const fallbackLabel = fallbackBankRelationshipLabel(account);
+  return { id: `account:${account.id}`, label: fallbackLabel };
+}
+
 function isExcludedBankExposureAccount(accountName: string) {
   return excludedBankExposureAccountNameRules.some((pattern) => pattern.test(accountName));
 }
@@ -328,8 +341,8 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
     const amountUsd = balanceUsd(account);
     if (amountUsd === null) continue;
 
-    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : groupBy === "bank" ? inferBankName(account.accountName) : account.accountName;
-    if (key === null) continue;
+    const bankRelationship = groupBy === "bank" ? bankRelationshipForAccount(account) : undefined;
+    const key = groupBy === "entity" ? account.entityId : groupBy === "accountType" ? account.accountType : bankRelationship ? bankRelationship.id : account.accountName;
     if (groupBy === "bank") {
       const accountTypes = bankAccountTypes.get(key) ?? new Set<AccountType>();
       accountTypes.add(account.accountType);
@@ -344,8 +357,8 @@ function groupExposure(accounts: LedgerAccount[], entityNameById: Map<string, st
             ? entityNameById.get(account.entityId) ?? "Unassigned entity"
             : groupBy === "accountType"
               ? accountTypeLabel(account.accountType)
-              : groupBy === "bank"
-                ? key
+              : bankRelationship
+                ? bankRelationship.label
               : account.accountName,
         detail:
           groupBy === "entity"
@@ -388,6 +401,7 @@ function rowsWithRemaining(rows: ExposureRow[], maxRows = 6) {
 }
 
 function compareExposureRow(row: ExposureRow, comparisonRows: ExposureRow[]) {
+  if (row.comparisonAmountUsd !== undefined) return row.amountUsd - row.comparisonAmountUsd;
   return row.amountUsd - (comparisonRows.find((comparisonRow) => comparisonRow.id === row.id)?.amountUsd ?? 0);
 }
 
@@ -676,6 +690,11 @@ export default function DashboardPage() {
   const [xeroNotice, setXeroNotice] = useState<ReturnType<typeof xeroStatusMessage>>(null);
   const [asOfDate, setAsOfDate] = useState("");
   const [compareDate, setCompareDate] = useState("");
+  const selectedDashboardDatesRef = useRef({ asOfDate: "", compareDate: "" });
+
+  useEffect(() => {
+    selectedDashboardDatesRef.current = { asOfDate, compareDate };
+  }, [asOfDate, compareDate]);
 
   const entityNameById = useMemo(() => new Map((ledgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [ledgerData]);
   const accounts = useMemo(() => ledgerData?.accounts ?? [], [ledgerData]);
@@ -696,8 +715,10 @@ export default function DashboardPage() {
   const latestRefresh = latestIso(accountsWithBalances.map((account) => account.latestBalance?.asOf)) ?? ledgerData?.asOf ?? null;
   const entityExposure = useMemo(() => groupExposure(accounts, entityNameById, "entity"), [accounts, entityNameById]);
   const comparisonEntityExposure = useMemo(() => groupExposure(comparisonAccounts, comparisonEntityNameById, "entity"), [comparisonAccounts, comparisonEntityNameById]);
-  const bankExposure = useMemo(() => groupSmallBankExposureRows(groupExposure(bankAccounts, entityNameById, "bank")), [bankAccounts, entityNameById]);
-  const comparisonBankExposure = useMemo(() => groupSmallBankExposureRows(groupExposure(comparisonBankAccounts, comparisonEntityNameById, "bank")), [comparisonBankAccounts, comparisonEntityNameById]);
+  const rawBankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
+  const rawComparisonBankExposure = useMemo(() => groupExposure(comparisonBankAccounts, comparisonEntityNameById, "bank"), [comparisonBankAccounts, comparisonEntityNameById]);
+  const bankExposure = useMemo(() => groupSmallBankExposureRows(withComparisonExposureAmounts(rawBankExposure, rawComparisonBankExposure)), [rawBankExposure, rawComparisonBankExposure]);
+  const comparisonBankExposure = useMemo(() => groupSmallBankExposureRows(rawComparisonBankExposure), [rawComparisonBankExposure]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus), [ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
@@ -760,10 +781,16 @@ export default function DashboardPage() {
         const currentSession = {
           accessToken: data.session.access_token,
         };
+        const params = new URLSearchParams(window.location.search);
+        const initialAsOfDate = params.get("asOfDate") ?? "";
+        const initialCompareDate = params.get("compareDate") ?? "";
+        setAsOfDate(initialAsOfDate);
+        setCompareDate(initialCompareDate);
+        selectedDashboardDatesRef.current = { asOfDate: initialAsOfDate, compareDate: initialCompareDate };
         setSession(currentSession);
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
-        void loadLedgerDashboard(currentSession.accessToken, "", "");
+        void loadLedgerDashboard(currentSession.accessToken, initialAsOfDate, initialCompareDate);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
@@ -772,8 +799,9 @@ export default function DashboardPage() {
           }
           const nextSession = { accessToken: sess.access_token };
           setSession(nextSession);
+          const { asOfDate: selectedAsOfDate, compareDate: selectedCompareDate } = selectedDashboardDatesRef.current;
           void loadXeroStatus(nextSession.accessToken);
-          void loadLedgerDashboard(nextSession.accessToken, "", "");
+          void loadLedgerDashboard(nextSession.accessToken, selectedAsOfDate, selectedCompareDate);
         });
         unsub = sub.subscription;
       } catch (err: unknown) {

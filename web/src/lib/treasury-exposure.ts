@@ -3,6 +3,7 @@ export type TreasuryExposureRow = {
   label: string;
   detail: string;
   amountUsd: number;
+  comparisonAmountUsd?: number;
   accountCount: number;
 };
 
@@ -25,12 +26,15 @@ export function groupSmallBankExposureRows(rows: TreasuryExposureRow[]) {
   if (!smallerRows.length) return visibleRows;
 
   const otherAmountUsd = smallerRows.reduce((total, row) => total + row.amountUsd, 0);
+  const hasComparisonAmounts = smallerRows.some((row) => row.comparisonAmountUsd !== undefined);
+  const otherComparisonAmountUsd = hasComparisonAmounts ? smallerRows.reduce((total, row) => total + (row.comparisonAmountUsd ?? 0), 0) : undefined;
   const relationshipLabel = smallerRows.length === 1 ? "banking relationship" : "banking relationships";
   visibleRows.push({
     id: "__other_banks",
     label: "Other Banks",
     detail: `${smallerRows.length} ${relationshipLabel} below US$250k, ${formatUsdCompact(otherAmountUsd)} total`,
     amountUsd: otherAmountUsd,
+    ...(otherComparisonAmountUsd === undefined ? {} : { comparisonAmountUsd: otherComparisonAmountUsd }),
     accountCount: smallerRows.reduce((total, row) => total + row.accountCount, 0),
   });
 
@@ -39,4 +43,12 @@ export function groupSmallBankExposureRows(rows: TreasuryExposureRow[]) {
     if (right.id === "__other_banks") return -1;
     return Math.abs(right.amountUsd) - Math.abs(left.amountUsd);
   });
+}
+
+export function withComparisonExposureAmounts(rows: TreasuryExposureRow[], comparisonRows: TreasuryExposureRow[]) {
+  const comparisonAmountById = new Map(comparisonRows.map((row) => [row.id, row.amountUsd]));
+  return rows.map((row) => ({
+    ...row,
+    comparisonAmountUsd: comparisonAmountById.get(row.id) ?? 0,
+  }));
 }

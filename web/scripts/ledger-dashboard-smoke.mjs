@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildLedgerDashboardPayload, classifyLedgerAccountType, isMissingLedgerAccountTypeColumnError, shouldExcludeLedgerAccount } from "../src/lib/server/ledger-dashboard.ts";
 import { getUsdRatesForCurrencies } from "../src/lib/server/fx-rates.ts";
-import { BANK_EXPOSURE_THRESHOLD_USD, groupSmallBankExposureRows } from "../src/lib/treasury-exposure.ts";
+import { BANK_EXPOSURE_THRESHOLD_USD, groupSmallBankExposureRows, withComparisonExposureAmounts } from "../src/lib/treasury-exposure.ts";
 import { estimateInternalTransferEliminations } from "../src/lib/treasury-movement.ts";
 
 function createFxSupabaseStub({ cachedRows = [], upsertError = null } = {}) {
@@ -237,6 +237,27 @@ assert.deepEqual(
   [
     { id: "hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 320000, accountCount: 2 },
     { id: "__other_banks", label: "Other Banks", detail: "3 banking relationships below US$250k, US$460K total", amountUsd: 460000, accountCount: 4 },
+  ],
+);
+assert.deepEqual(
+  groupSmallBankExposureRows(
+    withComparisonExposureAmounts(
+      [
+        { id: "bank:hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 320000, accountCount: 1 },
+        { id: "account:unknown-current", label: "New Operating Account", detail: "Own Funds", amountUsd: 260000, accountCount: 1 },
+        { id: "bank:uob", label: "UOB", detail: "Own Funds", amountUsd: 120000, accountCount: 1 },
+      ],
+      [
+        { id: "bank:hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 240000, accountCount: 1 },
+        { id: "account:unknown-current", label: "New Operating Account", detail: "Own Funds", amountUsd: 180000, accountCount: 1 },
+        { id: "bank:uob", label: "UOB", detail: "Own Funds", amountUsd: 275000, accountCount: 1 },
+      ],
+    ),
+  ),
+  [
+    { id: "bank:hsbc", label: "HSBC", detail: "Own Funds", amountUsd: 320000, comparisonAmountUsd: 240000, accountCount: 1 },
+    { id: "account:unknown-current", label: "New Operating Account", detail: "Own Funds", amountUsd: 260000, comparisonAmountUsd: 180000, accountCount: 1 },
+    { id: "__other_banks", label: "Other Banks", detail: "1 banking relationship below US$250k, US$120K total", amountUsd: 120000, comparisonAmountUsd: 275000, accountCount: 1 },
   ],
 );
 
@@ -549,6 +570,9 @@ assert.match(dashboardSource, /const displayedRows = maxRows \? rowsWithRemainin
 assert.match(dashboardSource, /groupSmallBankExposureRows/);
 assert.match(dashboardSource, /formatSignedUsdCompact/);
 assert.match(dashboardSource, /function inferBankName/);
+assert.match(dashboardSource, /function fallbackBankRelationshipLabel/);
+assert.match(dashboardSource, /function bankRelationshipForAccount/);
+assert.match(dashboardSource, /return \{ id: `account:\$\{account\.id\}`, label: fallbackLabel \};/);
 assert.ok(dashboardSource.includes('[/\\balph(?:a)?\\b/i, "Alpha Bank"]'));
 assert.ok(dashboardSource.includes("const excludedBankExposureAccountNameRules = [/\\bbank\\s+guarantee\\b/i, /\\bintercompany\\s*-\\s*mitrade\\s+group\\b/i];"));
 assert.match(dashboardSource, /\[\/\\bwestpac\\b\/i, "Westpac"\]/);
@@ -557,7 +581,7 @@ assert.match(dashboardSource, /\[\/\\bdbs\\b\/i, "DBS"\]/);
 assert.match(dashboardSource, /\[\/\\bbutterfield\\b\/i, "Butterfield Bank"\]/);
 assert.match(dashboardSource, /\[\/\\brevolut\\b\/i, "Revolut"\]/);
 assert.match(dashboardSource, /return null;/);
-assert.match(dashboardSource, /if \(key === null\) continue;/);
+assert.doesNotMatch(dashboardSource, /if \(key === null\) continue;/);
 assert.doesNotMatch(dashboardSource, /Other Bank Accounts/);
 assert.doesNotMatch(dashboardSource, /Unclassified Bank/);
 assert.match(dashboardSource, /function isBankExposureAccount/);
@@ -566,8 +590,10 @@ assert.match(dashboardSource, /account\.accountType === "operating_bank" \|\| ac
 assert.match(dashboardSource, /groupBy: "entity" \| "account" \| "accountType" \| "bank"/);
 assert.match(dashboardSource, /const bankAccounts = useMemo\(\(\) => accounts\.filter\(isBankExposureAccount\), \[accounts\]\);/);
 assert.match(dashboardSource, /const bankTotalUsd = sumUsd\(convertedBankAccounts\);/);
-assert.match(dashboardSource, /const bankExposure = useMemo\(\(\) => groupSmallBankExposureRows\(groupExposure\(bankAccounts, entityNameById, "bank"\)\), \[bankAccounts, entityNameById\]\);/);
-assert.match(dashboardSource, /const comparisonBankExposure = useMemo\(\(\) => groupSmallBankExposureRows\(groupExposure\(comparisonBankAccounts, comparisonEntityNameById, "bank"\)\), \[comparisonBankAccounts, comparisonEntityNameById\]\);/);
+assert.match(dashboardSource, /const rawBankExposure = useMemo\(\(\) => groupExposure\(bankAccounts, entityNameById, "bank"\), \[bankAccounts, entityNameById\]\);/);
+assert.match(dashboardSource, /const rawComparisonBankExposure = useMemo\(\(\) => groupExposure\(comparisonBankAccounts, comparisonEntityNameById, "bank"\), \[comparisonBankAccounts, comparisonEntityNameById\]\);/);
+assert.match(dashboardSource, /withComparisonExposureAmounts\(rawBankExposure, rawComparisonBankExposure\)/);
+assert.match(dashboardSource, /row\.comparisonAmountUsd !== undefined/);
 assert.match(dashboardSource, /Exposure by Bank/);
 assert.match(dashboardSource, /Banks above US\$250k are shown individually; smaller relationships are grouped into Other Banks\./);
 assert.match(dashboardSource, /<ExposureList rows=\{bankExposure\} totalUsd=\{bankTotalUsd\} emptyLabel="No USD bank balances yet\." comparisonRows=\{comparisonBankExposure\} \/>/);
@@ -576,6 +602,11 @@ assert.match(dashboardSource, /type="date"/);
 assert.match(dashboardSource, /dashboardFetchPath/);
 assert.match(dashboardSource, /params\.set\("asOfDate", asOfDate\)/);
 assert.match(dashboardSource, /params\.set\("compareDate", compareDate\)/);
+assert.match(dashboardSource, /const selectedDashboardDatesRef = useRef\(\{ asOfDate: "", compareDate: "" \}\);/);
+assert.match(dashboardSource, /const initialAsOfDate = params\.get\("asOfDate"\) \?\? "";/);
+assert.match(dashboardSource, /loadLedgerDashboard\(currentSession\.accessToken, initialAsOfDate, initialCompareDate\)/);
+assert.match(dashboardSource, /selectedDashboardDatesRef\.current/);
+assert.match(dashboardSource, /loadLedgerDashboard\(nextSession\.accessToken, selectedAsOfDate, selectedCompareDate\)/);
 assert.match(dashboardSource, /Viewing as at/);
 assert.doesNotMatch(dashboardSource, /Exposure by Account/);
 assert.doesNotMatch(dashboardSource, /accountExposure/);
