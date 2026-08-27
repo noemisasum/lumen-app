@@ -265,6 +265,10 @@ function formatUsdCompact(amount: number) {
   return formatMoney("USD", amount, true).replace("$", "US$");
 }
 
+function formatUsdFull(amount: number) {
+  return formatMoney("USD", amount).replace("$", "US$");
+}
+
 function formatSignedUsdCompact(amount: number) {
   if (Math.abs(amount) < 1) return "No change";
   const prefix = amount > 0 ? "+" : "-";
@@ -629,7 +633,7 @@ function LiquidityMixCard({ rows, convertedCount }: { rows: ExposureRow[]; conve
         <div className="text-left lg:shrink-0 lg:text-right">
           <div className="text-[11px] font-semibold uppercase text-zinc-500">Total</div>
           <div className="mt-1 break-words text-xl font-semibold tabular-nums text-zinc-950 sm:text-2xl">
-            {hasConvertedBalances ? formatUsdCompact(mixTotal) : "Unavailable"}
+            {hasConvertedBalances ? formatUsdFull(mixTotal) : "Unavailable"}
           </div>
         </div>
       </div>

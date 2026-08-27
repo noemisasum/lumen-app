@@ -508,6 +508,8 @@ assert.match(dashboardSource, /<p className="text-xs leading-5 text-zinc-500 sm:
 assert.match(dashboardSource, /function LiquidityMixCard/);
 assert.match(dashboardSource, /Donut chart of USD liquidity\. \$\{displayRows/);
 assert.match(dashboardSource, /formatUsdCompact/);
+assert.match(dashboardSource, /function formatUsdFull/);
+assert.match(dashboardSource, /\? formatUsdFull\(mixTotal\) : "Unavailable"/);
 assert.match(dashboardSource, /USD balance distribution by treasury account type/);
 assert.match(dashboardSource, /asOfDate \? "Viewing as at" : "Data last updated"/);
 assert.match(dashboardSource, /inset-\[28%\]/);
