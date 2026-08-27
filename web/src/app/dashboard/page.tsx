@@ -132,27 +132,35 @@ type CommentaryMetric = {
   value: string;
 };
 
-type DatePreset = "today" | "7d" | "30d" | "month_end" | "custom";
+type DatePreset = "7d" | "30d" | "month_end" | "custom";
 
 const analysisCharacterLimit = 190;
 const bankExposureThresholdUsd = 250000;
+const maxDashboardWindowDays = 366;
 
 const datePresetOptions: Array<{ value: DatePreset; label: string }> = [
-  { value: "today", label: "Today" },
   { value: "7d", label: "7D" },
   { value: "30d", label: "30D" },
   { value: "month_end", label: "Month-end" },
   { value: "custom", label: "Custom" },
 ];
 
+function dashboardWindowDays(asAtDate: string, compareAsAtDate: string) {
+  if (!compareAsAtDate) return 30;
+  const asAtTime = new Date(`${asAtDate}T00:00:00.000Z`).getTime();
+  const compareTime = new Date(`${compareAsAtDate}T00:00:00.000Z`).getTime();
+  const diffDays = Math.round((asAtTime - compareTime) / 86400000);
+  return Number.isFinite(diffDays) ? Math.min(maxDashboardWindowDays, Math.max(1, diffDays)) : 30;
+}
+
 function dashboardDateRangeForPreset(preset: Exclude<DatePreset, "custom">, asAtDate = todayIsoDate()) {
-  if (preset === "today") return { asAtDate, compareAsAtDate: "" };
-  if (preset === "7d") return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 7) };
+  if (preset === "7d") return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 7), windowDays: 7 };
   if (preset === "month_end") {
     const monthEndDate = previousMonthEndIsoDate(asAtDate);
-    return { asAtDate: monthEndDate, compareAsAtDate: previousMonthEndIsoDate(monthEndDate) };
+    const compareAsAtDate = previousMonthEndIsoDate(monthEndDate);
+    return { asAtDate: monthEndDate, compareAsAtDate, windowDays: dashboardWindowDays(monthEndDate, compareAsAtDate) };
   }
-  return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 30) };
+  return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 30), windowDays: 30 };
 }
 
 function getErrorMessage(err: unknown, fallback: string) {
@@ -708,7 +716,8 @@ export default function DashboardPage() {
   const [draftCompareAsAtDate, setDraftCompareAsAtDate] = useState(defaultDateRange.compareAsAtDate);
   const [appliedAsAtDate, setAppliedAsAtDate] = useState(defaultDateRange.asAtDate);
   const [appliedCompareAsAtDate, setAppliedCompareAsAtDate] = useState(defaultDateRange.compareAsAtDate);
-  const appliedDateRef = useRef({ asAtDate: defaultDateRange.asAtDate, compareAsAtDate: defaultDateRange.compareAsAtDate });
+  const [appliedWindowDays, setAppliedWindowDays] = useState(defaultDateRange.windowDays);
+  const appliedDateRef = useRef({ asAtDate: defaultDateRange.asAtDate, compareAsAtDate: defaultDateRange.compareAsAtDate, windowDays: defaultDateRange.windowDays });
   const dashboardRequestRef = useRef(0);
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const workspaceMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -744,7 +753,8 @@ export default function DashboardPage() {
     draftAsAtDate !== defaultDateRange.asAtDate ||
     draftCompareAsAtDate !== defaultDateRange.compareAsAtDate ||
     appliedAsAtDate !== defaultDateRange.asAtDate ||
-    appliedCompareAsAtDate !== defaultDateRange.compareAsAtDate;
+    appliedCompareAsAtDate !== defaultDateRange.compareAsAtDate ||
+    appliedWindowDays !== defaultDateRange.windowDays;
 
   useEffect(() => {
     if (!workspaceMenuOpen) return undefined;
@@ -786,9 +796,10 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const fetchLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string) => {
+  const fetchLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextWindowDays: number) => {
     const params = new URLSearchParams();
     if (nextAsAtDate) params.set("asAt", nextAsAtDate);
+    params.set("windowDays", String(nextWindowDays));
     const response = await fetch(`/api/dashboard/ledger${params.size ? `?${params.toString()}` : ""}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -797,25 +808,26 @@ export default function DashboardPage() {
     return body as LedgerDashboardData;
   }, []);
 
-  const setAppliedDashboardDates = useCallback((nextAsAtDate: string, nextCompareAsAtDate: string) => {
-    appliedDateRef.current = { asAtDate: nextAsAtDate, compareAsAtDate: nextCompareAsAtDate };
+  const setAppliedDashboardDates = useCallback((nextAsAtDate: string, nextCompareAsAtDate: string, nextWindowDays: number) => {
+    appliedDateRef.current = { asAtDate: nextAsAtDate, compareAsAtDate: nextCompareAsAtDate, windowDays: nextWindowDays };
     setAppliedAsAtDate(nextAsAtDate);
     setAppliedCompareAsAtDate(nextCompareAsAtDate);
+    setAppliedWindowDays(nextWindowDays);
   }, []);
 
-  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string, options?: { applyDates?: boolean }) => {
+  const loadLedgerDashboard = useCallback(async (accessToken: string, nextAsAtDate: string, nextCompareAsAtDate: string, nextWindowDays: number, options?: { applyDates?: boolean }) => {
     const requestId = dashboardRequestRef.current + 1;
     dashboardRequestRef.current = requestId;
     setLedgerLoading(true);
     setLedgerError(null);
     setCompareLedgerData(null);
     try {
-      const primaryData = await fetchLedgerDashboard(accessToken, nextAsAtDate);
+      const primaryData = await fetchLedgerDashboard(accessToken, nextAsAtDate, nextWindowDays);
       if (dashboardRequestRef.current !== requestId) return;
       setLedgerData(primaryData);
-      if (options?.applyDates) setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate);
+      if (options?.applyDates) setAppliedDashboardDates(nextAsAtDate, nextCompareAsAtDate, nextWindowDays);
       if (nextCompareAsAtDate) {
-        fetchLedgerDashboard(accessToken, nextCompareAsAtDate)
+        fetchLedgerDashboard(accessToken, nextCompareAsAtDate, nextWindowDays)
           .then((comparisonData) => {
             if (dashboardRequestRef.current === requestId) setCompareLedgerData(comparisonData);
           })
@@ -858,7 +870,7 @@ export default function DashboardPage() {
         setSession(currentSession);
         setXeroNotice(xeroStatusMessage(new URLSearchParams(window.location.search).get("xero")));
         void loadXeroStatus(currentSession.accessToken);
-        void loadLedgerDashboard(currentSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate);
+        void loadLedgerDashboard(currentSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate, appliedDateRef.current.windowDays);
 
         const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
           if (!sess) {
@@ -868,7 +880,7 @@ export default function DashboardPage() {
           const nextSession = { accessToken: sess.access_token };
           setSession(nextSession);
           void loadXeroStatus(nextSession.accessToken);
-          void loadLedgerDashboard(nextSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate);
+          void loadLedgerDashboard(nextSession.accessToken, appliedDateRef.current.asAtDate, appliedDateRef.current.compareAsAtDate, appliedDateRef.current.windowDays);
         });
         unsub = sub.subscription;
       } catch (err: unknown) {
@@ -890,7 +902,7 @@ export default function DashboardPage() {
     const nextRange = dashboardDateRangeForPreset(preset);
     setDraftAsAtDate(nextRange.asAtDate);
     setDraftCompareAsAtDate(nextRange.compareAsAtDate);
-    if (session) void loadLedgerDashboard(session.accessToken, nextRange.asAtDate, nextRange.compareAsAtDate, { applyDates: true });
+    if (session) void loadLedgerDashboard(session.accessToken, nextRange.asAtDate, nextRange.compareAsAtDate, nextRange.windowDays, { applyDates: true });
   }
 
   async function connectXero() {
@@ -990,7 +1002,7 @@ export default function DashboardPage() {
         </header>
 
         <main className="mt-7 space-y-5">
-          <section className="border-b border-zinc-200 pb-5">
+          <section className="pb-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-semibold text-zinc-500">Treasury Workspace</p>
@@ -1004,7 +1016,7 @@ export default function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      void loadLedgerDashboard(session.accessToken, appliedAsAtDate, appliedCompareAsAtDate);
+                      void loadLedgerDashboard(session.accessToken, appliedAsAtDate, appliedCompareAsAtDate, appliedWindowDays);
                       void loadXeroStatus(session.accessToken);
                     }}
                     disabled={ledgerLoading || xeroLoading}
@@ -1051,7 +1063,14 @@ export default function DashboardPage() {
                         type="date"
                         value={draftAsAtDate}
                         max={todayIsoDate()}
-                        onChange={(event) => setDraftAsAtDate(event.target.value)}
+                        onChange={(event) => {
+                          const nextAsAtDate = event.target.value;
+                          const effectiveAsAtDate = nextAsAtDate || todayIsoDate();
+                          const minCompareDate = daysBeforeIsoDate(effectiveAsAtDate, maxDashboardWindowDays);
+                          setDraftAsAtDate(nextAsAtDate);
+                          if (draftCompareAsAtDate && draftCompareAsAtDate > effectiveAsAtDate) setDraftCompareAsAtDate(effectiveAsAtDate);
+                          if (draftCompareAsAtDate && draftCompareAsAtDate < minCompareDate) setDraftCompareAsAtDate(minCompareDate);
+                        }}
                         className="h-7 w-28 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
                       />
                     </label>
@@ -1060,14 +1079,19 @@ export default function DashboardPage() {
                       <input
                         type="date"
                         value={draftCompareAsAtDate}
-                        max={todayIsoDate()}
+                        min={daysBeforeIsoDate(draftAsAtDate || todayIsoDate(), maxDashboardWindowDays)}
+                        max={draftAsAtDate || todayIsoDate()}
                         onChange={(event) => setDraftCompareAsAtDate(event.target.value)}
                         className="h-7 w-28 border-0 bg-transparent p-0 text-xs text-zinc-950 focus:outline-none"
                       />
                     </label>
                     <button
                       type="button"
-                      onClick={() => void loadLedgerDashboard(session.accessToken, draftAsAtDate, draftCompareAsAtDate, { applyDates: true })}
+                      onClick={() => {
+                        const nextAsAtDate = draftAsAtDate || todayIsoDate();
+                        setDraftAsAtDate(nextAsAtDate);
+                        void loadLedgerDashboard(session.accessToken, nextAsAtDate, draftCompareAsAtDate, dashboardWindowDays(nextAsAtDate, draftCompareAsAtDate), { applyDates: true });
+                      }}
                       disabled={ledgerLoading}
                       className="inline-flex h-8 items-center justify-center rounded-md bg-zinc-950 px-3 text-xs font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
                     >
@@ -1082,8 +1106,8 @@ export default function DashboardPage() {
                       setDatePreset("30d");
                       setDraftAsAtDate(defaultDateRange.asAtDate);
                       setDraftCompareAsAtDate(defaultDateRange.compareAsAtDate);
-                      setAppliedDashboardDates(defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate);
-                      void loadLedgerDashboard(session.accessToken, defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, { applyDates: true });
+                      setAppliedDashboardDates(defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, defaultDateRange.windowDays);
+                      void loadLedgerDashboard(session.accessToken, defaultDateRange.asAtDate, defaultDateRange.compareAsAtDate, defaultDateRange.windowDays, { applyDates: true });
                     }}
                     disabled={ledgerLoading}
                     className="inline-flex h-8 items-center justify-center rounded-md border border-zinc-300 bg-white px-3 text-xs font-medium text-zinc-900 shadow-sm transition hover:border-zinc-400 hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
