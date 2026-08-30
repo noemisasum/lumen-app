@@ -114,7 +114,7 @@ export async function addOrgUserByEmail(
   const normalizedEmail = normalizeMemberEmail(email);
   const authUser = await findAuthUserByEmail(supabase, normalizedEmail);
 
-  if (authUser) {
+  if (authUser && hasVerifiedUserEmail(authUser)) {
     const entityCount = await grantOrgEntityAccess(supabase, orgId, authUser.id, orgRole, entityRole);
     const { error: inviteError } = await supabase.from("org_user_invites").upsert(
       {
@@ -133,6 +133,7 @@ export async function addOrgUserByEmail(
     return { status: "active", email: normalizedEmail, orgRole, entityRole, userId: authUser.id, entityCount };
   }
 
+  const pendingInvitedUserId = authUser?.id ?? null;
   const { error: pendingError } = await supabase.from("org_user_invites").upsert(
     {
       org_id: orgId,
@@ -140,7 +141,7 @@ export async function addOrgUserByEmail(
       org_role: orgRole,
       entity_role: entityRole,
       invited_by: actorUserId,
-      invited_user_id: null,
+      invited_user_id: pendingInvitedUserId,
       accepted_at: null,
     },
     { onConflict: "org_id,email" },
@@ -150,7 +151,7 @@ export async function addOrgUserByEmail(
   const { count, error: entityCountError } = await supabase.from("entities").select("id", { count: "exact", head: true }).eq("org_id", orgId);
   if (entityCountError) throw entityCountError;
 
-  return { status: "pending", email: normalizedEmail, orgRole, entityRole, userId: null, entityCount: count ?? 0 };
+  return { status: "pending", email: normalizedEmail, orgRole, entityRole, userId: pendingInvitedUserId, entityCount: count ?? 0 };
 }
 
 export async function acceptPendingOrgInvites(supabase: SupabaseClient, user: User) {

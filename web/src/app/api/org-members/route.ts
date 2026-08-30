@@ -132,6 +132,8 @@ export async function POST(request: Request) {
       message:
         result.status === "active"
           ? "User access is active now."
+          : result.userId
+            ? "Invite saved. Ask this person to verify their email and sign in; Lumen will apply the access after verification."
           : "Invite saved. Ask this person to sign up or use password recovery with this email; Lumen will apply the access when they sign in.",
     });
   } catch (error) {

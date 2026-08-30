@@ -71,4 +71,7 @@ $$ language plpgsql
 security definer
 set search_path = public, pg_temp;
 
+revoke execute on function public.create_entity_with_membership(uuid, uuid, text, text) from public;
+revoke execute on function public.create_entity_with_membership(uuid, uuid, text, text) from anon;
+revoke execute on function public.create_entity_with_membership(uuid, uuid, text, text) from authenticated;
 grant execute on function public.create_entity_with_membership(uuid, uuid, text, text) to service_role;
