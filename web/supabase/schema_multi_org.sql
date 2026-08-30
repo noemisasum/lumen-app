@@ -171,6 +171,28 @@ begin
   insert into public.entity_members (entity_id, user_id, role)
   values (v_entity.id, p_user_id, 'admin');
 
+  insert into public.entity_members (entity_id, user_id, role)
+  select
+    v_entity.id,
+    m.user_id,
+    case
+      when i.entity_role in ('admin','ap','approver','requester') then i.entity_role
+      when m.role in ('owner','admin') then 'admin'
+      else 'requester'
+    end
+  from public.org_members m
+  left join lateral (
+    select invite.entity_role
+    from public.org_user_invites invite
+    where invite.org_id = p_org_id
+      and invite.invited_user_id = m.user_id
+      and invite.accepted_at is not null
+    order by invite.accepted_at desc, invite.updated_at desc, invite.created_at desc
+    limit 1
+  ) i on true
+  where m.org_id = p_org_id
+  on conflict (entity_id, user_id) do nothing;
+
   return jsonb_build_object(
     'id', v_entity.id,
     'org_id', v_entity.org_id,

@@ -23,8 +23,18 @@ type PendingInviteRow = {
   accepted_at: string | null;
 };
 
+type SupabaseEmailVerification = {
+  email_confirmed_at?: string | null;
+  confirmed_at?: string | null;
+};
+
 export function normalizeMemberEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+export function hasVerifiedUserEmail(user: User) {
+  const verification = user as SupabaseEmailVerification;
+  return Boolean(verification.email_confirmed_at || verification.confirmed_at);
 }
 
 export function isOrgAssignableRole(role: string): role is Exclude<OrgRole, "owner"> {
@@ -146,6 +156,7 @@ export async function addOrgUserByEmail(
 export async function acceptPendingOrgInvites(supabase: SupabaseClient, user: User) {
   const email = normalizeMemberEmail(user.email ?? "");
   if (!email) return 0;
+  if (!hasVerifiedUserEmail(user)) return 0;
 
   const { data: invites, error: inviteError } = await supabase
     .from("org_user_invites")
@@ -157,6 +168,7 @@ export async function acceptPendingOrgInvites(supabase: SupabaseClient, user: Us
   const pendingInvites = (invites ?? []) as PendingInviteRow[];
   if (!pendingInvites.length) return 0;
 
+  let acceptedCount = 0;
   for (const invite of pendingInvites) {
     if (!isOrgAssignableRole(invite.org_role) || !isEntityAssignableRole(invite.entity_role)) continue;
     await grantOrgEntityAccess(supabase, invite.org_id, user.id, invite.org_role, invite.entity_role);
@@ -165,7 +177,8 @@ export async function acceptPendingOrgInvites(supabase: SupabaseClient, user: Us
       .update({ invited_user_id: user.id, accepted_at: new Date().toISOString() })
       .eq("id", invite.id);
     if (acceptError) throw acceptError;
+    acceptedCount += 1;
   }
 
-  return pendingInvites.length;
+  return acceptedCount;
 }

@@ -17,6 +17,15 @@ create index if not exists org_user_invites_email_pending_idx
 on public.org_user_invites(email)
 where accepted_at is null;
 
+create or replace function public.set_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql
+set search_path = public, pg_temp;
+
 drop trigger if exists set_org_user_invites_updated_at on public.org_user_invites;
 create trigger set_org_user_invites_updated_at
 before update on public.org_user_invites
