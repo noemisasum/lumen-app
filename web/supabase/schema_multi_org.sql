@@ -51,6 +51,24 @@ create table if not exists public.entity_members (
 );
 create index if not exists entity_members_user_id_idx on public.entity_members(user_id);
 
+-- Pending org user invites for emails that do not have a Supabase Auth user yet.
+-- API routes use service-role access to create and accept these records.
+create table if not exists public.org_user_invites (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  email text not null,
+  org_role text not null default 'member' check (org_role in ('admin','member')),
+  entity_role text not null default 'admin' check (entity_role in ('admin','ap','approver','requester')),
+  invited_by uuid references auth.users(id) on delete set null,
+  invited_user_id uuid references auth.users(id) on delete set null,
+  accepted_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint org_user_invites_email_normalized check (email = lower(trim(email))),
+  unique (org_id, email)
+);
+create index if not exists org_user_invites_email_pending_idx on public.org_user_invites(email) where accepted_at is null;
+
 create or replace function public.create_org_with_default_entity(
   p_user_id uuid,
   p_org_name text,
@@ -244,6 +262,11 @@ create trigger set_invoices_updated_at
 before update on public.invoices
 for each row execute function public.set_updated_at();
 
+drop trigger if exists set_org_user_invites_updated_at on public.org_user_invites;
+create trigger set_org_user_invites_updated_at
+before update on public.org_user_invites
+for each row execute function public.set_updated_at();
+
 -- Helper: check org membership
 create or replace function app_private.is_org_member(_org_id uuid)
 returns boolean as $$
@@ -279,6 +302,7 @@ grant execute on function app_private.is_org_member(uuid) to authenticated;
 grant execute on function app_private.is_entity_member(uuid) to authenticated;
 grant execute on function public.create_org_with_default_entity(uuid, text, text, text, text) to service_role;
 grant execute on function public.create_entity_with_membership(uuid, uuid, text, text) to service_role;
+grant select, insert, update on public.org_user_invites to service_role;
 grant select, insert, update, delete on public.invoices, public.invoice_files to service_role;
 grant select, insert, update on public.invoices to authenticated;
 grant select, insert on public.invoice_files to authenticated;
@@ -288,6 +312,7 @@ alter table public.orgs enable row level security;
 alter table public.org_members enable row level security;
 alter table public.entities enable row level security;
 alter table public.entity_members enable row level security;
+alter table public.org_user_invites enable row level security;
 alter table public.invoices enable row level security;
 alter table public.invoice_files enable row level security;
 
@@ -319,6 +344,20 @@ using (
     from public.entities e
     where e.id = entity_members.entity_id
       and app_private.is_org_member(e.org_id)
+  )
+);
+
+-- org_user_invites: owners can view pending/accepted invites for their org.
+drop policy if exists org_user_invites_select_owner on public.org_user_invites;
+create policy org_user_invites_select_owner on public.org_user_invites
+for select to authenticated
+using (
+  exists(
+    select 1
+    from public.org_members m
+    where m.org_id = org_user_invites.org_id
+      and m.user_id = auth.uid()
+      and m.role = 'owner'
   )
 );
 
