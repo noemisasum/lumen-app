@@ -81,7 +81,7 @@ type StagedUploadRow = {
   mimeType: string | null;
   sizeBytes: number;
   objectKey: string;
-  bankAccountId: string;
+  bankAccountIds: string[];
   accountHint: string;
   status: "ready" | "finalizing";
   error: string | null;
@@ -296,18 +296,22 @@ export default function InvoicesPage() {
     return null;
   }
 
-  function selectedAccountName(nextBankAccountId: string) {
-    return bankAccounts.find((account) => account.id === nextBankAccountId)?.accountName;
+  function selectedAccountNames(nextBankAccountIds: string[]) {
+    return nextBankAccountIds
+      .map((accountId) => bankAccounts.find((account) => account.id === accountId)?.accountName)
+      .filter(Boolean) as string[];
   }
 
-  function setStagedUploadAccount(rowId: string, nextBankAccountId: string) {
+  function setStagedUploadAccount(rowId: string, nextBankAccountId: string, checked: boolean) {
     setStagedUploads((current) =>
       current.map((row) =>
         row.id === rowId
           ? {
               ...row,
-              bankAccountId: nextBankAccountId,
-              error: nextBankAccountId ? null : row.error,
+              bankAccountIds: checked
+                ? Array.from(new Set([...row.bankAccountIds, nextBankAccountId]))
+                : row.bankAccountIds.filter((accountId) => accountId !== nextBankAccountId),
+              error: checked ? null : row.error,
             }
           : row,
       ),
@@ -319,7 +323,7 @@ export default function InvoicesPage() {
     setStagedUploads((current) =>
       current.map((row) => ({
         ...row,
-        bankAccountId: nextBankAccountId,
+        bankAccountIds: nextBankAccountId ? [nextBankAccountId] : [],
         error: nextBankAccountId ? null : row.error,
       })),
     );
@@ -492,7 +496,7 @@ export default function InvoicesPage() {
         mimeType: file.type || null,
         sizeBytes: file.size,
         objectKey,
-        bankAccountId,
+        bankAccountIds: bankAccountId ? [bankAccountId] : [],
         accountHint,
         status: "ready",
         error: null,
@@ -616,17 +620,17 @@ export default function InvoicesPage() {
   async function finalizeStagedUploads() {
     if (!stagedUploads.length) return;
 
-    const missingIds = new Set(stagedUploads.filter((row) => !row.bankAccountId).map((row) => row.id));
-    const finalizableRows = stagedUploads.filter((row) => row.bankAccountId);
+    const missingIds = new Set(stagedUploads.filter((row) => !row.bankAccountIds.length).map((row) => row.id));
+    const finalizableRows = stagedUploads.filter((row) => row.bankAccountIds.length);
     if (missingIds.size) {
       setStagedUploads((current) =>
         current.map((row) => ({
           ...row,
-          error: missingIds.has(row.id) ? "Choose a bank account for this file." : row.error,
+          error: missingIds.has(row.id) ? "Choose at least one bank account for this file." : row.error,
         })),
       );
       if (!finalizableRows.length) {
-        setUploadStatus(`${missingIds.size} file${missingIds.size === 1 ? "" : "s"} still need a bank account.`);
+        setUploadStatus(`${missingIds.size} file${missingIds.size === 1 ? "" : "s"} still need at least one bank account.`);
         return;
       }
     }
@@ -638,9 +642,10 @@ export default function InvoicesPage() {
       setFinalizingUploads(true);
       setError(null);
       let finalizedCount = 0;
+      let finalizedAccountCount = 0;
       const failedRows: StagedUploadRow[] = stagedUploads
         .filter((row) => missingIds.has(row.id))
-        .map((row) => ({ ...row, status: "ready", error: "Choose a bank account for this file." }));
+        .map((row) => ({ ...row, status: "ready", error: "Choose at least one bank account for this file." }));
 
       for (const [index, row] of finalizableRows.entries()) {
         setUploadStatus(`Finalizing ${index + 1} of ${finalizableRows.length} mapped files...`);
@@ -657,17 +662,18 @@ export default function InvoicesPage() {
             },
             body: JSON.stringify({
               entityId,
-              bankAccountId: row.bankAccountId,
+              bankAccountIds: row.bankAccountIds,
               bucket: "invoices",
               objectKey: row.objectKey,
               mimeType: row.mimeType,
               sizeBytes: row.sizeBytes,
-              description: statementUploadTitle(selectedAccountName(row.bankAccountId)),
+              description: statementUploadTitle(selectedAccountNames(row.bankAccountIds).join(", ")),
             }),
           });
-          const body = (await response.json()) as { error?: string };
+          const body = (await response.json()) as { error?: string; count?: number };
           if (!response.ok) throw new Error(body.error || "Failed to link upload to bank account.");
           finalizedCount += 1;
+          finalizedAccountCount += body.count ?? row.bankAccountIds.length;
         } catch (e: unknown) {
           failedRows.push({ ...row, status: "ready", error: getErrorMessage(e, "Failed to finalize this upload.") });
         }
@@ -677,7 +683,7 @@ export default function InvoicesPage() {
       setUploadStatus(
         failedRows.length
           ? `Finalized ${finalizedCount} mapped file${finalizedCount === 1 ? "" : "s"}. Resolve the remaining rows and try again.`
-          : `Finalized ${finalizedCount} file${finalizedCount === 1 ? "" : "s"}.`,
+          : `Finalized ${finalizedCount} file${finalizedCount === 1 ? "" : "s"} across ${finalizedAccountCount} account${finalizedAccountCount === 1 ? "" : "s"}.`,
       );
       if (finalizedCount > 0) await load();
     } catch (e: unknown) {
@@ -973,7 +979,7 @@ export default function InvoicesPage() {
                 <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h2 className="text-sm font-semibold text-zinc-950">Map Staged Files</h2>
-                    <p className="mt-1 text-sm leading-6 text-zinc-600">Choose a bank account for each uploaded statement before finalizing.</p>
+                    <p className="mt-1 text-sm leading-6 text-zinc-600">Choose one or more bank accounts for each uploaded statement before finalizing.</p>
                   </div>
                   <button
                     type="button"
@@ -998,27 +1004,52 @@ export default function InvoicesPage() {
                       </div>
 
                       <div className="min-w-0">
-                        <label htmlFor={`staged-bank-account-${row.id}`} className="sr-only">
-                          Bank account for {row.fileName}
-                        </label>
                         <div className="flex flex-col gap-2 sm:flex-row">
-                          <SelectControl
-                            id={`staged-bank-account-${row.id}`}
-                            value={row.bankAccountId}
-                            onChange={(event) => setStagedUploadAccount(row.id, event.target.value)}
-                            disabled={finalizingUploads || bankAccountsLoading || !bankAccounts.length}
-                            title={`Bank account for ${row.fileName}`}
-                            className="w-full"
-                          >
-                            <option value="">{bankAccountsLoading ? "Loading bank accounts" : "Choose bank account"}</option>
-                            {bankAccounts.map((account) => (
-                              <option key={account.id} value={account.id}>
-                                {account.accountName}
-                                {account.currency ? ` · ${account.currency}` : ""}
-                                {account.source === "xero" ? " · Xero" : " · Upload"}
-                              </option>
-                            ))}
-                          </SelectControl>
+                          <fieldset className="min-w-0 flex-1 space-y-2">
+                            <legend className="sr-only">Bank account for {row.fileName}</legend>
+                            <div className="max-h-56 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-sm">
+                              {bankAccountsLoading ? (
+                                <div className="flex min-h-10 items-center px-2 text-xs text-zinc-500">
+                                  <Spinner label="Loading accounts" />
+                                </div>
+                              ) : bankAccounts.length ? (
+                                <div className="space-y-1">
+                                  {bankAccounts.map((account) => {
+                                    const inputId = `staged-bank-account-${row.id}-${account.id}`;
+                                    const checked = row.bankAccountIds.includes(account.id);
+                                    return (
+                                      <label
+                                        key={account.id}
+                                        htmlFor={inputId}
+                                        className="flex min-h-9 cursor-pointer items-center gap-2 rounded-md px-2 text-sm text-zinc-800 transition hover:bg-zinc-50"
+                                      >
+                                        <input
+                                          id={inputId}
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={(event) => setStagedUploadAccount(row.id, account.id, event.target.checked)}
+                                          disabled={finalizingUploads}
+                                          className="h-4 w-4 shrink-0 rounded border-zinc-300 text-zinc-950 focus:ring-zinc-950 disabled:cursor-not-allowed"
+                                        />
+                                        <span className="min-w-0 flex-1 truncate">
+                                          {account.accountName}
+                                          {account.currency ? ` · ${account.currency}` : ""}
+                                          {account.source === "xero" ? " · Xero" : " · Upload"}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="px-2 py-2 text-xs text-zinc-500">No bank accounts available.</div>
+                              )}
+                            </div>
+                            {row.bankAccountIds.length ? (
+                              <div className="text-xs text-zinc-500">
+                                {row.bankAccountIds.length} account{row.bankAccountIds.length === 1 ? "" : "s"} selected
+                              </div>
+                            ) : null}
+                          </fieldset>
                         </div>
                       </div>
                     </div>
