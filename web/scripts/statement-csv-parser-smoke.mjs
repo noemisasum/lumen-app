@@ -9,9 +9,13 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const appDir = path.resolve(scriptDir, "..");
 const sourcePath = path.join(appDir, "src/lib/server/statement-csv-parser.ts");
 const excelSourcePath = path.join(appDir, "src/lib/server/statement-excel-parser.ts");
+const pdfSourcePath = path.join(appDir, "src/lib/server/statement-pdf-parser.ts");
+const fileTypeSourcePath = path.join(appDir, "src/lib/server/statement-file-type.ts");
 const outputDir = path.join(appDir, ".statement-parser-smoke");
 const outputPath = path.join(outputDir, "statement-csv-parser.mjs");
 const excelOutputPath = path.join(outputDir, "statement-excel-parser.mjs");
+const pdfOutputPath = path.join(outputDir, "statement-pdf-parser.mjs");
+const fileTypeOutputPath = path.join(outputDir, "statement-file-type.mjs");
 
 mkdirSync(outputDir, { recursive: true });
 
@@ -40,8 +44,33 @@ writeFileSync(
   ),
 );
 
+const pdfSource = readFileSync(pdfSourcePath, "utf8");
+const pdfTranspiled = ts.transpileModule(pdfSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ES2022,
+    target: ts.ScriptTarget.ES2022,
+  },
+});
+writeFileSync(
+  pdfOutputPath,
+  pdfTranspiled.outputText
+    .replace('from "@/lib/server/statement-csv-parser"', 'from "./statement-csv-parser.mjs"')
+    .replace('from "@/lib/server/bank-ledger"', 'from "./bank-ledger.mjs"'),
+);
+
+const fileTypeSource = readFileSync(fileTypeSourcePath, "utf8");
+const fileTypeTranspiled = ts.transpileModule(fileTypeSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ES2022,
+    target: ts.ScriptTarget.ES2022,
+  },
+});
+writeFileSync(fileTypeOutputPath, fileTypeTranspiled.outputText);
+
 const { parseCsvStatement } = await import(`${pathToFileURL(outputPath).href}?${Date.now()}`);
 const { parseExcelStatement, parseLegacyExcelStatement } = await import(`${pathToFileURL(excelOutputPath).href}?${Date.now()}`);
+const { parsePdfStatementText } = await import(`${pathToFileURL(pdfOutputPath).href}?${Date.now()}`);
+const { statementParserType } = await import(`${pathToFileURL(fileTypeOutputPath).href}?${Date.now()}`);
 
 const input = {
   statementImportId: "statement-import-smoke",
@@ -50,6 +79,11 @@ const input = {
   defaultCurrency: "USD",
   fileName: "statement-smoke.csv",
 };
+
+assert.equal(statementParserType("uploads/hw-statement.PDF", null), "pdf");
+assert.equal(statementParserType("uploads/hw-statement.bin", "application/pdf"), "pdf");
+assert.equal(statementParserType("uploads/hw-statement", "application/x-pdf"), "pdf");
+assert.equal(statementParserType("uploads/receipt.png", "image/png"), null);
 
 const adjustment = parseCsvStatement("Date,Description,Amount,Balance\n2024-01-02,Closing balance adjustment,10.00,1010.00\n", input);
 assert.equal(adjustment.transactions.length, 1);
@@ -263,6 +297,86 @@ assert.equal(xlsShortAccountStatement.transactions[0]?.transactionDate, "2026-07
 assert.equal(xlsShortAccountStatement.transactions[0]?.signedAmount, -12.75);
 assert.equal(xlsShortAccountStatement.transactions[2]?.reference, "SHORT-003");
 assert.equal(xlsShortAccountStatement.balances.length, 3);
+
+const hwPdfText = `
+H&W Commercial Banking
+Account Statement
+Account Number 000-000-000 Currency HKD
+Statement Period 01/07/2026 to 31/07/2026
+Opening Balance HKD 151,452.16
+Date Value Date Description Debit Credit Balance
+29/07/2026 29/07/2026 Account Maintenance Charges - For 1/7-31/7/26 60.00 151,392.16
+30/07/2026 30/07/2026 Synthetic transfer Reference number REF-001 120.00 151,512.16
+31/07/2026 31/07/2026 Synthetic payment Bank reference number BP-002 12.50 151,499.66
+Total Debit 72.50
+Total Credit 120.00
+Closing Balance HKD 151,499.66
+Page 1 of 1
+`;
+const hwPdf = parsePdfStatementText(hwPdfText, { ...input, defaultCurrency: "HKD", fileName: "sanitized-hw.pdf" });
+assert.equal(hwPdf.transactions.length, 3);
+assert.equal(hwPdf.transactions[0]?.transactionDate, "2026-07-29");
+assert.equal(hwPdf.transactions[0]?.postedDate, "2026-07-29");
+assert.equal(hwPdf.transactions[0]?.description, "Account Maintenance Charges - For 1/7-31/7/26");
+assert.equal(hwPdf.transactions[0]?.signedAmount, -60);
+assert.equal(hwPdf.transactions[1]?.signedAmount, 120);
+assert.equal(hwPdf.transactions[1]?.reference, "REF-001");
+assert.equal(hwPdf.transactions[2]?.signedAmount, -12.5);
+assert.equal(hwPdf.transactions[2]?.reference, "BP-002");
+assert.equal(hwPdf.transactions[0]?.sourceRowId, "statement-import-smoke:pdf:line:8");
+assert.equal(hwPdf.transactions[0]?.sourceRecordType, "pdf_row");
+assert.deepEqual(
+  hwPdf.balances.map((balance) => [balance.balanceType, balance.amount, balance.sourceRecordType]),
+  [
+    ["opening", 151452.16, "pdf_balance_snapshot"],
+    ["closing", 151499.66, "pdf_balance_snapshot"],
+    ["reported", 151392.16, "pdf_running_balance"],
+    ["reported", 151512.16, "pdf_running_balance"],
+    ["reported", 151499.66, "pdf_running_balance"],
+  ],
+);
+
+const signedAmountHwPdf = parsePdfStatementText(
+  `
+H&W Commercial Banking Account Statement
+Statement Period 01/08/2026 to 31/08/2026
+Date Description Amount Balance
+01/08/2026 Card refund +25.25 1,025.25
+02/08/2026 Card purchase (10.00) 1,015.25
+Current Balance 1,015.25
+`,
+  { ...input, defaultCurrency: "HKD", fileName: "sanitized-hw-signed.pdf" },
+);
+assert.equal(signedAmountHwPdf.transactions.length, 2);
+assert.equal(signedAmountHwPdf.transactions[0]?.signedAmount, 25.25);
+assert.equal(signedAmountHwPdf.transactions[1]?.signedAmount, -10);
+
+assert.throws(
+  () =>
+    parsePdfStatementText(
+      `
+H&W Commercial Banking Account Statement
+Statement Period 01/09/2026 to 30/09/2026
+Date Description Debit Credit Balance
+01/09/2026 Ambiguous collapsed row 50.00
+`,
+      { ...input, defaultCurrency: "HKD", fileName: "ambiguous-hw.pdf" },
+    ),
+  /unsigned amount without a reliable balance delta/,
+);
+
+assert.throws(
+  () =>
+    parsePdfStatementText(
+      `
+Generic Bank Monthly Summary
+Opening Balance 100.00
+Closing Balance 100.00
+`,
+      { ...input, defaultCurrency: "HKD", fileName: "generic-summary.pdf" },
+    ),
+  /not a recognized H&W statement layout/,
+);
 
 rmSync(outputDir, { recursive: true, force: true });
 console.log("statement parser smoke checks passed");

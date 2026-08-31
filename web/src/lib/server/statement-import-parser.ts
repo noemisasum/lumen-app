@@ -7,6 +7,8 @@ import {
 } from "@/lib/server/statement-processing-log";
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
 import { parseExcelStatement, parseLegacyExcelStatement } from "@/lib/server/statement-excel-parser";
+import { statementParserType } from "@/lib/server/statement-file-type";
+import { parsePdfStatement } from "@/lib/server/statement-pdf-parser";
 
 export type StatementParseOutcome = {
   status: "imported" | "pending_parse" | "failed";
@@ -81,7 +83,7 @@ export async function parseManualStatementImport(
           supabase,
           input.statementImportId,
           "pending_parse",
-          "Automatic parsing currently supports CSV, XLSX, and supported legacy XLS statements. PDF and image statements remain queued for manual parser support.",
+          "Automatic parsing currently supports CSV, XLSX, PDF, and supported legacy XLS statements. Image statements remain queued for manual parser support.",
         ),
       );
     }
@@ -114,7 +116,9 @@ export async function parseManualStatementImport(
         ? parseCsvStatement(new TextDecoder("utf-8").decode(fileBuffer).replace(/^\uFEFF/, ""), parserInput)
         : parserType === "xlsx"
           ? await parseExcelStatement(fileBuffer, parserInput)
-          : parseLegacyExcelStatement(fileBuffer, parserInput);
+          : parserType === "xls"
+            ? parseLegacyExcelStatement(fileBuffer, parserInput)
+            : await parsePdfStatement(fileBuffer, parserInput);
 
     const transactionResult = await upsertBankTransactions(supabase, parsed.transactions);
     const balanceResult = await upsertBankBalances(supabase, parsed.balances);
@@ -164,21 +168,6 @@ async function loadRawFile(
   const file = (data as RawFileRow | null) ?? null;
   if (!file || file.provider !== "supabase") return null;
   return file;
-}
-
-function statementParserType(objectKey: string, mimeType: string | null): "csv" | "xlsx" | "xls" | null {
-  const lowerKey = objectKey.toLowerCase();
-  const lowerType = mimeType?.toLowerCase() ?? "";
-  if (lowerKey.endsWith(".csv") || lowerType.includes("csv") || lowerType === "text/plain") return "csv";
-  if (
-    lowerKey.endsWith(".xlsx") ||
-    lowerType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    lowerType === "application/xlsx"
-  ) {
-    return "xlsx";
-  }
-  if (lowerKey.endsWith(".xls") || lowerType === "application/vnd.ms-excel" || lowerType === "application/xls") return "xls";
-  return null;
 }
 
 async function downloadFileBuffer(supabase: SupabaseClient, bucket: string, objectKey: string) {
