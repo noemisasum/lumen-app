@@ -58,9 +58,12 @@ Apply `supabase/xero_oauth.sql` after `supabase/schema_multi_org.sql`. The migra
 
 Use `/dashboard/entities` after signing in to create Lumen organisations and legal entities. Creating a new organisation also creates the first entity and grants the signed-in user owner/admin membership. Adding an entity to an existing organisation requires owner or admin access.
 
+Organisation owners can add users from the same page. `/api/org-members` verifies the signed-in user is an org owner before changing membership, adds existing Supabase Auth users to `org_members`, and grants `entity_members` access across the org's current entities so statement upload and account workflows are available. If the email does not belong to an Auth user yet, the route writes `org_user_invites`; `/api/orgs` claims those pending invites the next time a matching email signs in.
+
 The same page lists connected Xero tenants and maps one tenant to one Lumen entity. Mapping and unmapping are handled by authenticated API routes with server-side authorization checks:
 
 - `/api/orgs` lists accessible orgs/entities, Xero tenants, and current mappings; `POST` creates an org and first entity for the signed-in user.
+- `/api/org-members` lists an owner-visible org user roster; `POST` adds an existing user or saves a pending invite by email.
 - `/api/entities` creates an entity under an org where the signed-in user is owner/admin.
 - `/api/entity-xero-mappings` maps or unmaps entities only when the signed-in user can administer that entity.
 

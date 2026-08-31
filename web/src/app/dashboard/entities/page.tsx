@@ -37,6 +37,28 @@ type EntityRow = {
   xeroMapping: EntityXeroMapping | null;
 };
 
+type OrgMemberRow = {
+  userId: string;
+  email: string | null;
+  role: "owner" | "admin" | "member";
+  createdAt: string;
+};
+
+type OrgInviteRow = {
+  id: string;
+  email: string;
+  orgRole: "admin" | "member";
+  entityRole: "admin" | "ap" | "approver" | "requester";
+  invitedUserId: string | null;
+  acceptedAt: string | null;
+  createdAt: string;
+};
+
+type OrgMemberState = {
+  members: OrgMemberRow[];
+  invites: OrgInviteRow[];
+};
+
 type BankAccountRow = {
   id: string;
   entityId: string;
@@ -173,11 +195,21 @@ export default function EntityManagementPage() {
   const [editingAccountType, setEditingAccountType] = useState<BankAccountRow["accountType"]>("operating_bank");
   const [accountAction, setAccountAction] = useState<string | null>(null);
   const [selectedAccountIdsByEntityId, setSelectedAccountIdsByEntityId] = useState<Record<string, string[]>>({});
+  const [orgMembersByOrgId, setOrgMembersByOrgId] = useState<Record<string, OrgMemberState>>({});
+  const [orgMemberLoadingId, setOrgMemberLoadingId] = useState<string | null>(null);
+  const [orgMemberError, setOrgMemberError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteOrgRole, setInviteOrgRole] = useState<"admin" | "member">("member");
+  const [inviteEntityRole, setInviteEntityRole] = useState<OrgInviteRow["entityRole"]>("admin");
+  const [invitingOrgId, setInvitingOrgId] = useState<string | null>(null);
 
   const manageableOrgs = state.orgs.filter((org) => org.role === "owner" || org.role === "admin");
+  const ownerOrgs = state.orgs.filter((org) => org.role === "owner");
   const selectedOrg = state.orgs.find((org) => org.id === selectedOrgId) ?? state.orgs[0] ?? null;
   const selectedAdminOrg = manageableOrgs.find((org) => org.id === selectedOrgId) ?? manageableOrgs[0] ?? null;
+  const selectedOwnerOrg = ownerOrgs.find((org) => org.id === selectedOrgId) ?? ownerOrgs[0] ?? null;
   const selectedOrgFilterId = selectedOrg?.id;
+  const selectedOrgMembers = selectedOwnerOrg ? orgMembersByOrgId[selectedOwnerOrg.id] : null;
   const visibleEntities = useMemo(
     () => (selectedOrgFilterId ? state.entities.filter((entity) => entity.org_id === selectedOrgFilterId) : state.entities),
     [selectedOrgFilterId, state.entities],
@@ -257,6 +289,24 @@ export default function EntityManagementPage() {
     await loadManagement(session.accessToken);
   }
 
+  const loadOrgMembers = useCallback(async (orgId: string, accessToken: string) => {
+    setOrgMemberLoadingId(orgId);
+    setOrgMemberError(null);
+    try {
+      const params = new URLSearchParams({ orgId });
+      const response = await fetch(`/api/org-members?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = (await response.json()) as OrgMemberState | { error?: string };
+      if (!response.ok) throw new Error("error" in body && body.error ? body.error : "Failed to load organisation users.");
+      setOrgMembersByOrgId((current) => ({ ...current, [orgId]: body as OrgMemberState }));
+    } catch (e: unknown) {
+      setOrgMemberError(getErrorMessage(e, "Failed to load organisation users."));
+    } finally {
+      setOrgMemberLoadingId((current) => (current === orgId ? null : current));
+    }
+  }, []);
+
   const loadBankAccounts = useCallback(async (entityId: string, accessToken: string, options: { syncXero?: boolean } = {}) => {
     setAccountLoadingEntityIds((current) => (current.includes(entityId) ? current : [...current, entityId]));
     setAccountErrorsByEntityId((current) => ({ ...current, [entityId]: null }));
@@ -304,6 +354,12 @@ export default function EntityManagementPage() {
       .filter((entityId) => accountsByEntityId[entityId] === undefined && !accountLoadingEntityIds.includes(entityId));
     unloadedEntityIds.forEach((entityId) => void loadBankAccounts(entityId, session.accessToken));
   }, [accountLoadingEntityIds, accountsByEntityId, loadBankAccounts, session, visibleEntities]);
+
+  useEffect(() => {
+    if (!session || !selectedOwnerOrg) return;
+    if (orgMembersByOrgId[selectedOwnerOrg.id] || orgMemberLoadingId === selectedOwnerOrg.id) return;
+    void loadOrgMembers(selectedOwnerOrg.id, session.accessToken);
+  }, [loadOrgMembers, orgMemberLoadingId, orgMembersByOrgId, selectedOwnerOrg, session]);
 
   async function createBankAccount(event: React.FormEvent<HTMLFormElement>, entity: EntityRow) {
     event.preventDefault();
@@ -606,6 +662,54 @@ export default function EntityManagementPage() {
       setError(getErrorMessage(e, "Failed to create entity."));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function inviteOrgUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!session || !selectedOwnerOrg) return;
+
+    setInvitingOrgId(selectedOwnerOrg.id);
+    setOrgMemberError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/org-members", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId: selectedOwnerOrg.id,
+          email: inviteEmail,
+          orgRole: inviteOrgRole,
+          entityRole: inviteEntityRole,
+        }),
+      });
+      const body = (await response.json()) as {
+        status?: "active" | "pending";
+        email?: string;
+        entityCount?: number;
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error || "Failed to add organisation user.");
+
+      setInviteEmail("");
+      await loadOrgMembers(selectedOwnerOrg.id, session.accessToken);
+      setNotice({
+        tone: body.status === "active" ? "success" : "info",
+        title: body.status === "active" ? "User Added" : "Invite Saved",
+        message:
+          body.message ??
+          (body.status === "active"
+            ? "The user can access this organisation and its entities now."
+            : "Ask this person to sign up or reset their password with that email; access will apply after sign-in."),
+      });
+    } catch (e: unknown) {
+      setOrgMemberError(getErrorMessage(e, "Failed to add organisation user."));
+    } finally {
+      setInvitingOrgId(null);
     }
   }
 
@@ -934,6 +1038,131 @@ export default function EntityManagementPage() {
                 >
                   {saving ? <Spinner label="Creating" /> : "Add Entity"}
                 </button>
+              </form>
+
+              <form onSubmit={inviteOrgUser} className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-950">Add Organisation User</h2>
+                    <p className="mt-1 text-xs leading-5 text-zinc-500">
+                      Existing users get access now. New users are saved as pending until they sign up with the same email.
+                    </p>
+                  </div>
+                  {orgMemberLoadingId === selectedOwnerOrg?.id ? <Spinner label="Loading" /> : null}
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <label className="block text-sm font-medium text-zinc-800">
+                    Organisation
+                    <SelectControl
+                      value={selectedOwnerOrg?.id ?? ""}
+                      onChange={(event) => setSelectedOrgId(event.target.value)}
+                      disabled={!ownerOrgs.length || invitingOrgId !== null}
+                    >
+                      {ownerOrgs.length ? (
+                        ownerOrgs.map((org) => (
+                          <option key={org.id} value={org.id}>
+                            {org.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">No owner orgs</option>
+                      )}
+                    </SelectControl>
+                  </label>
+                  <label className="block text-sm font-medium text-zinc-800">
+                    Email
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(event) => setInviteEmail(event.target.value)}
+                      className={inputClassName}
+                      placeholder="teammate@example.com"
+                      maxLength={254}
+                      required
+                      disabled={!ownerOrgs.length || invitingOrgId !== null}
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-sm font-medium text-zinc-800">
+                      Org Role
+                      <SelectControl
+                        value={inviteOrgRole}
+                        onChange={(event) => setInviteOrgRole(event.target.value as "admin" | "member")}
+                        disabled={!ownerOrgs.length || invitingOrgId !== null}
+                      >
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
+                      </SelectControl>
+                    </label>
+                    <label className="block text-sm font-medium text-zinc-800">
+                      Entity Access
+                      <SelectControl
+                        value={inviteEntityRole}
+                        onChange={(event) => setInviteEntityRole(event.target.value as OrgInviteRow["entityRole"])}
+                        disabled={!ownerOrgs.length || invitingOrgId !== null}
+                      >
+                        <option value="admin">Admin</option>
+                        <option value="requester">Requester</option>
+                        <option value="ap">AP</option>
+                        <option value="approver">Approver</option>
+                      </SelectControl>
+                    </label>
+                  </div>
+                </div>
+
+                {orgMemberError ? <div className="mt-3 text-xs leading-5 text-red-700">{orgMemberError}</div> : null}
+
+                <button
+                  type="submit"
+                  disabled={!ownerOrgs.length || invitingOrgId !== null || !inviteEmail.trim()}
+                  className="mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg bg-zinc-950 px-4 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-950 disabled:cursor-not-allowed disabled:bg-zinc-400"
+                >
+                  {invitingOrgId ? <Spinner label="Adding" /> : "Add User"}
+                </button>
+
+                {selectedOrgMembers ? (
+                  <div className="mt-5 space-y-3 border-t border-zinc-100 pt-4">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Active Users</div>
+                      <div className="mt-2 divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-zinc-50">
+                        {selectedOrgMembers.members.map((member) => (
+                          <div key={member.userId} className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 text-xs">
+                            <span className="min-w-0 truncate text-zinc-700">{member.email || member.userId}</span>
+                            <span className="shrink-0 rounded-md bg-white px-2 py-0.5 font-medium capitalize text-zinc-600 ring-1 ring-inset ring-zinc-200">{member.role}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {selectedOrgMembers.invites.some((invite) => !invite.acceptedAt) ? (
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Pending Invites</div>
+                        <div className="mt-2 divide-y divide-zinc-100 rounded-lg border border-amber-200 bg-amber-50">
+                          {selectedOrgMembers.invites
+                            .filter((invite) => !invite.acceptedAt)
+                            .map((invite) => (
+                              <div key={invite.id} className="px-3 py-2 text-xs leading-5 text-amber-900">
+                                <div className="flex min-w-0 items-center justify-between gap-2">
+                                  <span className="min-w-0 truncate font-medium">{invite.email}</span>
+                                  <span className="shrink-0 capitalize">{invite.orgRole}</span>
+                                </div>
+                                <div className="text-amber-800">Entity access: {invite.entityRole}</div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : ownerOrgs.length ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-xs leading-5 text-zinc-500">
+                    Organisation users will appear here.
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-xs leading-5 text-zinc-500">
+                    Only organisation owners can add users.
+                  </div>
+                )}
               </form>
             </div>
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { removeInvoiceStorageObjects } from "@/lib/server/invoice-storage";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
+import { acceptPendingOrgInvites } from "@/lib/server/org-members";
 import { requireOrgOwner, uniqueOrgSlug } from "@/lib/server/orgs";
 
 export const runtime = "nodejs";
@@ -73,6 +74,7 @@ export async function GET(request: Request) {
   try {
     const { user } = await requireSupabaseUser(request);
     const supabase = getSupabaseServiceClient();
+    await acceptPendingOrgInvites(supabase, user);
 
     const { data: orgMemberships, error: membershipError } = await supabase
       .from("org_members")
