@@ -32,10 +32,36 @@ type PdfStatementTextModel = {
 };
 
 const maxPdfTextCharacters = 500_000;
-const datePattern = String.raw`(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4})`;
-const amountPattern = String.raw`(?:\(?[+-]?(?:(?:[$£€¥]|HKD|USD|SGD|AUD|CAD|NZD)\s*)?\d[\d,]*(?:\.\d+)?\)?(?:\s*(?:CR|DR))?)`;
+const datePattern = String.raw`(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[-\s][A-Za-z]{3,9}[-,\s]\d{2,4})`;
+const amountPattern = String.raw`(?:\(?[+-]?(?:(?:[$£€¥]|[A-Z]{3,4})\s*)?\d[\d,]*\.\d+\)?(?:\s*(?:CR|DR))?)`;
 const trailingAmountPattern = new RegExp(`${amountPattern}\\s*$`, "i");
 const allAmountPattern = new RegExp(amountPattern, "gi");
+const startPattern = new RegExp(`^(${datePattern})(?:\\s+(${datePattern}))?\\s+(.+)$`, "i");
+
+type PdfAmountLayout = "signed" | "debitCredit" | "debitCreditBalance" | "creditDebit" | "creditDebitBalance";
+
+type PdfStatementSection = {
+  headerLineNumber: number;
+  amountLayout: PdfAmountLayout;
+  hasBalance: boolean;
+  rows: PdfTransactionRecord[];
+};
+
+type PdfTransactionRecord = {
+  lineNumber: number;
+  text: string;
+};
+
+export class UnsupportedPdfStatementLayoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnsupportedPdfStatementLayoutError";
+  }
+}
+
+export function isUnsupportedPdfStatementLayoutError(error: unknown) {
+  return error instanceof UnsupportedPdfStatementLayoutError;
+}
 
 export async function parsePdfStatement(pdfData: ArrayBuffer, input: ParsedStatementInput): Promise<ParsedStatementResult> {
   const text = await extractPdfText(pdfData);
@@ -77,7 +103,7 @@ function pdfTextToStatementRows(pdfText: string): PdfStatementTextModel {
   const lines = normalizedTextLines(pdfText);
   if (!lines.length) throw new Error("PDF statement did not contain extractable text.");
   if (!isSupportedHwPdfText(lines)) {
-    throw new Error("PDF statement is not a recognized H&W statement layout and was not imported automatically.");
+    throw new UnsupportedPdfStatementLayoutError("PDF statement layout is not recognized for automatic parsing and remains queued for manual parser support.");
   }
 
   const period = findStatementPeriod(lines);
@@ -86,14 +112,14 @@ function pdfTextToStatementRows(pdfText: string): PdfStatementTextModel {
   const closingBalance = [...balances].reverse().find((balance) => balance.balanceType === "closing" || balance.balanceType === "current") ?? null;
   const transactionLines = parseTransactionLines(lines);
   if (!transactionLines.length) {
-    throw new Error("PDF statement did not contain recognizable H&W transaction rows.");
+    throw new UnsupportedPdfStatementLayoutError("PDF statement did not contain recognizable transaction rows and remains queued for manual parser support.");
   }
 
   assignUnsignedDirections(transactionLines, openingBalance?.amount ?? null);
 
   const ambiguous = transactionLines.find((line) => line.signedAmount === null);
   if (ambiguous) {
-    throw new Error(
+    throw new UnsupportedPdfStatementLayoutError(
       `PDF statement transaction on line ${ambiguous.lineNumber} has an unsigned amount without a reliable balance delta, so it was not imported automatically.`,
     );
   }
@@ -149,9 +175,11 @@ function normalizedTextLines(pdfText: string) {
 function isSupportedHwPdfText(lines: Array<{ text: string }>) {
   const joined = lines.map((line) => line.text).join(" ").toLowerCase();
   const hasStatementSignals = /\b(statement|account\s+activity|transaction\s+history)\b/.test(joined);
-  const hasTransactionSignals = /\b(date|value\s+date)\b/.test(joined) && /\b(debit|credit|amount)\b/.test(joined) && /\bbalance\b/.test(joined);
-  const hasHwSignal = /\bh&w\b|\bh\s*&\s*w\b|hang\s+w/i.test(joined);
-  return hasHwSignal && hasStatementSignals && hasTransactionSignals;
+  const hasTransactionSignals =
+    /\b(date|value\s+date|posting\s+date|time)\b/.test(joined) &&
+    /\b(debit|credit|withdrawal|deposit|amount|money\s+out|money\s+in)\b/.test(joined);
+  const hasSupportedProviderSignal = /\bh&w\b|\bh\s*&\s*w\b|hang\s+w|\bdbs\b|standard\s+chartered|\bscb\b|\bhsbc\b|\bosl\b/i.test(joined);
+  return hasSupportedProviderSignal && hasStatementSignals && hasTransactionSignals;
 }
 
 function findStatementPeriod(lines: Array<{ text: string }>) {
@@ -188,49 +216,188 @@ function detectBalanceType(value: string): BankBalanceInput["balanceType"] | nul
 
 function parseTransactionLines(lines: Array<{ lineNumber: number; text: string }>): ParsedTransactionLine[] {
   const transactionLines: ParsedTransactionLine[] = [];
-  const startPattern = new RegExp(`^(${datePattern})(?:\\s+(${datePattern}))?\\s+(.+)$`, "i");
 
-  for (const line of lines) {
-    if (isIgnoredLine(line.text)) continue;
-    const startMatch = line.text.match(startPattern);
-    if (!startMatch) continue;
+  for (const section of findTransactionSections(lines)) {
+    for (const line of section.rows) {
+      const startMatch = line.text.match(startPattern);
+      if (!startMatch) continue;
 
-    const transactionDate = startMatch[1];
-    const postedDate = startMatch[2] ?? startMatch[1];
-    const remainder = startMatch[3].trim();
-    const amountMatches = [...remainder.matchAll(allAmountPattern)].filter((match) => typeof match.index === "number");
-    if (!amountMatches.length) continue;
+      const transactionDate = startMatch[1];
+      const postedDate = startMatch[2] ?? startMatch[1];
+      const remainder = startMatch[3].trim();
+      const parsed = parseTransactionRemainder(remainder, section);
+      if (!parsed) continue;
 
-    const endingMatches = trailingAmountMatches(remainder);
-    if (!endingMatches.length) continue;
-    const balanceToken = endingMatches.length >= 2 ? endingMatches.at(-1)?.[0] ?? null : null;
-    const amountToken = endingMatches.length >= 2 ? endingMatches.at(-2)?.[0] ?? "" : endingMatches.at(-1)?.[0] ?? "";
-    const amountStart = endingMatches.length >= 2 ? endingMatches.at(-2)?.index ?? -1 : endingMatches.at(-1)?.index ?? -1;
-    if (!amountToken || amountStart < 1) continue;
+      const { description, reference } = splitDescriptionReference(parsed.descriptor);
+      if (!description || isSummaryDescription(description)) continue;
 
-    const amount = parseAmount(amountToken);
-    const balance = balanceToken ? parseAmount(balanceToken) : null;
-    if (amount === null || (balanceToken && balance === null)) continue;
-
-    const descriptor = remainder.slice(0, amountStart).trim().replace(/\s{2,}/g, " ");
-    const { description, reference } = splitDescriptionReference(descriptor);
-    if (!description || isSummaryDescription(description)) continue;
-
-    transactionLines.push({
-      lineNumber: line.lineNumber,
-      transactionDate,
-      postedDate,
-      description,
-      reference,
-      amount: Math.abs(amount),
-      signedAmount: amountHasExplicitSign(amountToken) ? amount : null,
-      balance,
-      amountToken,
-      balanceToken,
-    });
+      transactionLines.push({
+        lineNumber: line.lineNumber,
+        transactionDate,
+        postedDate,
+        description,
+        reference,
+        amount: Math.abs(parsed.amount),
+        signedAmount: parsed.signedAmount,
+        balance: parsed.balance,
+        amountToken: parsed.amountToken,
+        balanceToken: parsed.balanceToken,
+      });
+    }
   }
 
   return transactionLines;
+}
+
+function findTransactionSections(lines: Array<{ lineNumber: number; text: string }>): PdfStatementSection[] {
+  const sections: PdfStatementSection[] = [];
+  let current: PdfStatementSection | null = null;
+  let currentRow: PdfTransactionRecord | null = null;
+
+  for (const line of lines) {
+    if (isTransactionHeaderLine(line.text)) {
+      if (currentRow) current?.rows.push(currentRow);
+      currentRow = null;
+      current = {
+        headerLineNumber: line.lineNumber,
+        amountLayout: detectAmountLayout(line.text),
+        hasBalance: /\bbalance\b/i.test(line.text),
+        rows: [],
+      };
+      sections.push(current);
+      continue;
+    }
+
+    if (!current || isIgnoredLine(line.text) || detectBalanceType(line.text) || isTransactionHeaderLine(line.text)) {
+      if (currentRow) current?.rows.push(currentRow);
+      currentRow = null;
+      continue;
+    }
+
+    const startMatch = line.text.match(startPattern);
+    if (startMatch) {
+      if (currentRow) current.rows.push(currentRow);
+      currentRow = { lineNumber: line.lineNumber, text: line.text };
+      continue;
+    }
+
+    if (currentRow && !isSummaryDescription(line.text)) {
+      currentRow.text = `${currentRow.text} ${line.text}`.trim();
+    }
+  }
+
+  if (currentRow) current?.rows.push(currentRow);
+  return sections;
+}
+
+function isTransactionHeaderLine(value: string) {
+  const normalized = value.toLowerCase();
+  const hasDate = /\b(date|value\s+date|posting\s+date|transaction\s+date|time)\b/.test(normalized);
+  const hasDetails = /\b(description|details|narrative|particulars|transaction|type)\b/.test(normalized);
+  const hasAmount = /\b(debit|credit|withdrawal|deposit|amount|money\s+out|money\s+in)\b/.test(normalized);
+  return hasDate && hasDetails && hasAmount;
+}
+
+function detectAmountLayout(header: string): PdfAmountLayout {
+  const normalized = header.toLowerCase();
+  if (/\b(debit|withdrawal|withdrawals|money\s+out)\b/.test(normalized) && /\b(credit|deposit|deposits|money\s+in)\b/.test(normalized)) {
+    const debitIndex = normalized.search(/\b(debit|withdrawal|withdrawals|money\s+out)\b/);
+    const creditIndex = normalized.search(/\b(credit|deposit|deposits|money\s+in)\b/);
+    const creditBeforeDebit = creditIndex !== -1 && debitIndex !== -1 && creditIndex < debitIndex;
+    if (/\bbalance\b/.test(normalized)) return creditBeforeDebit ? "creditDebitBalance" : "debitCreditBalance";
+    return creditBeforeDebit ? "creditDebit" : "debitCredit";
+  }
+  return "signed";
+}
+
+function parseTransactionRemainder(remainder: string, section: PdfStatementSection) {
+  const endingMatches = trailingAmountMatches(remainder);
+  if (!endingMatches.length) return null;
+
+  if (section.amountLayout === "debitCreditBalance" || section.amountLayout === "creditDebitBalance") {
+    const balanceMatch = endingMatches.at(-1);
+    if (!balanceMatch) return null;
+    const balanceToken = balanceMatch[0];
+    const balance = parseAmount(balanceToken);
+    if (balance === null) return null;
+
+    const beforeBalance = remainder.slice(0, balanceMatch.index).trim();
+    const amountMatches = trailingAmountMatches(beforeBalance);
+    const firstColumnMatch = amountMatches.length >= 2 ? (amountMatches.at(-2) ?? null) : null;
+    const secondColumnMatch = amountMatches.length >= 2 ? (amountMatches.at(-1) ?? null) : null;
+    const debitMatch = section.amountLayout === "creditDebitBalance" ? secondColumnMatch : firstColumnMatch;
+    const creditMatch = section.amountLayout === "creditDebitBalance" ? firstColumnMatch : secondColumnMatch;
+    const credit = creditMatch ? parseAmount(creditMatch[0]) : null;
+    const debit = debitMatch ? parseAmount(debitMatch[0]) : null;
+    const singleAmountMatch = amountMatches.length === 1 ? (amountMatches[0] ?? null) : null;
+    const singleAmount = singleAmountMatch ? parseAmount(singleAmountMatch[0]) : null;
+    const amountMatch = nonZeroAmountMatch(debitMatch, debit) ?? nonZeroAmountMatch(creditMatch, credit) ?? nonZeroAmountMatch(singleAmountMatch, singleAmount);
+    if (!amountMatch) return null;
+
+    const signedAmount =
+      debit !== null && debit !== 0
+        ? -Math.abs(debit)
+        : credit !== null && credit !== 0
+          ? Math.abs(credit)
+          : singleAmount !== null && amountHasExplicitSign(singleAmountMatch?.[0] ?? "")
+            ? singleAmount
+            : null;
+    const amount = debit !== null && debit !== 0 ? debit : credit !== null && credit !== 0 ? credit : singleAmount;
+    if (amount === null) return null;
+    const descriptorEnd = firstColumnMatch?.index ?? amountMatch.index;
+    return {
+      descriptor: beforeBalance.slice(0, descriptorEnd).trim().replace(/\s{2,}/g, " "),
+      amount: Math.abs(amount),
+      signedAmount,
+      balance,
+      amountToken: amountMatch[0],
+      balanceToken,
+    };
+  }
+
+  if (section.amountLayout === "debitCredit" || section.amountLayout === "creditDebit") {
+    const firstColumnMatch = endingMatches.length >= 2 ? (endingMatches.at(-2) ?? null) : null;
+    const secondColumnMatch = endingMatches.length >= 2 ? (endingMatches.at(-1) ?? null) : null;
+    const debitMatch = section.amountLayout === "creditDebit" ? secondColumnMatch : firstColumnMatch;
+    const creditMatch = section.amountLayout === "creditDebit" ? firstColumnMatch : secondColumnMatch;
+    const credit = creditMatch ? parseAmount(creditMatch[0]) : null;
+    const debit = debitMatch ? parseAmount(debitMatch[0]) : null;
+    const amountMatch = nonZeroAmountMatch(debitMatch, debit) ?? nonZeroAmountMatch(creditMatch, credit);
+    if (!amountMatch) return null;
+    const signedAmount = debit !== null && debit !== 0 ? -Math.abs(debit) : credit !== null && credit !== 0 ? Math.abs(credit) : null;
+    if (signedAmount === null) return null;
+    const descriptorEnd = firstColumnMatch?.index ?? amountMatch.index;
+    return {
+      descriptor: remainder.slice(0, descriptorEnd).trim().replace(/\s{2,}/g, " "),
+      amount: Math.abs(signedAmount),
+      signedAmount,
+      balance: null,
+      amountToken: amountMatch[0],
+      balanceToken: null,
+    };
+  }
+
+  const balanceToken = section.hasBalance && endingMatches.length >= 2 ? endingMatches.at(-1)?.[0] ?? null : null;
+  const amountToken = section.hasBalance && endingMatches.length >= 2 ? endingMatches.at(-2)?.[0] ?? "" : endingMatches.at(-1)?.[0] ?? "";
+  const amountStart = section.hasBalance && endingMatches.length >= 2 ? endingMatches.at(-2)?.index ?? -1 : endingMatches.at(-1)?.index ?? -1;
+  if (!amountToken || amountStart < 1) return null;
+
+  const amount = parseAmount(amountToken);
+  const balance = balanceToken ? parseAmount(balanceToken) : null;
+  if (amount === null || (balanceToken && balance === null)) return null;
+
+  return {
+    descriptor: remainder.slice(0, amountStart).trim().replace(/\s{2,}/g, " "),
+    amount: Math.abs(amount),
+    signedAmount: amountHasExplicitSign(amountToken) ? amount : null,
+    balance,
+    amountToken,
+    balanceToken,
+  };
+}
+
+function nonZeroAmountMatch(match: RegExpMatchArray | null, amount: number | null) {
+  return match && amount !== null && amount !== 0 ? match : null;
 }
 
 function trailingAmountMatches(value: string) {
@@ -330,7 +497,7 @@ function parseAmount(value: string) {
   const trimmed = value.trim();
   const negative = /^\(/.test(trimmed) || /^\s*-/.test(trimmed) || /\bDR\b/i.test(trimmed);
   const positive = /\bCR\b/i.test(trimmed);
-  const numeric = trimmed.replace(/[$£€¥]|HKD|USD|SGD|AUD|CAD|NZD|\bCR\b|\bDR\b|[(),\s]/gi, "");
+  const numeric = trimmed.replace(/[$£€¥]|\b[A-Z]{3,4}\b|\bCR\b|\bDR\b|[(),\s]/gi, "");
   if (!numeric || numeric === "+" || numeric === "-") return null;
   const parsed = Number(numeric);
   if (!Number.isFinite(parsed)) return null;

@@ -69,7 +69,7 @@ writeFileSync(fileTypeOutputPath, fileTypeTranspiled.outputText);
 
 const { parseCsvStatement } = await import(`${pathToFileURL(outputPath).href}?${Date.now()}`);
 const { parseExcelStatement, parseLegacyExcelStatement } = await import(`${pathToFileURL(excelOutputPath).href}?${Date.now()}`);
-const { parsePdfStatementText } = await import(`${pathToFileURL(pdfOutputPath).href}?${Date.now()}`);
+const { isUnsupportedPdfStatementLayoutError, parsePdfStatementText } = await import(`${pathToFileURL(pdfOutputPath).href}?${Date.now()}`);
 const { statementParserType } = await import(`${pathToFileURL(fileTypeOutputPath).href}?${Date.now()}`);
 
 const input = {
@@ -79,6 +79,10 @@ const input = {
   defaultCurrency: "USD",
   fileName: "statement-smoke.csv",
 };
+
+function parseSanitizedPdfFixture(pdfText, defaultCurrency = "HKD") {
+  return parsePdfStatementText(pdfText, { ...input, defaultCurrency, fileName: "sanitized-provider-statement.pdf" });
+}
 
 assert.equal(statementParserType("uploads/hw-statement.PDF", null), "pdf");
 assert.equal(statementParserType("uploads/hw-statement.bin", "application/pdf"), "pdf");
@@ -351,6 +355,119 @@ assert.equal(signedAmountHwPdf.transactions.length, 2);
 assert.equal(signedAmountHwPdf.transactions[0]?.signedAmount, 25.25);
 assert.equal(signedAmountHwPdf.transactions[1]?.signedAmount, -10);
 
+const dbsCurrentPdf = parseSanitizedPdfFixture(`
+DBS Bank (Hong Kong) Limited
+Current Account Statement
+Account Number 000109286 Currency HKD
+Statement Period 13/07/2026 to 31/07/2026
+Opening Balance HKD 1,000.00
+Transaction Date Value Date Description Debit Credit Balance
+13/07/2026 13/07/2026 Outward FPS payment to vendor
+Reference number DBS-CUR-001 50.00 950.00
+14/07/2026 14/07/2026 Incoming transfer from customer Reference number DBS-CUR-002 100.00 1,050.00
+Closing Balance HKD 1,050.00
+Page 1 of 1
+`);
+assert.equal(dbsCurrentPdf.transactions.length, 2);
+assert.equal(dbsCurrentPdf.transactions[0]?.description, "Outward FPS payment to vendor");
+assert.equal(dbsCurrentPdf.transactions[0]?.signedAmount, -50);
+assert.equal(dbsCurrentPdf.transactions[0]?.reference, "DBS-CUR-001");
+assert.equal(dbsCurrentPdf.transactions[1]?.signedAmount, 100);
+assert.equal(dbsCurrentPdf.balances.at(-1)?.amount, 1050);
+
+const dbsSavingsPdf = parseSanitizedPdfFixture(`
+DBS Bank (Hong Kong) Limited
+Savings Account Statement
+Account 000071201 CNY GBP HKD
+Statement from 13 Aug 2026 to 31 Aug 2026
+Date Details Withdrawal Deposit Balance
+13 Aug 2026 FX conversion - CNY leg DBS-SAV-001 40.00 0.00 960.00
+14 Aug 2026 Interest payment
+Reference number DBS-SAV-002 0.00 12.34 972.34
+Current Balance HKD 972.34
+Page 1 of 1
+`);
+assert.equal(dbsSavingsPdf.transactions.length, 2);
+assert.equal(dbsSavingsPdf.transactions[0]?.transactionDate, "2026-08-13");
+assert.equal(dbsSavingsPdf.transactions[0]?.signedAmount, -40);
+assert.equal(dbsSavingsPdf.transactions[1]?.signedAmount, 12.34);
+assert.equal(dbsSavingsPdf.transactions[1]?.description, "Interest payment");
+
+const scbCurrentPdf = parseSanitizedPdfFixture(`
+Standard Chartered Bank Hong Kong
+Current Account HKD Statement
+Statement Period 13/08/2026 - 31/08/2026
+Date Transaction Details Amount Balance
+13/08/2026 Telegraphic transfer received REF SCB-CUR-001 +200.00 1,200.00
+14/08/2026 Autopay settlement REF SCB-CUR-002 (75.25) 1,124.75
+Statement Balance HKD 1,124.75
+`);
+assert.equal(scbCurrentPdf.transactions.length, 2);
+assert.equal(scbCurrentPdf.transactions[0]?.signedAmount, 200);
+assert.equal(scbCurrentPdf.transactions[1]?.signedAmount, -75.25);
+
+const scbSavingsPdf = parseSanitizedPdfFixture(`
+SCB Savings Account Statement
+Account currencies CNY HKD USD
+Statement Date 13/08/2026 to 31/08/2026
+Date Transaction Details Deposit Withdrawal Balance
+13/08/2026 Inward remittance SCB-SAV-001 250.00 0.00 1,250.00
+14/08/2026 FX sweep to operating account
+Bank reference number SCB-SAV-002 0.00 100.00 1,150.00
+Closing Balance HKD 1,150.00
+`);
+assert.equal(scbSavingsPdf.transactions.length, 2);
+assert.equal(scbSavingsPdf.transactions[0]?.signedAmount, 250);
+assert.equal(scbSavingsPdf.transactions[1]?.signedAmount, -100);
+assert.equal(scbSavingsPdf.transactions[1]?.reference, "SCB-SAV-002");
+
+const hsbcCurrentPdf = parseSanitizedPdfFixture(`
+HSBC Hong Kong
+Current Account HKD Statement
+Statement Period 13 Aug 2026 to 31 Aug 2026
+Opening Balance 2,000.00
+Date Transaction details Debit Credit Balance
+13 Aug 2026 CHATS payment to supplier
+Bank reference number HSBC-CUR-001 300.00 1,700.00
+14 Aug 2026 Client receipt HSBC-CUR-002 500.00 2,200.00
+Closing Balance 2,200.00
+`);
+assert.equal(hsbcCurrentPdf.transactions.length, 2);
+assert.equal(hsbcCurrentPdf.transactions[0]?.postedDate, "2026-08-13");
+assert.equal(hsbcCurrentPdf.transactions[0]?.signedAmount, -300);
+assert.equal(hsbcCurrentPdf.transactions[1]?.signedAmount, 500);
+
+const hsbcSavingsPdf = parseSanitizedPdfFixture(`
+HSBC Savings Account Statement
+HKD USD CNY account family
+Statement Period 13/08/2026 to 31/08/2026
+Date Narrative Money In Money Out Balance
+13/08/2026 Time deposit maturity HSBC-SAV-001 800.00 0.00 2,800.00
+14/08/2026 Transfer to current account HSBC-SAV-002 0.00 600.00 2,200.00
+Available Balance HKD 2,200.00
+`);
+assert.equal(hsbcSavingsPdf.transactions.length, 2);
+assert.equal(hsbcSavingsPdf.transactions[0]?.signedAmount, 800);
+assert.equal(hsbcSavingsPdf.transactions[1]?.signedAmount, -600);
+
+const oslPdf = parseSanitizedPdfFixture(
+  `
+OSL Digital Securities
+USD USDT Account Statement
+Statement Period 13 Aug 2026 to 31 Aug 2026
+Time Type Asset Amount Balance
+13 Aug 2026 Deposit USD +1,000.00 1,000.00
+14 Aug 2026 Conversion USDT
+Reference number OSL-USDT-001 -250.00 750.00
+Current Balance USD 750.00
+`,
+  "USD",
+);
+assert.equal(oslPdf.transactions.length, 2);
+assert.equal(oslPdf.transactions[0]?.signedAmount, 1000);
+assert.equal(oslPdf.transactions[1]?.description, "Conversion USDT");
+assert.equal(oslPdf.transactions[1]?.signedAmount, -250);
+
 assert.throws(
   () =>
     parsePdfStatementText(
@@ -358,7 +475,7 @@ assert.throws(
 H&W Commercial Banking Account Statement
 Statement Period 01/09/2026 to 30/09/2026
 Date Description Debit Credit Balance
-01/09/2026 Ambiguous collapsed row 50.00
+01/09/2026 Ambiguous collapsed row 50.00 950.00
 `,
       { ...input, defaultCurrency: "HKD", fileName: "ambiguous-hw.pdf" },
     ),
@@ -375,7 +492,7 @@ Closing Balance 100.00
 `,
       { ...input, defaultCurrency: "HKD", fileName: "generic-summary.pdf" },
     ),
-  /not a recognized H&W statement layout/,
+  isUnsupportedPdfStatementLayoutError,
 );
 
 rmSync(outputDir, { recursive: true, force: true });

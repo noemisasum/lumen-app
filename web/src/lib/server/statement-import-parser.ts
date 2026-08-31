@@ -8,7 +8,7 @@ import {
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
 import { parseExcelStatement, parseLegacyExcelStatement } from "@/lib/server/statement-excel-parser";
 import { statementParserType } from "@/lib/server/statement-file-type";
-import { parsePdfStatement } from "@/lib/server/statement-pdf-parser";
+import { isUnsupportedPdfStatementLayoutError, parsePdfStatement } from "@/lib/server/statement-pdf-parser";
 
 export type StatementParseOutcome = {
   status: "imported" | "pending_parse" | "failed";
@@ -130,6 +130,9 @@ export async function parseManualStatementImport(
     return finishLog(outcome);
   } catch (error) {
     const message = getErrorMessage(error, "Failed to parse statement.");
+    if (isUnsupportedPdfStatementLayoutError(error)) {
+      return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", message));
+    }
     return finishLog(await failImportStatus(supabase, input.statementImportId, message));
   }
 }
