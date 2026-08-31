@@ -51,6 +51,28 @@ type InvoiceFileRow = {
   created_at: string;
 };
 
+type StatementImportStatus = "queued" | "pending_parse" | "processing" | "imported" | "failed";
+
+type StatementImportSummary = {
+  id: string;
+  rawFileId: string | null;
+  bankAccountId: string | null;
+  status: StatementImportStatus;
+  errorMessage: string | null;
+  lastReprocessError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  latestLog: {
+    status: "started" | "imported" | "pending_parse" | "failed" | "skipped";
+    transactionCount: number;
+    balanceCount: number;
+    warningMessage: string | null;
+    errorMessage: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+  } | null;
+};
+
 type SingleUserInvoiceRow = Omit<InvoiceRow, "org_id" | "entity_id">;
 
 type SingleUserInvoiceFileRow = Omit<InvoiceFileRow, "org_id" | "entity_id">;
@@ -194,6 +216,74 @@ function accountTypeLabel(accountType: BankAccountRow["accountType"]) {
   return "Bank";
 }
 
+function countLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function statementImportBadge(imports: StatementImportSummary[]) {
+  if (!imports.length) return null;
+
+  const totalImports = imports.length;
+  const imported = imports.filter((item) => item.status === "imported");
+  const processing = imports.filter((item) => item.status === "processing");
+  const queued = imports.filter((item) => item.status === "queued");
+  const pendingParse = imports.filter((item) => item.status === "pending_parse");
+  const failed = imports.filter((item) => item.status === "failed");
+  const transactionCount = imports.reduce((sum, item) => sum + (item.latestLog?.transactionCount ?? 0), 0);
+  const balanceCount = imports.reduce((sum, item) => sum + (item.latestLog?.balanceCount ?? 0), 0);
+  const counts = [
+    transactionCount ? countLabel(transactionCount, "txn", "txns") : "",
+    balanceCount ? countLabel(balanceCount, "balance", "balances") : "",
+  ].filter(Boolean);
+
+  if (imported.length === totalImports) {
+    return {
+      label: ["Imported", ...counts].join(" · "),
+      className: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-100",
+    };
+  }
+
+  if (imported.length) {
+    return {
+      label: [`Imported ${imported.length}/${totalImports}`, ...counts].join(" · "),
+      className: "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-100",
+    };
+  }
+
+  if (processing.length) {
+    return {
+      label: processing.length === totalImports ? "Parsing" : `Parsing ${processing.length}/${totalImports}`,
+      className: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100",
+    };
+  }
+
+  if (queued.length) {
+    return {
+      label: queued.length === totalImports ? "Queued" : `Queued ${queued.length}/${totalImports}`,
+      className: "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-100",
+    };
+  }
+
+  if (failed.length) {
+    return {
+      label: failed.length === totalImports ? "Parse Failed" : `Parse Failed ${failed.length}/${totalImports}`,
+      className: "bg-red-50 text-red-700 ring-1 ring-inset ring-red-100",
+    };
+  }
+
+  if (pendingParse.length) {
+    return {
+      label: pendingParse.length === totalImports ? "Pending Parse" : `Pending Parse ${pendingParse.length}/${totalImports}`,
+      className: "bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-100",
+    };
+  }
+
+  return {
+    label: "Parsing Status Unknown",
+    className: "bg-zinc-100 text-zinc-700",
+  };
+}
+
 export default function InvoicesPage() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -219,6 +309,7 @@ export default function InvoicesPage() {
 
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [filesByInvoice, setFilesByInvoice] = useState<Record<string, InvoiceFileRow[]>>({});
+  const [statementImportsByFile, setStatementImportsByFile] = useState<Record<string, StatementImportSummary[]>>({});
 
   async function ensureSession() {
     if (!supabase) throw new Error("Authentication is not configured for this deployment.");
@@ -329,6 +420,34 @@ export default function InvoicesPage() {
     );
   }
 
+  async function loadStatementImports(fileRows: InvoiceFileRow[], accessToken: string, currentEntityId: string) {
+    if (!currentEntityId || !fileRows.length) {
+      setStatementImportsByFile({});
+      return;
+    }
+
+    try {
+      const rawFileIds = fileRows.map((file) => file.id);
+      const params = new URLSearchParams({ entityId: currentEntityId });
+      params.set("rawFileIds", rawFileIds.join(","));
+      const response = await fetch(`/api/bank-statement-imports?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const body = (await response.json()) as { imports?: StatementImportSummary[]; error?: string };
+      if (!response.ok) throw new Error(body.error || "Failed to load statement imports.");
+
+      const grouped: Record<string, StatementImportSummary[]> = {};
+      for (const statementImport of body.imports ?? []) {
+        if (!statementImport.rawFileId) continue;
+        grouped[statementImport.rawFileId] = grouped[statementImport.rawFileId] || [];
+        grouped[statementImport.rawFileId].push(statementImport);
+      }
+      setStatementImportsByFile(grouped);
+    } catch {
+      setStatementImportsByFile({});
+    }
+  }
+
 
   async function load() {
     try {
@@ -389,6 +508,7 @@ export default function InvoicesPage() {
         const ids = rows.map((r) => r.id);
         if (!ids.length) {
           setFilesByInvoice({});
+          setStatementImportsByFile({});
           return;
         }
 
@@ -407,12 +527,14 @@ export default function InvoicesPage() {
           grouped[invId].push(f);
         }
         setFilesByInvoice(grouped);
+        await loadStatementImports((files || []) as InvoiceFileRow[], sess.access_token, currentEntityId);
       }
 
       if (!detectedMultiOrg) {
         setMultiOrgMode(false);
         setBankAccounts([]);
         setBankAccountId("");
+        setStatementImportsByFile({});
         // Single-user mode (schema.sql)
         const { data: invs, error: invErr } = await supabase
           .from("invoices")
@@ -431,6 +553,7 @@ export default function InvoicesPage() {
         const ids = rows.map((r) => r.id);
         if (!ids.length) {
           setFilesByInvoice({});
+          setStatementImportsByFile({});
           return;
         }
 
@@ -1098,6 +1221,8 @@ export default function InvoicesPage() {
               <div className="divide-y divide-zinc-100">
                 {invoices.map((inv) => {
                   const files = filesByInvoice[inv.id] || [];
+                  const statementImports = files.flatMap((file) => statementImportsByFile[file.id] || []);
+                  const importBadge = statementImportBadge(statementImports);
                   return (
                     <div key={inv.id} className="px-5 py-4">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1117,8 +1242,8 @@ export default function InvoicesPage() {
                               View File
                             </button>
                           ) : null}
-                          <div className="rounded-md bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                            {inv.currency || "USD"} {inv.total ?? "Pending"}
+                          <div className={`rounded-md px-3 py-1 text-xs font-medium ${importBadge?.className ?? "bg-zinc-100 text-zinc-700"}`}>
+                            {importBadge?.label ?? `${inv.currency || "USD"} ${inv.total ?? "Pending"}`}
                           </div>
                         </div>
                       </div>
