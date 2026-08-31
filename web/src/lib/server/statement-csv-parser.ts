@@ -12,11 +12,20 @@ export type ParsedStatementResult = {
   transactions: BankTransactionInput[];
   balances: BankBalanceInput[];
   warnings: string[];
+  metadata?: ParsedStatementMetadata;
 };
 
 export type StatementParserRow = {
   fields: string[];
   sourceRowNumber: number;
+};
+
+export type ParsedStatementMetadata = {
+  statementPeriodStart?: string | null;
+  statementPeriodEnd?: string | null;
+  accountHolderNames?: string[];
+  accountNames?: string[];
+  accountNumbers?: string[];
 };
 
 type StatementRowsParserOptions = {

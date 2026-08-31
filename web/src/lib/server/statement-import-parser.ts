@@ -7,6 +7,18 @@ import {
 } from "@/lib/server/statement-processing-log";
 import { parseCsvStatement } from "@/lib/server/statement-csv-parser";
 import { parseExcelStatement, parseLegacyExcelStatement } from "@/lib/server/statement-excel-parser";
+import { statementParserType } from "@/lib/server/statement-file-type";
+import { isNotBankStatementPdfError, isUnsupportedPdfStatementLayoutError, parsePdfStatement } from "@/lib/server/statement-pdf-parser";
+import {
+  appendValidationWarnings,
+  duplicatePeriodMessage,
+  findOverlappingImportedStatement,
+  loadStatementValidationContext,
+  statementPeriodFromParsed,
+  validateStatementContext,
+  StatementImportValidationError,
+  type StatementPeriod,
+} from "@/lib/server/statement-import-validation";
 
 export type StatementParseOutcome = {
   status: "imported" | "pending_parse" | "failed";
@@ -22,10 +34,6 @@ type RawFileRow = {
   object_key: string;
   mime_type: string | null;
   size_bytes: number | null;
-};
-
-type BankAccountRow = {
-  currency: string | null;
 };
 
 const maxStatementBytes = 8 * 1024 * 1024;
@@ -81,7 +89,7 @@ export async function parseManualStatementImport(
           supabase,
           input.statementImportId,
           "pending_parse",
-          "Automatic parsing currently supports CSV, XLSX, and supported legacy XLS statements. PDF and image statements remain queued for manual parser support.",
+          "Automatic parsing currently supports CSV, XLSX, PDF, and supported legacy XLS statements. Image statements remain queued for manual parser support.",
         ),
       );
     }
@@ -101,7 +109,11 @@ export async function parseManualStatementImport(
     await setImportProcessing(supabase, input.statementImportId);
 
     const fileBuffer = await downloadFileBuffer(supabase, file.bucket, file.object_key);
-    const accountCurrency = await loadAccountCurrency(supabase, input.bankAccountId, input.entityId);
+    const validationContext = await loadStatementValidationContext(supabase, {
+      entityId: input.entityId,
+      bankAccountId: input.bankAccountId,
+    });
+    const accountCurrency = validationContext.accountCurrency || "USD";
     const parserInput = {
       statementImportId: input.statementImportId,
       entityId: input.entityId,
@@ -114,18 +126,40 @@ export async function parseManualStatementImport(
         ? parseCsvStatement(new TextDecoder("utf-8").decode(fileBuffer).replace(/^\uFEFF/, ""), parserInput)
         : parserType === "xlsx"
           ? await parseExcelStatement(fileBuffer, parserInput)
-          : parseLegacyExcelStatement(fileBuffer, parserInput);
+          : parserType === "xls"
+            ? parseLegacyExcelStatement(fileBuffer, parserInput)
+            : await parsePdfStatement(fileBuffer, parserInput);
+    const validationWarnings = parserType === "pdf" ? validateStatementContext(parsed.metadata, validationContext) : [];
+    const validated = appendValidationWarnings(parsed, validationWarnings);
+    const statementPeriod = statementPeriodFromParsed(validated);
+    if (statementPeriod) {
+      const duplicate = await findOverlappingImportedStatement(supabase, {
+        statementImportId: input.statementImportId,
+        bankAccountId: input.bankAccountId,
+        period: statementPeriod,
+      });
+      if (duplicate) {
+        return finishLog(await failImportStatus(supabase, input.statementImportId, duplicatePeriodMessage(statementPeriod, duplicate.id)));
+      }
+    }
 
-    const transactionResult = await upsertBankTransactions(supabase, parsed.transactions);
-    const balanceResult = await upsertBankBalances(supabase, parsed.balances);
-    const warning = compactWarning(parsed.warnings);
+    const transactionResult = await upsertBankTransactions(supabase, validated.transactions);
+    const balanceResult = await upsertBankBalances(supabase, validated.balances);
+    const warning = compactWarning(validated.warnings);
     const outcome = await updateImportStatus(supabase, input.statementImportId, "imported", warning ?? null, {
       transactionsParsed: transactionResult.count,
       balancesParsed: balanceResult.count,
+      statementPeriod,
     });
     return finishLog(outcome);
   } catch (error) {
     const message = getErrorMessage(error, "Failed to parse statement.");
+    if (isUnsupportedPdfStatementLayoutError(error)) {
+      return finishLog(await updateImportStatus(supabase, input.statementImportId, "pending_parse", message));
+    }
+    if (isNotBankStatementPdfError(error) || error instanceof StatementImportValidationError) {
+      return finishLog(await failImportStatus(supabase, input.statementImportId, message));
+    }
     return finishLog(await failImportStatus(supabase, input.statementImportId, message));
   }
 }
@@ -166,21 +200,6 @@ async function loadRawFile(
   return file;
 }
 
-function statementParserType(objectKey: string, mimeType: string | null): "csv" | "xlsx" | "xls" | null {
-  const lowerKey = objectKey.toLowerCase();
-  const lowerType = mimeType?.toLowerCase() ?? "";
-  if (lowerKey.endsWith(".csv") || lowerType.includes("csv") || lowerType === "text/plain") return "csv";
-  if (
-    lowerKey.endsWith(".xlsx") ||
-    lowerType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    lowerType === "application/xlsx"
-  ) {
-    return "xlsx";
-  }
-  if (lowerKey.endsWith(".xls") || lowerType === "application/vnd.ms-excel" || lowerType === "application/xls") return "xls";
-  return null;
-}
-
 async function downloadFileBuffer(supabase: SupabaseClient, bucket: string, objectKey: string) {
   const { data, error } = await supabase.storage.from(bucket).download(objectKey);
   if (error) throw error;
@@ -188,17 +207,6 @@ async function downloadFileBuffer(supabase: SupabaseClient, bucket: string, obje
   const buffer = await data.arrayBuffer();
   if (buffer.byteLength > maxStatementBytes) throw new Error("Statement file is larger than the current automatic parser limit.");
   return buffer;
-}
-
-async function loadAccountCurrency(supabase: SupabaseClient, bankAccountId: string, entityId: string) {
-  const { data, error } = await supabase
-    .from("entity_bank_accounts")
-    .select("currency")
-    .eq("id", bankAccountId)
-    .eq("entity_id", entityId)
-    .maybeSingle();
-  if (error) throw error;
-  return ((data as BankAccountRow | null)?.currency ?? null) || "USD";
 }
 
 async function setImportProcessing(supabase: SupabaseClient, statementImportId: string) {
@@ -214,7 +222,7 @@ async function updateImportStatus(
   statementImportId: string,
   status: StatementParseOutcome["status"],
   message: string | null,
-  counts?: { transactionsParsed: number; balancesParsed: number },
+  counts?: { transactionsParsed: number; balancesParsed: number; statementPeriod?: StatementPeriod | null },
 ): Promise<StatementParseOutcome> {
   const conciseMessage = message?.trim().slice(0, 500) || null;
   const retryFields =
@@ -228,7 +236,17 @@ async function updateImportStatus(
       : {};
   const { error } = await supabase
     .from("bank_statement_imports")
-    .update({ status, error_message: conciseMessage, ...retryFields })
+    .update({
+      status,
+      error_message: conciseMessage,
+      ...(counts?.statementPeriod
+        ? {
+            statement_period_start: counts.statementPeriod.start,
+            statement_period_end: counts.statementPeriod.end,
+          }
+        : {}),
+      ...retryFields,
+    })
     .eq("id", statementImportId);
   if (error) throw error;
   return {
