@@ -11,11 +11,13 @@ const sourcePath = path.join(appDir, "src/lib/server/statement-csv-parser.ts");
 const excelSourcePath = path.join(appDir, "src/lib/server/statement-excel-parser.ts");
 const pdfSourcePath = path.join(appDir, "src/lib/server/statement-pdf-parser.ts");
 const fileTypeSourcePath = path.join(appDir, "src/lib/server/statement-file-type.ts");
+const validationSourcePath = path.join(appDir, "src/lib/server/statement-import-validation.ts");
 const outputDir = path.join(appDir, ".statement-parser-smoke");
 const outputPath = path.join(outputDir, "statement-csv-parser.mjs");
 const excelOutputPath = path.join(outputDir, "statement-excel-parser.mjs");
 const pdfOutputPath = path.join(outputDir, "statement-pdf-parser.mjs");
 const fileTypeOutputPath = path.join(outputDir, "statement-file-type.mjs");
+const validationOutputPath = path.join(outputDir, "statement-import-validation.mjs");
 
 mkdirSync(outputDir, { recursive: true });
 
@@ -67,10 +69,30 @@ const fileTypeTranspiled = ts.transpileModule(fileTypeSource, {
 });
 writeFileSync(fileTypeOutputPath, fileTypeTranspiled.outputText);
 
+const validationSource = readFileSync(validationSourcePath, "utf8");
+const validationTranspiled = ts.transpileModule(validationSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ES2022,
+    target: ts.ScriptTarget.ES2022,
+  },
+});
+writeFileSync(
+  validationOutputPath,
+  validationTranspiled.outputText
+    .replace('from "@/lib/server/bank-ledger"', 'from "./bank-ledger.mjs"')
+    .replace('from "@/lib/server/statement-csv-parser"', 'from "./statement-csv-parser.mjs"'),
+);
+
 const { parseCsvStatement } = await import(`${pathToFileURL(outputPath).href}?${Date.now()}`);
 const { parseExcelStatement, parseLegacyExcelStatement } = await import(`${pathToFileURL(excelOutputPath).href}?${Date.now()}`);
-const { isUnsupportedPdfStatementLayoutError, parsePdfStatementText } = await import(`${pathToFileURL(pdfOutputPath).href}?${Date.now()}`);
+const { isNotBankStatementPdfError, isUnsupportedPdfStatementLayoutError, parsePdfStatementText } = await import(`${pathToFileURL(pdfOutputPath).href}?${Date.now()}`);
 const { statementParserType } = await import(`${pathToFileURL(fileTypeOutputPath).href}?${Date.now()}`);
+const {
+  StatementImportValidationError,
+  statementPeriodFromParsed,
+  statementPeriodsOverlap,
+  validateStatementContext,
+} = await import(`${pathToFileURL(validationOutputPath).href}?${Date.now()}`);
 
 const input = {
   statementImportId: "statement-import-smoke",
@@ -319,6 +341,9 @@ Page 1 of 1
 `;
 const hwPdf = parsePdfStatementText(hwPdfText, { ...input, defaultCurrency: "HKD", fileName: "sanitized-hw.pdf" });
 assert.equal(hwPdf.transactions.length, 3);
+assert.equal(hwPdf.metadata?.statementPeriodStart, "2026-07-01");
+assert.equal(hwPdf.metadata?.statementPeriodEnd, "2026-07-31");
+assert.deepEqual(hwPdf.metadata?.accountNumbers, ["000-000-000"]);
 assert.equal(hwPdf.transactions[0]?.transactionDate, "2026-07-29");
 assert.equal(hwPdf.transactions[0]?.postedDate, "2026-07-29");
 assert.equal(hwPdf.transactions[0]?.description, "Account Maintenance Charges - For 1/7-31/7/26");
@@ -486,6 +511,21 @@ assert.throws(
   () =>
     parsePdfStatementText(
       `
+Invoice INV-001
+Bill To Lumen Trading Limited
+Description Amount
+Consulting services 100.00
+Tax Invoice
+`,
+      { ...input, defaultCurrency: "HKD", fileName: "not-a-bank-statement.pdf" },
+    ),
+  isNotBankStatementPdfError,
+);
+
+assert.throws(
+  () =>
+    parsePdfStatementText(
+      `
 Generic Bank Monthly Summary
 Opening Balance 100.00
 Closing Balance 100.00
@@ -493,6 +533,65 @@ Closing Balance 100.00
       { ...input, defaultCurrency: "HKD", fileName: "generic-summary.pdf" },
     ),
   isUnsupportedPdfStatementLayoutError,
+);
+
+const validationContext = {
+  entityName: "Lumen Trading Limited",
+  entityCode: "LUMEN",
+  accountName: "DBS Current Account 000-000-000",
+  accountCurrency: "HKD",
+  xeroBankAccountId: null,
+};
+assert.deepEqual(
+  validateStatementContext(
+    {
+      accountHolderNames: ["Lumen Trading Ltd"],
+      accountNames: [],
+      accountNumbers: ["000 000 000"],
+    },
+    validationContext,
+  ),
+  [],
+);
+assert.throws(
+  () =>
+    validateStatementContext(
+      {
+        accountHolderNames: ["Other Company Limited"],
+        accountNames: [],
+        accountNumbers: ["000-000-000"],
+      },
+      validationContext,
+    ),
+  StatementImportValidationError,
+);
+assert.throws(
+  () =>
+    validateStatementContext(
+      {
+        accountHolderNames: ["Lumen Trading Limited"],
+        accountNames: [],
+        accountNumbers: ["999-999-999"],
+      },
+      validationContext,
+    ),
+  StatementImportValidationError,
+);
+assert.match(validateStatementContext(undefined, validationContext)[0], /could not be verified/);
+
+assert.deepEqual(statementPeriodFromParsed(hwPdf), { start: "2026-07-01", end: "2026-07-31" });
+assert.deepEqual(statementPeriodFromParsed(normalizedAccountStatement), { start: "2026-07-29", end: "2026-07-31" });
+assert.equal(
+  statementPeriodsOverlap({ start: "2026-07-01", end: "2026-07-31" }, { start: "2026-07-01", end: "2026-07-31" }),
+  true,
+);
+assert.equal(
+  statementPeriodsOverlap({ start: "2026-07-01", end: "2026-07-31" }, { start: "2026-07-15", end: "2026-08-15" }),
+  true,
+);
+assert.equal(
+  statementPeriodsOverlap({ start: "2026-07-01", end: "2026-07-31" }, { start: "2026-08-01", end: "2026-08-31" }),
+  false,
 );
 
 rmSync(outputDir, { recursive: true, force: true });

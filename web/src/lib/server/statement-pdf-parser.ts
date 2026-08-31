@@ -1,6 +1,7 @@
 import { PDFParse } from "pdf-parse";
 import {
   parseStatementRows,
+  type ParsedStatementMetadata,
   type ParsedStatementInput,
   type ParsedStatementResult,
   type StatementParserRow,
@@ -29,6 +30,7 @@ type ParsedTransactionLine = {
 type PdfStatementTextModel = {
   rows: StatementParserRow[];
   warnings: string[];
+  metadata: ParsedStatementMetadata;
 };
 
 const maxPdfTextCharacters = 500_000;
@@ -59,8 +61,19 @@ export class UnsupportedPdfStatementLayoutError extends Error {
   }
 }
 
+export class NotBankStatementPdfError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NotBankStatementPdfError";
+  }
+}
+
 export function isUnsupportedPdfStatementLayoutError(error: unknown) {
   return error instanceof UnsupportedPdfStatementLayoutError;
+}
+
+export function isNotBankStatementPdfError(error: unknown) {
+  return error instanceof NotBankStatementPdfError;
 }
 
 export async function parsePdfStatement(pdfData: ArrayBuffer, input: ParsedStatementInput): Promise<ParsedStatementResult> {
@@ -83,6 +96,7 @@ export function parsePdfStatementText(pdfText: string, input: ParsedStatementInp
   return {
     ...parsed,
     warnings: [...model.warnings, ...parsed.warnings],
+    metadata: model.metadata,
   };
 }
 
@@ -102,11 +116,15 @@ async function extractPdfText(pdfData: ArrayBuffer) {
 function pdfTextToStatementRows(pdfText: string): PdfStatementTextModel {
   const lines = normalizedTextLines(pdfText);
   if (!lines.length) throw new Error("PDF statement did not contain extractable text.");
+  if (isClearlyNotBankStatementPdfText(lines)) {
+    throw new NotBankStatementPdfError("PDF does not appear to be a bank statement. Upload a bank statement for the selected account.");
+  }
   if (!isSupportedHwPdfText(lines)) {
     throw new UnsupportedPdfStatementLayoutError("PDF statement layout is not recognized for automatic parsing and remains queued for manual parser support.");
   }
 
   const period = findStatementPeriod(lines);
+  const metadata = findStatementMetadata(lines, period);
   const balances = findBalanceMetadata(lines);
   const openingBalance = balances.find((balance) => balance.balanceType === "opening") ?? null;
   const closingBalance = [...balances].reverse().find((balance) => balance.balanceType === "closing" || balance.balanceType === "current") ?? null;
@@ -161,7 +179,7 @@ function pdfTextToStatementRows(pdfText: string): PdfStatementTextModel {
     warnings.push("PDF statement closing balance did not match the last parsed running balance.");
   }
 
-  return { rows, warnings };
+  return { rows, warnings, metadata };
 }
 
 function normalizedTextLines(pdfText: string) {
@@ -182,6 +200,15 @@ function isSupportedHwPdfText(lines: Array<{ text: string }>) {
   return hasSupportedProviderSignal && hasStatementSignals && hasTransactionSignals;
 }
 
+function isClearlyNotBankStatementPdfText(lines: Array<{ text: string }>) {
+  const joined = lines.map((line) => line.text).join(" ").toLowerCase();
+  const hasBankStatementSignals =
+    /\b(bank|account\s+statement|statement\s+period|transaction\s+history|account\s+activity|opening\s+balance|closing\s+balance)\b/.test(joined) &&
+    /\b(account|statement|transaction|balance|debit|credit|deposit|withdrawal|money\s+in|money\s+out)\b/.test(joined);
+  if (hasBankStatementSignals) return false;
+  return /\b(invoice|receipt|purchase\s+order|quotation|contract|resume|curriculum\s+vitae|tax\s+invoice)\b/.test(joined) || !/\b(statement|account|balance|transaction)\b/.test(joined);
+}
+
 function findStatementPeriod(lines: Array<{ text: string }>) {
   for (const line of lines) {
     const dates = [...line.text.matchAll(new RegExp(datePattern, "g"))].map((match) => match[0]);
@@ -190,6 +217,55 @@ function findStatementPeriod(lines: Array<{ text: string }>) {
     }
   }
   return { startDate: null, endDate: null };
+}
+
+function findStatementMetadata(
+  lines: Array<{ text: string }>,
+  period: { startDate: string | null; endDate: string | null },
+): ParsedStatementMetadata {
+  const accountHolderNames = uniqueCompact(lines.flatMap((line) => extractAccountHolderNames(line.text)));
+  const accountNames = uniqueCompact(lines.flatMap((line) => extractAccountNames(line.text)));
+  const accountNumbers = uniqueCompact(lines.flatMap((line) => extractAccountNumbers(line.text)));
+
+  return {
+    statementPeriodStart: parsePdfDate(period.startDate),
+    statementPeriodEnd: parsePdfDate(period.endDate),
+    accountHolderNames,
+    accountNames,
+    accountNumbers,
+  };
+}
+
+function extractAccountHolderNames(value: string) {
+  const match = value.match(/\b(?:account\s+holder|account\s+owner|customer|client|entity|company)\s*:?\s+(.+)$/i);
+  if (!match) return [];
+  const name = stripTrailingStatementMetadata(match[1]);
+  return name ? [name] : [];
+}
+
+function extractAccountNames(value: string) {
+  const match = value.match(/\b(?:account\s+name|account\s+alias)\s*:?\s+(.+)$/i);
+  if (!match) return [];
+  const name = stripTrailingStatementMetadata(match[1]);
+  return name && !/\b(statement|number|currency|period)\b/i.test(name) ? [name] : [];
+}
+
+function extractAccountNumbers(value: string) {
+  const matches = [...value.matchAll(/\b(?:account\s+(?:number|no\.?|#)|a\/c\s*(?:number|no\.?|#)?|account)\s*:?\s+([A-Z0-9][A-Z0-9 -]{3,})/gi)];
+  return matches
+    .map((match) => stripTrailingStatementMetadata(match[1]))
+    .filter((candidate) => candidate && /(?:\d.*){4,}/.test(candidate));
+}
+
+function stripTrailingStatementMetadata(value: string) {
+  return value
+    .replace(/\b(?:currency|statement|period|from|to)\b.*$/i, "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function uniqueCompact(values: string[]) {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 function findBalanceMetadata(lines: Array<{ lineNumber: number; text: string }>): BalanceMetadata[] {
@@ -504,6 +580,46 @@ function parseAmount(value: string) {
   if (negative) return -Math.abs(parsed);
   if (positive) return Math.abs(parsed);
   return parsed;
+}
+
+function parsePdfDate(value: string | null) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+
+  const iso = trimmed.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return validIsoDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  const named = trimmed.match(/^(\d{1,2})[-\s]([A-Za-z]{3,9})[-,\s](\d{2,4})$/);
+  if (named) {
+    const month = monthNumber(named[2]);
+    return month ? validIsoDate(normalizeYear(Number(named[3])), month, Number(named[1])) : null;
+  }
+
+  const slash = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!slash) return null;
+  const first = Number(slash[1]);
+  const second = Number(slash[2]);
+  const year = normalizeYear(Number(slash[3]));
+  if (first > 12 && second <= 12) return validIsoDate(year, second, first);
+  if (second > 12 && first <= 12) return validIsoDate(year, first, second);
+  return validIsoDate(year, second, first);
+}
+
+function normalizeYear(year: number) {
+  if (year < 100) return year >= 70 ? 1900 + year : 2000 + year;
+  return year;
+}
+
+function monthNumber(value: string) {
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const index = months.indexOf(value.slice(0, 3).toLowerCase());
+  return index === -1 ? null : index + 1;
+}
+
+function validIsoDate(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString().slice(0, 10);
 }
 
 function amountHasExplicitSign(value: string) {

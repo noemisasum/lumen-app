@@ -231,6 +231,10 @@ create table if not exists public.bank_statement_imports (
   updated_at timestamptz not null default now()
 );
 alter table public.bank_statement_imports
+  add column if not exists statement_period_start date;
+alter table public.bank_statement_imports
+  add column if not exists statement_period_end date;
+alter table public.bank_statement_imports
   add column if not exists reprocess_attempt_count integer not null default 0;
 alter table public.bank_statement_imports
   add column if not exists last_reprocess_attempt_at timestamptz;
@@ -260,6 +264,9 @@ create index if not exists bank_statement_imports_status_idx on public.bank_stat
 create index if not exists bank_statement_imports_reprocess_due_idx
   on public.bank_statement_imports(next_reprocess_after, reprocess_attempt_count, created_at)
   where source = 'manual' and status in ('queued','pending_parse','failed');
+create index if not exists bank_statement_imports_manual_period_idx
+  on public.bank_statement_imports(bank_account_id, statement_period_start, statement_period_end)
+  where source = 'manual' and status = 'imported' and statement_period_start is not null and statement_period_end is not null;
 do $$
 begin
   if to_regclass('public.bank_statement_imports_manual_raw_file_account_uidx') is null then
