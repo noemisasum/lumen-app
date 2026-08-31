@@ -223,9 +223,10 @@ function findStatementMetadata(
   lines: Array<{ text: string }>,
   period: { startDate: string | null; endDate: string | null },
 ): ParsedStatementMetadata {
-  const accountHolderNames = uniqueCompact(lines.flatMap((line) => extractAccountHolderNames(line.text)));
-  const accountNames = uniqueCompact(lines.flatMap((line) => extractAccountNames(line.text)));
-  const accountNumbers = uniqueCompact(lines.flatMap((line) => extractAccountNumbers(line.text)));
+  const metadataLines = findStatementMetadataLines(lines);
+  const accountHolderNames = uniqueCompact(metadataLines.flatMap((line) => extractAccountHolderNames(line.text)));
+  const accountNames = uniqueCompact(metadataLines.flatMap((line) => extractAccountNames(line.text)));
+  const accountNumbers = uniqueCompact(metadataLines.flatMap((line) => extractAccountNumbers(line.text)));
 
   return {
     statementPeriodStart: parsePdfDate(period.startDate),
@@ -236,22 +237,41 @@ function findStatementMetadata(
   };
 }
 
+function findStatementMetadataLines(lines: Array<{ text: string }>) {
+  const transactionHeaderIndex = lines.findIndex((line) => isTransactionHeaderLine(line.text));
+  const headerLines = transactionHeaderIndex === -1 ? lines.slice(0, 40) : lines.slice(0, transactionHeaderIndex);
+  const anchoredMetadataLines = lines.filter((line) => isAnchoredStatementMetadataLine(line.text));
+  return uniqueLines([...headerLines, ...anchoredMetadataLines]);
+}
+
+function isAnchoredStatementMetadataLine(value: string) {
+  return (
+    /^(?:account\s+(?:holder|owner|name|alias|number|no\.?|#)|a\/c\s*(?:number|no\.?|#)?|customer\s+name|client\s+name|entity\s+name|company\s+name)\b/i.test(
+      value,
+    ) || /^(?:customer|client|entity|company)\s*[:=-]\s+\S/i.test(value)
+  );
+}
+
 function extractAccountHolderNames(value: string) {
-  const match = value.match(/\b(?:account\s+holder|account\s+owner|customer|client|entity|company)\s*:?\s+(.+)$/i);
+  const match = value.match(
+    /^(?:account\s+(?:holder|owner)|customer\s+name|client\s+name|entity\s+name|company\s+name)\b\s*[:=-]?\s+(.+)$/i,
+  ) ?? value.match(/^(?:customer|client|entity|company)\s*[:=-]\s+(.+)$/i);
   if (!match) return [];
   const name = stripTrailingStatementMetadata(match[1]);
   return name ? [name] : [];
 }
 
 function extractAccountNames(value: string) {
-  const match = value.match(/\b(?:account\s+name|account\s+alias)\s*:?\s+(.+)$/i);
+  const match = value.match(/^(?:account\s+name|account\s+alias)\b\s*[:=-]?\s+(.+)$/i);
   if (!match) return [];
   const name = stripTrailingStatementMetadata(match[1]);
   return name && !/\b(statement|number|currency|period)\b/i.test(name) ? [name] : [];
 }
 
 function extractAccountNumbers(value: string) {
-  const matches = [...value.matchAll(/\b(?:account\s+(?:number|no\.?|#)|a\/c\s*(?:number|no\.?|#)?|account)\s*:?\s+([A-Z0-9][A-Z0-9 -]{3,})/gi)];
+  const matches = [
+    ...value.matchAll(/^(?:account\s+(?:number|no\.?|#)|a\/c\s*(?:number|no\.?|#)?|account)\b\s*[:=-]?\s+([A-Z0-9][A-Z0-9 -]{3,})/gi),
+  ];
   return matches
     .map((match) => stripTrailingStatementMetadata(match[1]))
     .filter((candidate) => candidate && /(?:\d.*){4,}/.test(candidate));
@@ -266,6 +286,16 @@ function stripTrailingStatementMetadata(value: string) {
 
 function uniqueCompact(values: string[]) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function uniqueLines<T extends { lineNumber?: number; text: string }>(lines: T[]) {
+  const seen = new Set<string>();
+  return lines.filter((line) => {
+    const key = `${line.lineNumber ?? ""}:${line.text}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function findBalanceMetadata(lines: Array<{ lineNumber: number; text: string }>): BalanceMetadata[] {

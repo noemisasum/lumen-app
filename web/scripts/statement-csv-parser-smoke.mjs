@@ -106,6 +106,20 @@ function parseSanitizedPdfFixture(pdfText, defaultCurrency = "HKD") {
   return parsePdfStatementText(pdfText, { ...input, defaultCurrency, fileName: "sanitized-provider-statement.pdf" });
 }
 
+function statementValidationContext(accountName = "DBS Current Account 000-000-000") {
+  return {
+    entityName: "Lumen Trading Limited",
+    entityCode: "LUMEN",
+    accountName,
+    accountCurrency: "HKD",
+    xeroBankAccountId: null,
+  };
+}
+
+function assertPdfDoesNotFailWrongOrg(parsed, accountName) {
+  assert.doesNotThrow(() => validateStatementContext(parsed.metadata, statementValidationContext(accountName)));
+}
+
 assert.equal(statementParserType("uploads/hw-statement.PDF", null), "pdf");
 assert.equal(statementParserType("uploads/hw-statement.bin", "application/pdf"), "pdf");
 assert.equal(statementParserType("uploads/hw-statement", "application/x-pdf"), "pdf");
@@ -327,6 +341,7 @@ assert.equal(xlsShortAccountStatement.balances.length, 3);
 const hwPdfText = `
 H&W Commercial Banking
 Account Statement
+Company: Lumen Trading Limited
 Account Number 000-000-000 Currency HKD
 Statement Period 01/07/2026 to 31/07/2026
 Opening Balance HKD 151,452.16
@@ -343,6 +358,7 @@ const hwPdf = parsePdfStatementText(hwPdfText, { ...input, defaultCurrency: "HKD
 assert.equal(hwPdf.transactions.length, 3);
 assert.equal(hwPdf.metadata?.statementPeriodStart, "2026-07-01");
 assert.equal(hwPdf.metadata?.statementPeriodEnd, "2026-07-31");
+assert.deepEqual(hwPdf.metadata?.accountHolderNames, ["Lumen Trading Limited"]);
 assert.deepEqual(hwPdf.metadata?.accountNumbers, ["000-000-000"]);
 assert.equal(hwPdf.transactions[0]?.transactionDate, "2026-07-29");
 assert.equal(hwPdf.transactions[0]?.postedDate, "2026-07-29");
@@ -352,7 +368,7 @@ assert.equal(hwPdf.transactions[1]?.signedAmount, 120);
 assert.equal(hwPdf.transactions[1]?.reference, "REF-001");
 assert.equal(hwPdf.transactions[2]?.signedAmount, -12.5);
 assert.equal(hwPdf.transactions[2]?.reference, "BP-002");
-assert.equal(hwPdf.transactions[0]?.sourceRowId, "statement-import-smoke:pdf:line:8");
+assert.equal(hwPdf.transactions[0]?.sourceRowId, "statement-import-smoke:pdf:line:9");
 assert.equal(hwPdf.transactions[0]?.sourceRecordType, "pdf_row");
 assert.deepEqual(
   hwPdf.balances.map((balance) => [balance.balanceType, balance.amount, balance.sourceRecordType]),
@@ -364,6 +380,7 @@ assert.deepEqual(
     ["reported", 151499.66, "pdf_running_balance"],
   ],
 );
+assertPdfDoesNotFailWrongOrg(hwPdf, "DBS Current Account 000-000-000");
 
 const signedAmountHwPdf = parsePdfStatementText(
   `
@@ -383,22 +400,25 @@ assert.equal(signedAmountHwPdf.transactions[1]?.signedAmount, -10);
 const dbsCurrentPdf = parseSanitizedPdfFixture(`
 DBS Bank (Hong Kong) Limited
 Current Account Statement
+Customer Name: Lumen Trading Limited
 Account Number 000109286 Currency HKD
 Statement Period 13/07/2026 to 31/07/2026
 Opening Balance HKD 1,000.00
 Transaction Date Value Date Description Debit Credit Balance
 13/07/2026 13/07/2026 Outward FPS payment to vendor
 Reference number DBS-CUR-001 50.00 950.00
-14/07/2026 14/07/2026 Incoming transfer from customer Reference number DBS-CUR-002 100.00 1,050.00
+14/07/2026 14/07/2026 Incoming transfer from customer receipt Reference number DBS-CUR-002 100.00 1,050.00
 Closing Balance HKD 1,050.00
 Page 1 of 1
 `);
 assert.equal(dbsCurrentPdf.transactions.length, 2);
+assert.deepEqual(dbsCurrentPdf.metadata?.accountHolderNames, ["Lumen Trading Limited"]);
 assert.equal(dbsCurrentPdf.transactions[0]?.description, "Outward FPS payment to vendor");
 assert.equal(dbsCurrentPdf.transactions[0]?.signedAmount, -50);
 assert.equal(dbsCurrentPdf.transactions[0]?.reference, "DBS-CUR-001");
 assert.equal(dbsCurrentPdf.transactions[1]?.signedAmount, 100);
 assert.equal(dbsCurrentPdf.balances.at(-1)?.amount, 1050);
+assertPdfDoesNotFailWrongOrg(dbsCurrentPdf, "DBS Current Account 000109286");
 
 const dbsSavingsPdf = parseSanitizedPdfFixture(`
 DBS Bank (Hong Kong) Limited
@@ -406,49 +426,57 @@ Savings Account Statement
 Account 000071201 CNY GBP HKD
 Statement from 13 Aug 2026 to 31 Aug 2026
 Date Details Withdrawal Deposit Balance
-13 Aug 2026 FX conversion - CNY leg DBS-SAV-001 40.00 0.00 960.00
+13 Aug 2026 Entity FX conversion - CNY leg DBS-SAV-001 40.00 0.00 960.00
 14 Aug 2026 Interest payment
 Reference number DBS-SAV-002 0.00 12.34 972.34
 Current Balance HKD 972.34
 Page 1 of 1
 `);
 assert.equal(dbsSavingsPdf.transactions.length, 2);
+assert.deepEqual(dbsSavingsPdf.metadata?.accountHolderNames, []);
 assert.equal(dbsSavingsPdf.transactions[0]?.transactionDate, "2026-08-13");
 assert.equal(dbsSavingsPdf.transactions[0]?.signedAmount, -40);
 assert.equal(dbsSavingsPdf.transactions[1]?.signedAmount, 12.34);
 assert.equal(dbsSavingsPdf.transactions[1]?.description, "Interest payment");
+assertPdfDoesNotFailWrongOrg(dbsSavingsPdf, "DBS Savings Account 000071201 CNY GBP HKD");
 
 const scbCurrentPdf = parseSanitizedPdfFixture(`
 Standard Chartered Bank Hong Kong
 Current Account HKD Statement
+Client Name: Lumen Trading Limited
 Statement Period 13/08/2026 - 31/08/2026
 Date Transaction Details Amount Balance
-13/08/2026 Telegraphic transfer received REF SCB-CUR-001 +200.00 1,200.00
+13/08/2026 Company refund received REF SCB-CUR-001 +200.00 1,200.00
 14/08/2026 Autopay settlement REF SCB-CUR-002 (75.25) 1,124.75
 Statement Balance HKD 1,124.75
 `);
 assert.equal(scbCurrentPdf.transactions.length, 2);
+assert.deepEqual(scbCurrentPdf.metadata?.accountHolderNames, ["Lumen Trading Limited"]);
 assert.equal(scbCurrentPdf.transactions[0]?.signedAmount, 200);
 assert.equal(scbCurrentPdf.transactions[1]?.signedAmount, -75.25);
+assertPdfDoesNotFailWrongOrg(scbCurrentPdf);
 
 const scbSavingsPdf = parseSanitizedPdfFixture(`
 SCB Savings Account Statement
 Account currencies CNY HKD USD
 Statement Date 13/08/2026 to 31/08/2026
 Date Transaction Details Deposit Withdrawal Balance
-13/08/2026 Inward remittance SCB-SAV-001 250.00 0.00 1,250.00
+13/08/2026 Entity inward remittance SCB-SAV-001 250.00 0.00 1,250.00
 14/08/2026 FX sweep to operating account
 Bank reference number SCB-SAV-002 0.00 100.00 1,150.00
 Closing Balance HKD 1,150.00
 `);
 assert.equal(scbSavingsPdf.transactions.length, 2);
+assert.deepEqual(scbSavingsPdf.metadata?.accountHolderNames, []);
 assert.equal(scbSavingsPdf.transactions[0]?.signedAmount, 250);
 assert.equal(scbSavingsPdf.transactions[1]?.signedAmount, -100);
 assert.equal(scbSavingsPdf.transactions[1]?.reference, "SCB-SAV-002");
+assertPdfDoesNotFailWrongOrg(scbSavingsPdf);
 
 const hsbcCurrentPdf = parseSanitizedPdfFixture(`
 HSBC Hong Kong
 Current Account HKD Statement
+Account Holder: Lumen Trading Limited
 Statement Period 13 Aug 2026 to 31 Aug 2026
 Opening Balance 2,000.00
 Date Transaction details Debit Credit Balance
@@ -458,30 +486,35 @@ Bank reference number HSBC-CUR-001 300.00 1,700.00
 Closing Balance 2,200.00
 `);
 assert.equal(hsbcCurrentPdf.transactions.length, 2);
+assert.deepEqual(hsbcCurrentPdf.metadata?.accountHolderNames, ["Lumen Trading Limited"]);
 assert.equal(hsbcCurrentPdf.transactions[0]?.postedDate, "2026-08-13");
 assert.equal(hsbcCurrentPdf.transactions[0]?.signedAmount, -300);
 assert.equal(hsbcCurrentPdf.transactions[1]?.signedAmount, 500);
+assertPdfDoesNotFailWrongOrg(hsbcCurrentPdf);
 
 const hsbcSavingsPdf = parseSanitizedPdfFixture(`
 HSBC Savings Account Statement
 HKD USD CNY account family
 Statement Period 13/08/2026 to 31/08/2026
 Date Narrative Money In Money Out Balance
-13/08/2026 Time deposit maturity HSBC-SAV-001 800.00 0.00 2,800.00
+13/08/2026 Customer time deposit maturity HSBC-SAV-001 800.00 0.00 2,800.00
 14/08/2026 Transfer to current account HSBC-SAV-002 0.00 600.00 2,200.00
 Available Balance HKD 2,200.00
 `);
 assert.equal(hsbcSavingsPdf.transactions.length, 2);
+assert.deepEqual(hsbcSavingsPdf.metadata?.accountHolderNames, []);
 assert.equal(hsbcSavingsPdf.transactions[0]?.signedAmount, 800);
 assert.equal(hsbcSavingsPdf.transactions[1]?.signedAmount, -600);
+assertPdfDoesNotFailWrongOrg(hsbcSavingsPdf);
 
 const oslPdf = parseSanitizedPdfFixture(
   `
 OSL Digital Securities
 USD USDT Account Statement
+Entity Name: Lumen Trading Limited
 Statement Period 13 Aug 2026 to 31 Aug 2026
 Time Type Asset Amount Balance
-13 Aug 2026 Deposit USD +1,000.00 1,000.00
+13 Aug 2026 Company Deposit USD +1,000.00 1,000.00
 14 Aug 2026 Conversion USDT
 Reference number OSL-USDT-001 -250.00 750.00
 Current Balance USD 750.00
@@ -489,9 +522,12 @@ Current Balance USD 750.00
   "USD",
 );
 assert.equal(oslPdf.transactions.length, 2);
+assert.deepEqual(oslPdf.metadata?.accountHolderNames, ["Lumen Trading Limited"]);
 assert.equal(oslPdf.transactions[0]?.signedAmount, 1000);
+assert.equal(oslPdf.transactions[0]?.description, "Company Deposit USD");
 assert.equal(oslPdf.transactions[1]?.description, "Conversion USDT");
 assert.equal(oslPdf.transactions[1]?.signedAmount, -250);
+assertPdfDoesNotFailWrongOrg(oslPdf);
 
 assert.throws(
   () =>
