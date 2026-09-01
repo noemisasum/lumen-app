@@ -382,6 +382,53 @@ assert.deepEqual(
 );
 assertPdfDoesNotFailWrongOrg(hwPdf, "DBS Current Account 000-000-000");
 
+const splitHeaderHwPdf = parsePdfStatementText(
+  `
+H&W Commercial Banking Account Statement
+Company: Lumen Trading Limited
+Account Number 000-000-000 Currency HKD
+Statement Period 01/07/2026 to 31/07/2026
+Opening Balance HKD 151,452.16
+Date
+Value Date
+Description
+Debit
+Credit
+Balance
+29/07/2026
+29/07/2026
+Account Maintenance Charges - For 1/7-31/7/26
+60.00
+151,392.16
+30/07/2026
+30/07/2026
+Synthetic transfer
+Reference number REF-SPLIT-001
+120.00
+151,512.16
+31/07/2026
+31/07/2026
+Synthetic payment
+Bank reference number BP-SPLIT-002
+12.50
+151,499.66
+Closing Balance HKD 151,499.66
+`,
+  { ...input, defaultCurrency: "HKD", fileName: "sanitized-hw-split-layout.pdf" },
+);
+assert.equal(splitHeaderHwPdf.transactions.length, 3);
+assert.equal(splitHeaderHwPdf.transactions[0]?.transactionDate, "2026-07-29");
+assert.equal(splitHeaderHwPdf.transactions[0]?.postedDate, "2026-07-29");
+assert.equal(splitHeaderHwPdf.transactions[0]?.description, "Account Maintenance Charges - For 1/7-31/7/26");
+assert.equal(splitHeaderHwPdf.transactions[0]?.signedAmount, -60);
+assert.equal(splitHeaderHwPdf.transactions[0]?.sourceRowId, "statement-import-smoke:pdf:line:13");
+assert.equal(splitHeaderHwPdf.transactions[1]?.signedAmount, 120);
+assert.equal(splitHeaderHwPdf.transactions[1]?.reference, "REF-SPLIT-001");
+assert.equal(splitHeaderHwPdf.transactions[2]?.signedAmount, -12.5);
+assert.equal(splitHeaderHwPdf.transactions[2]?.reference, "BP-SPLIT-002");
+assert.equal(splitHeaderHwPdf.balances.at(-1)?.amount, 151499.66);
+assertPdfDoesNotFailWrongOrg(splitHeaderHwPdf, "DBS Current Account 000-000-000");
+
 const signedAmountHwPdf = parsePdfStatementText(
   `
 H&W Commercial Banking Account Statement
