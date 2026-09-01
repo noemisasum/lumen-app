@@ -5,6 +5,7 @@ const appRoot = path.resolve(__dirname);
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: appRoot,
+  serverExternalPackages: ["@napi-rs/canvas", "pdf-parse"],
   turbopack: {
     root: appRoot,
   },

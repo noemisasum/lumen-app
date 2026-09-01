@@ -1,4 +1,3 @@
-import { PDFParse } from "pdf-parse";
 import {
   parseStatementRows,
   type ParsedStatementMetadata,
@@ -101,6 +100,7 @@ export function parsePdfStatementText(pdfText: string, input: ParsedStatementInp
 }
 
 async function extractPdfText(pdfData: ArrayBuffer) {
+  const PDFParse = await loadPdfParser();
   const parser = new PDFParse({ data: Buffer.from(pdfData) });
   try {
     const result = await parser.getText();
@@ -111,6 +111,20 @@ async function extractPdfText(pdfData: ArrayBuffer) {
   } finally {
     await parser.destroy();
   }
+}
+
+async function loadPdfParser() {
+  await installPdfCanvasPolyfills();
+  const { PDFParse } = await import("pdf-parse");
+  return PDFParse;
+}
+
+async function installPdfCanvasPolyfills() {
+  const canvas = await import("@napi-rs/canvas");
+  const globals = globalThis as Record<string, unknown>;
+  globals.DOMMatrix ??= canvas.DOMMatrix;
+  globals.ImageData ??= canvas.ImageData;
+  globals.Path2D ??= canvas.Path2D;
 }
 
 function pdfTextToStatementRows(pdfText: string): PdfStatementTextModel {
