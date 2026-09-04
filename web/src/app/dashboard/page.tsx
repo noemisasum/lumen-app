@@ -127,6 +127,11 @@ type LiquidityMixRow = {
   color: string;
 };
 
+type LiquidityMixComparison = {
+  deltaUsd: number | null;
+  note: string | null;
+};
+
 type CommentaryMetric = {
   label: string;
   value: string;
@@ -489,6 +494,22 @@ function absoluteMixTotal(rows: LiquidityMixRow[]) {
   return rows.reduce((sum, row) => sum + Math.abs(row.amountUsd), 0);
 }
 
+function liquidityMixTotal(rows: ExposureRow[]) {
+  return absoluteMixTotal(liquidityMixRows(rows));
+}
+
+function liquidityMixComparison(currentRows: ExposureRow[], currentConvertedCount: number, compareRows: ExposureRow[], compareConvertedCount: number): LiquidityMixComparison {
+  if (currentConvertedCount === 0) {
+    return { deltaUsd: null, note: null };
+  }
+
+  if (compareConvertedCount < currentConvertedCount) {
+    return { deltaUsd: null, note: "incomplete balance history" };
+  }
+
+  return { deltaUsd: liquidityMixTotal(currentRows) - liquidityMixTotal(compareRows), note: null };
+}
+
 function fitAnalysisText(text: string, fallback: string) {
   return text.length <= analysisCharacterLimit ? text : fallback;
 }
@@ -639,12 +660,12 @@ function LiquidityMixCard({
   rows,
   convertedCount,
   compareAsAtDate,
-  compareDeltaUsd,
+  comparison,
 }: {
   rows: ExposureRow[];
   convertedCount: number;
   compareAsAtDate: string;
-  compareDeltaUsd: number | null;
+  comparison: LiquidityMixComparison | null;
 }) {
   const mixRows = liquidityMixRows(rows);
   const displayRows = sortMixRowsByExposure(mixRows);
@@ -671,9 +692,13 @@ function LiquidityMixCard({
           <div className="mt-1 break-words text-xl font-semibold tabular-nums text-zinc-950 sm:text-2xl">
             {hasConvertedBalances ? formatUsdFull(mixTotal) : "Unavailable"}
           </div>
-          {compareAsAtDate && compareDeltaUsd !== null ? (
+          {compareAsAtDate && comparison?.deltaUsd !== null && comparison?.deltaUsd !== undefined ? (
             <div className="mt-1 text-xs leading-5 text-zinc-500">
-              vs {formatDate(compareAsAtDate)}: <span className="font-medium tabular-nums text-zinc-700">{compareDeltaUsd >= 0 ? "+" : ""}{formatUsdFull(compareDeltaUsd)}</span>
+              vs {formatDate(compareAsAtDate)}: <span className="font-medium tabular-nums text-zinc-700">{comparison.deltaUsd >= 0 ? "+" : ""}{formatUsdFull(comparison.deltaUsd)}</span>
+            </div>
+          ) : compareAsAtDate && comparison?.note ? (
+            <div className="mt-1 text-xs leading-5 text-zinc-500">
+              vs {formatDate(compareAsAtDate)}: {comparison.note}
             </div>
           ) : null}
         </div>
@@ -766,10 +791,11 @@ export default function DashboardPage() {
   const bankExposure = useMemo(() => groupExposure(bankAccounts, entityNameById, "bank"), [bankAccounts, entityNameById]);
   const visibleBankExposure = useMemo(() => bankRowsWithThreshold(bankExposure), [bankExposure]);
   const categoryExposure = useMemo(() => groupExposure(accounts, entityNameById, "accountType"), [accounts, entityNameById]);
+  const compareEntityNameById = useMemo(() => new Map((compareLedgerData?.entities ?? []).map((entity) => [entity.id, entity.name])), [compareLedgerData]);
   const compareAccounts = useMemo(() => compareLedgerData?.accounts ?? [], [compareLedgerData]);
   const compareConvertedAccounts = compareAccounts.filter((account) => account.latestBalance && balanceUsd(account) !== null);
-  const compareTotalUsd = compareLedgerData ? sumUsd(compareConvertedAccounts) : null;
-  const compareDeltaUsd = compareTotalUsd === null ? null : totalUsd - compareTotalUsd;
+  const compareCategoryExposure = useMemo(() => groupExposure(compareAccounts, compareEntityNameById, "accountType"), [compareAccounts, compareEntityNameById]);
+  const liquidityMixCompare = compareLedgerData ? liquidityMixComparison(categoryExposure, convertedAccounts.length, compareCategoryExposure, compareConvertedAccounts.length) : null;
   const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus, appliedDatePreset, appliedAsAtDate, appliedCompareAsAtDate), [appliedAsAtDate, appliedCompareAsAtDate, appliedDatePreset, ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
   const hasDateOverride =
@@ -1225,7 +1251,7 @@ export default function DashboardPage() {
             {ledgerLoading && !ledgerData ? (
               <StatSkeleton />
             ) : (
-              <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} compareAsAtDate={appliedCompareAsAtDate} compareDeltaUsd={compareDeltaUsd} />
+              <LiquidityMixCard rows={categoryExposure} convertedCount={convertedAccounts.length} compareAsAtDate={appliedCompareAsAtDate} comparison={liquidityMixCompare} />
             )}
             <Panel>
               <div className="space-y-4">
