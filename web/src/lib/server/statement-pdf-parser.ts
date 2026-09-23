@@ -234,7 +234,7 @@ function findStatementPeriod(lines: Array<{ text: string }>) {
 }
 
 function findStatementMetadata(
-  lines: Array<{ text: string }>,
+  lines: Array<{ lineNumber: number; text: string }>,
   period: { startDate: string | null; endDate: string | null },
 ): ParsedStatementMetadata {
   const metadataLines = findStatementMetadataLines(lines);
@@ -251,8 +251,8 @@ function findStatementMetadata(
   };
 }
 
-function findStatementMetadataLines(lines: Array<{ text: string }>) {
-  const transactionHeaderIndex = lines.findIndex((line) => isTransactionHeaderLine(line.text));
+function findStatementMetadataLines(lines: Array<{ lineNumber: number; text: string }>) {
+  const transactionHeaderIndex = findFirstTransactionHeaderIndex(lines);
   const headerLines = transactionHeaderIndex === -1 ? lines.slice(0, 40) : lines.slice(0, transactionHeaderIndex);
   const anchoredMetadataLines = lines.filter((line) => isAnchoredStatementMetadataLine(line.text));
   return uniqueLines([...headerLines, ...anchoredMetadataLines]);
@@ -374,28 +374,37 @@ function findTransactionSections(lines: Array<{ lineNumber: number; text: string
   let current: PdfStatementSection | null = null;
   let currentRow: PdfTransactionRecord | null = null;
 
-  for (const line of lines) {
-    if (isTransactionHeaderLine(line.text)) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line) continue;
+
+    const transactionHeader = findTransactionHeaderAt(lines, index);
+    if (transactionHeader) {
       if (currentRow) current?.rows.push(currentRow);
       currentRow = null;
       current = {
-        headerLineNumber: line.lineNumber,
-        amountLayout: detectAmountLayout(line.text),
-        hasBalance: /\bbalance\b/i.test(line.text),
+        headerLineNumber: transactionHeader.lineNumber,
+        amountLayout: detectAmountLayout(transactionHeader.text),
+        hasBalance: /\bbalance\b/i.test(transactionHeader.text),
         rows: [],
       };
       sections.push(current);
+      index += transactionHeader.skipCount - 1;
       continue;
     }
 
-    if (!current || isIgnoredLine(line.text) || detectBalanceType(line.text) || isTransactionHeaderLine(line.text)) {
+    if (!current || isIgnoredLine(line.text) || detectBalanceType(line.text)) {
       if (currentRow) current?.rows.push(currentRow);
       currentRow = null;
       continue;
     }
 
     const startMatch = line.text.match(startPattern);
-    if (startMatch) {
+    if (startMatch || isDateOnlyLine(line.text)) {
+      if (currentRow && isDateOnlyLine(currentRow.text) && isDateOnlyLine(line.text)) {
+        currentRow.text = `${currentRow.text} ${line.text}`.trim();
+        continue;
+      }
       if (currentRow) current.rows.push(currentRow);
       currentRow = { lineNumber: line.lineNumber, text: line.text };
       continue;
@@ -410,12 +419,72 @@ function findTransactionSections(lines: Array<{ lineNumber: number; text: string
   return sections;
 }
 
+function findFirstTransactionHeaderIndex(lines: Array<{ lineNumber: number; text: string }>) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const transactionHeader = findTransactionHeaderAt(lines, index);
+    if (transactionHeader) return index;
+  }
+  return -1;
+}
+
+function findTransactionHeaderAt(lines: Array<{ lineNumber: number; text: string }>, startIndex: number) {
+  const line = lines[startIndex];
+  if (!line) return null;
+  if (isTransactionHeaderLine(line.text)) return { lineNumber: line.lineNumber, text: line.text, skipCount: 1 };
+  if (!isTransactionHeaderFragmentLine(line.text) || !hasTransactionHeaderDateSignal(line.text)) return null;
+
+  const headerLines = [line];
+  for (let index = startIndex + 1; index < Math.min(lines.length, startIndex + 8); index += 1) {
+    const nextLine = lines[index];
+    if (!nextLine || !isTransactionHeaderFragmentLine(nextLine.text)) break;
+    headerLines.push(nextLine);
+  }
+
+  const headerText = headerLines.map((headerLine) => headerLine.text).join(" ");
+  if (isTransactionHeaderLine(headerText)) {
+    return {
+      lineNumber: line.lineNumber,
+      text: headerText,
+      skipCount: headerLines.length,
+    };
+  }
+
+  return null;
+}
+
 function isTransactionHeaderLine(value: string) {
   const normalized = value.toLowerCase();
-  const hasDate = /\b(date|value\s+date|posting\s+date|transaction\s+date|time)\b/.test(normalized);
-  const hasDetails = /\b(description|details|narrative|particulars|transaction|type)\b/.test(normalized);
-  const hasAmount = /\b(debit|credit|withdrawal|deposit|amount|money\s+out|money\s+in)\b/.test(normalized);
+  const hasDate = hasTransactionHeaderDateSignal(normalized);
+  const hasDetails = hasTransactionHeaderDetailsSignal(normalized);
+  const hasAmount = hasTransactionHeaderAmountSignal(normalized);
   return hasDate && hasDetails && hasAmount;
+}
+
+function isTransactionHeaderFragmentLine(value: string) {
+  if (new RegExp(datePattern, "i").test(value) || parseLastAmount(value) !== null || detectBalanceType(value)) return false;
+  const normalized = value.toLowerCase();
+  return (
+    hasTransactionHeaderDateSignal(normalized) ||
+    hasTransactionHeaderDetailsSignal(normalized) ||
+    hasTransactionHeaderAmountSignal(normalized) ||
+    /\bbalance\b/.test(normalized)
+  );
+}
+
+function hasTransactionHeaderDateSignal(value: string) {
+  return /\b(date|value\s+date|posting\s+date|transaction\s+date|time)\b/i.test(value);
+}
+
+function hasTransactionHeaderDetailsSignal(value: string) {
+  return /\b(description|details|narrative|particulars|transaction|type)\b/i.test(value);
+}
+
+function hasTransactionHeaderAmountSignal(value: string) {
+  return /\b(debit|credit|withdrawal|deposit|amount|money\s+out|money\s+in)\b/i.test(value);
+}
+
+function isDateOnlyLine(value: string) {
+  return new RegExp(`^${datePattern}$`, "i").test(value.trim());
 }
 
 function detectAmountLayout(header: string): PdfAmountLayout {
