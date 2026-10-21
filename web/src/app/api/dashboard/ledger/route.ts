@@ -1,3 +1,4 @@
+import { movementWindowStart } from "@/lib/dashboard-dates";
 import { NextResponse } from "next/server";
 import { requireEntityAccess } from "@/lib/server/orgs";
 import { getMissingSupabaseServerEnv, getSupabaseServiceClient, requireSupabaseUser } from "@/lib/server/supabase";
@@ -80,18 +81,6 @@ const ACCOUNT_SELECT_WITHOUT_TYPE = "id,entity_id,xero_bank_account_id,account_n
 
 function missingEnvResponse(missing: string[]) {
   return NextResponse.json({ error: "Ledger dashboard is not configured.", missing }, { status: 500 });
-}
-
-function daysAgoIsoDate(days: number) {
-  const date = new Date();
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString().slice(0, 10);
-}
-
-function daysBeforeIsoDate(toDate: string, days: number) {
-  const date = new Date(`${toDate}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() - days);
-  return date.toISOString().slice(0, 10);
 }
 
 function parseAsAtDate(value: string | null) {
@@ -217,7 +206,7 @@ export async function GET(request: Request) {
     const accounts = (await loadBankAccounts(supabase, entityIds)).filter((account) => !shouldExcludeLedgerAccount({ accountName: account.account_name }));
     const accountIds = accounts.map((account) => account.id);
     const dashboardDate = asAtDate ?? new Date().toISOString().slice(0, 10);
-    const sinceDate = asAtDate ? daysBeforeIsoDate(asAtDate, windowDays) : daysAgoIsoDate(windowDays);
+    const sinceDate = movementWindowStart(dashboardDate, windowDays);
 
     const [balanceResult, transactionResult] = await Promise.all([
       accountIds.length
