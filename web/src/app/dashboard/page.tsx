@@ -5,9 +5,9 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrandLogo } from "@/components/brand-logo";
 import { Notice, SkeletonBlock, Spinner } from "@/components/ui";
-import { daysBeforeIsoDate, formatDashboardDate, formatDashboardDateCompact, previousMonthEndIsoDate, todayIsoDate } from "@/lib/dashboard-dates";
+import { movementWindowStart, daysBeforeIsoDate, formatDashboardDate, formatDashboardDateCompact, previousMonthEndIsoDate, todayIsoDate } from "@/lib/dashboard-dates";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
-import { estimateInternalTransferEliminations } from "@/lib/treasury-movement";
+import { summarizeRecordedMovements } from "@/lib/recorded-movement";
 
 type SessionInfo = {
   accessToken: string;
@@ -139,7 +139,6 @@ type CommentaryMetric = {
 
 type DatePreset = "7d" | "30d" | "month_end" | "custom";
 
-const analysisCharacterLimit = 190;
 const bankExposureThresholdUsd = 250000;
 const maxDashboardWindowDays = 366;
 
@@ -166,12 +165,6 @@ function dashboardDateRangeForPreset(preset: Exclude<DatePreset, "custom">, asAt
     return { asAtDate: monthEndDate, compareAsAtDate, windowDays: dashboardWindowDays(monthEndDate, compareAsAtDate) };
   }
   return { asAtDate, compareAsAtDate: daysBeforeIsoDate(asAtDate, 30), windowDays: 30 };
-}
-
-function dashboardWindowLabel(windowDays: number) {
-  if (windowDays === 7) return "7-Day";
-  if (windowDays === 30) return "30-Day";
-  return `${windowDays}-Day`;
 }
 
 function datePresetLabel(preset: DatePreset, windowDays: number) {
@@ -510,91 +503,40 @@ function liquidityMixComparison(currentRows: ExposureRow[], currentConvertedCoun
   return { deltaUsd: liquidityMixTotal(currentRows) - liquidityMixTotal(compareRows), note: null };
 }
 
-function fitAnalysisText(text: string, fallback: string) {
-  return text.length <= analysisCharacterLimit ? text : fallback;
-}
-
-function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null, preset: DatePreset, asAtDate: string, compareAsAtDate: string) {
+function buildTreasuryCommentary(data: LedgerDashboardData | null, xeroStatus: XeroStatus | null, asAtDate: string) {
   if (!data) {
     return {
-      headline: "Waiting for ledger data",
-      points: ["Executive treasury read will appear once balances and recent movements load."],
+      headline: "Recorded Movement Summary",
+      points: ["Waiting for imported ledger movements."],
       connectionNote: "Ledger Source: Checking Connection",
       metrics: [] as CommentaryMetric[],
     };
   }
 
+  const totals = summarizeRecordedMovements(data.transactionBreakdowns);
+  const startDate = movementWindowStart(asAtDate, data.windowDays);
   const mixRows = liquidityMixRows(groupExposure(data.accounts, new Map(data.entities.map((entity) => [entity.id, entity.name])), "accountType"));
-  const ownFunds = Math.abs(mixRows.find((row) => row.accountType === "operating_bank")?.amountUsd ?? 0);
-  const externalFloat = absoluteMixTotal(mixRows.filter((row) => row.accountType === "money_processor" || row.accountType === "liquidity_provider"));
   const totalExposure = absoluteMixTotal(mixRows);
-  const ownFundsShare = totalExposure ? ownFunds / totalExposure : 0;
-  const recentMovements = data.recentTransactions;
-  const inflowCount = recentMovements.filter((transaction) => transaction.direction === "inflow" || transaction.signedAmount > 0).length;
-  const outflowCount = recentMovements.filter((transaction) => transaction.direction === "outflow" || transaction.signedAmount < 0).length;
-  const usdInflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdInflow, 0);
-  const usdOutflow = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdOutflow, 0);
-  const usdNet = data.transactionBreakdowns.reduce((sum, breakdown) => sum + breakdown.usdNet, 0);
-  const transferEliminations = estimateInternalTransferEliminations(recentMovements);
-  const estimatedExternalInflow = Math.max(0, usdInflow - transferEliminations.eliminatedUsd);
-  const estimatedExternalOutflow = Math.max(0, usdOutflow - transferEliminations.eliminatedUsd);
   const largestCategory = sortMixRowsByExposure(mixRows)[0];
-  const largestCategoryShare = largestCategory && totalExposure ? Math.abs(largestCategory.amountUsd) / totalExposure : 0;
-  const movementBias =
-    usdNet > 0
-      ? "Cash Building"
-      : usdNet < 0
-        ? "Cash Burning"
-        : inflowCount > outflowCount
-          ? "Activity Heavy On Receipts"
-          : outflowCount > inflowCount
-            ? "Activity Heavy On Payments"
-            : "Balanced";
-  const connectionNote = xeroStatus?.connected ? "Ledger Source: Xero Connected" : "Ledger Source: Not Connected";
-  const windowLabel = preset === "month_end" ? "Month End" : dashboardWindowLabel(data.windowDays);
-  const movementContext =
-    preset === "month_end"
-      ? `At ${formatDashboardDateCompact(asAtDate)} month end`
-      : preset === "custom"
-        ? `${formatDashboardDateCompact(compareAsAtDate)}-${formatDashboardDateCompact(asAtDate)}`
-        : `Past ${data.windowDays} days`;
-  const netMovementLabel = formatUsdCompact(usdNet);
-  const inflowValueLabel = formatUsdCompact(estimatedExternalInflow);
-  const outflowValueLabel = formatUsdCompact(estimatedExternalOutflow);
-  const eliminatedTransferLabel = formatUsdCompact(transferEliminations.eliminatedUsd);
-  const concentrationNote =
-    ownFundsShare >= 0.65
-      ? "Own Funds dominate visible liquidity, keeping operating cash clear while non-operating balances remain secondary."
-      : externalFloat >= totalExposure * 0.2
-        ? "Processor and provider balances are material enough to watch for settlement timing and counterparty exposure."
-        : "Liquidity is relatively diversified across treasury categories.";
-  const movementPoint = recentMovements.length
-    ? transferEliminations.eliminatedUsd > 0
-      ? fitAnalysisText(
-          `${movementContext}: ${recentMovements.length} movements, ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net after eliminating ${eliminatedTransferLabel} across ${transferEliminations.pairedTransactionCount} likely internal-transfer legs.`,
-          `${recentMovements.length} movements: ${netMovementLabel} net after likely internal transfers.`,
-        )
-      : fitAnalysisText(
-          `${movementContext}: ${recentMovements.length} movements, ${inflowValueLabel} estimated inflows, ${outflowValueLabel} estimated outflows, ${netMovementLabel} net. No likely internal transfers detected.`,
-          `${recentMovements.length} movements: ${netMovementLabel} net. No likely internal transfers detected.`,
-        )
-    : `No posted movements for ${movementContext}.`;
-  const concentrationPoint = largestCategory
-    ? fitAnalysisText(
-        `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure. ${concentrationNote}`,
-        `${largestCategory.label} leads at ${formatPercent(largestCategoryShare)} of visible USD exposure.`,
-      )
-    : concentrationNote;
+  const concentrationPoint = largestCategory && totalExposure
+    ? `Balance exposure (separate from movements): ${largestCategory.label} is ${formatPercent(Math.abs(largestCategory.amountUsd) / totalExposure)} of visible absolute USD balances. This does not establish cash availability or unrestricted ownership.`
+    : "Balance exposure is separate from recorded movements; no converted balance exposure is available.";
+  const value = (amount: number) => totals.converted ? formatUsdCompact(amount) : "Not Available";
 
   return {
-    headline: `${windowLabel} Executive Read: ${movementBias}`,
-    points: [movementPoint, concentrationPoint],
-    connectionNote,
+    headline: `Recorded Movement Summary: ${totals.headline}${totals.partial && totals.converted ? " (Partial USD Coverage)" : ""}`,
+    points: [
+      `${formatDashboardDate(startDate)}–${formatDashboardDate(asAtDate)} (inclusive, ${data.windowDays} days): ${totals.count} recorded movements; ${totals.converted}/${totals.count} have USD conversion. ${totals.partial ? "Unconverted movements are excluded from USD figures." : !totals.count ? "No imported movements in this window; this does not mean no cash activity." : "All recorded movements have USD conversion."}`,
+      "Gross recorded flows include internal transfers; no estimated transfer matching is deducted. Imported coverage may be incomplete (including invoice/bill payments) and is not reconciled to changes in cash balances.",
+      "USD figures use latest available cached FX rates, not transaction-date rates. They are translated estimates and can change when rates refresh.",
+      concentrationPoint,
+    ],
+    connectionNote: xeroStatus?.connected ? "Ledger Source: Xero Connected · Connection Does Not Confirm Complete Coverage" : "Ledger Source: Xero Not Connected · Imported Records May Still Be Present",
     metrics: [
-      { label: "Net Cash Movement", value: netMovementLabel },
-      { label: "External Inflows", value: inflowValueLabel },
-      { label: "External Outflows", value: outflowValueLabel },
-      { label: "Est. Internal Transfers", value: eliminatedTransferLabel },
+      { label: "Recorded Net (USD Estimate)", value: value(totals.usdNet) },
+      { label: "Gross Recorded Inflows", value: value(totals.usdInflow) },
+      { label: "Gross Recorded Outflows", value: value(totals.usdOutflow) },
+      { label: "USD Movement Coverage", value: `${totals.converted} / ${totals.count}` },
     ],
   };
 }
@@ -796,7 +738,7 @@ export default function DashboardPage() {
   const compareConvertedAccounts = compareAccounts.filter((account) => account.latestBalance && balanceUsd(account) !== null);
   const compareCategoryExposure = useMemo(() => groupExposure(compareAccounts, compareEntityNameById, "accountType"), [compareAccounts, compareEntityNameById]);
   const liquidityMixCompare = compareLedgerData ? liquidityMixComparison(categoryExposure, convertedAccounts.length, compareCategoryExposure, compareConvertedAccounts.length) : null;
-  const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus, appliedDatePreset, appliedAsAtDate, appliedCompareAsAtDate), [appliedAsAtDate, appliedCompareAsAtDate, appliedDatePreset, ledgerData, xeroStatus]);
+  const treasuryCommentary = useMemo(() => buildTreasuryCommentary(ledgerData, xeroStatus, appliedAsAtDate), [appliedAsAtDate, ledgerData, xeroStatus]);
   const recentTransactions = (ledgerData?.recentTransactions ?? []).slice(0, 6);
   const hasDateOverride =
     appliedDatePreset !== "30d" ||
@@ -1269,7 +1211,7 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                     {treasuryCommentary.metrics.map((metric) => (
                       <div key={metric.label} className="min-w-0 border-t border-zinc-100 pt-3">
-                        <div className="truncate text-[11px] font-medium text-zinc-500">{metric.label}</div>
+                        <div className="break-words text-[11px] font-medium text-zinc-500">{metric.label}</div>
                         <div className="mt-1 break-words text-sm font-semibold tabular-nums text-zinc-950">{metric.value}</div>
                       </div>
                     ))}

@@ -31,3 +31,10 @@ export function previousMonthEndIsoDate(value: string) {
   date.setDate(0);
   return isoDateFromLocalDate(date);
 }
+
+/** Inclusive calendar window: the as-at date is day one. */
+export function movementWindowStart(asAtDate: string, windowDays: number) {
+  const date = new Date(`${asAtDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - (windowDays - 1));
+  return date.toISOString().slice(0, 10);
+}
