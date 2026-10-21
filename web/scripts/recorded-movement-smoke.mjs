@@ -21,4 +21,15 @@ for (const [asAt,days,expected] of [['2026-10-21',30,'2026-09-22'],['2026-10-21'
  const preceding=new Date(Date.parse(start)-86400000).toISOString().slice(0,10);
  assert.equal([preceding,start,asAt].filter(d=>d>=start&&d<=asAt).length,2);
 }
+// Separate source/currency groups must cancel at monetary precision in either direction.
+for (const nets of [[0.10, 0.20, -0.30], [-0.10, -0.20, 0.30]]) {
+ const cancelled = summarizeRecordedMovements(nets.map(net => ({
+  transactionCount: 1, usdConvertibleTransactionCount: 1,
+  usdInflow: Math.max(0, net), usdOutflow: Math.max(0, -net), usdNet: net,
+ })));
+ assert.equal(cancelled.usdNet, 0);
+ assert.equal(cancelled.usdInflow, 0.30);
+ assert.equal(cancelled.usdOutflow, 0.30);
+ assert.equal(cancelled.headline, 'Zero Net Recorded Movement');
+}
 console.log('recorded movement smoke passed');
